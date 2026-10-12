@@ -55,6 +55,13 @@ Le moteur comptable futur devra traiter multi-lignes, tiers, principal/intérêt
 - Supprimer une réalisation erronée : détruit l'historique.
 - Construire récurrences/baux dès le premier lot : retarde la validation du parcours simple.
 
+## Résultats des essais manuels — 2026-10-13
+
+- Le test natif minimal a été réalisé dans un coffre temporaire distinct : société fictive, prévision, deux réalisations partielles, annulation d'une réalisation puis relance avec le même chemin. L'utilisateur confirme que les données sont revenues après redémarrage.
+- Une copie du couple `superpower.db` / `superpower.salt` a été placée dans un dossier temporaire et ouverte avec la build de cette branche. L'ouverture, la réouverture du même dossier et la présence des données existantes ont été signalées comme réussies.
+- Les essais sont restés isolés : l'original n'a pas servi de cible de migration et aucune fusion des données de test dans le coffre habituel n'a été faite.
+- Réserve : la valeur initiale de `PRAGMA user_version` de la source n'a pas été relevée indépendamment ; l'essai manuel ne prouve donc pas encore à lui seul qu'il s'agissait bien d'une migration v1 → v2. Le contrôle direct de `user_version = 2` et de la présence de `flux_previsionnels` / `flux_realisations` reste à faire.
+
 ## Définition de Done
 
 - [x] Migration v1→v2 et idempotence couvertes par test automatisé sur le schéma v1 complet, avec vérification de conservation de données représentatives.
@@ -63,6 +70,6 @@ Le moteur comptable futur devra traiter multi-lignes, tiers, principal/intérêt
 - [x] UI Trésorerie construite avec tests frontend et typecheck réussis sur la révision CI précédente.
 - [x] Mode démo navigateur cohérent et explicitement volatile.
 - [x] Contrôles Rust, frontend, bundle de production, build Windows et Markdown passés sur la révision CI précédente.
-- [ ] Confirmer que la CI est verte sur la dernière révision après renforcement des tests et mise à jour documentaire.
-- [ ] Effectuer le parcours natif sur une copie de base SQLCipher v1 existante et vérifier la préservation réelle des données.
-- [ ] Parcourir manuellement le scénario métier prévu/réalisé dans l'application native et consigner les résultats.
+- [x] CI verte sur la révision de code `b65085c` (run [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762)) ; la mise à jour documentaire doit déclencher un nouveau run.
+- [ ] Confirmer une migration réelle v1 → v2 sur une copie dont le `PRAGMA user_version` source est explicitement vérifié, puis vérifier `user_version = 2` et les tables S06-A. Une copie locale a été ouverte puis rouverte, avec données visibles selon le retour utilisateur, mais sa version source n'a pas été relevée indépendamment.
+- [x] Parcours natif minimal : société fictive, prévision, deux réalisations partielles, annulation d'une réalisation, fermeture/réouverture et persistance, réussi selon le retour utilisateur. Les scénarios étendus du handoff restent à parcourir.
