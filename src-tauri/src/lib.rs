@@ -7,7 +7,13 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let app_data_dir = app.path().app_data_dir()?;
+            let default_app_data_dir = app.path().app_data_dir()?;
+            #[cfg(debug_assertions)]
+            let app_data_dir = std::env::var_os("SUPERPOWER_TEST_DATA_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or(default_app_data_dir);
+            #[cfg(not(debug_assertions))]
+            let app_data_dir = default_app_data_dir;
             std::fs::create_dir_all(&app_data_dir)?;
             app.manage(database::AppState::new(app_data_dir.join("superpower.db")));
             Ok(())

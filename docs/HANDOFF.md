@@ -17,7 +17,7 @@ Ne pas fusionner ou déclarer S06-A terminé avant :
 3. Parcours manuel de l'écran Trésorerie de l'application native.
 4. Mise à jour du présent handoff, de `PROGRESS.md` et des cases de l'ADR avec les résultats réellement observés.
 
-Ne jamais faire l'essai de migration sur la seule copie de travail de la base de production, et ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ».
+Ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ». L'application de développement reconnaît `SUPERPOWER_TEST_DATA_DIR` pour utiliser un dossier distinct ; cette variable est ignorée dans les builds release. Le test décrit plus bas doit être lancé avec cette variable définie afin que la copie, et non le coffre habituel, soit ouverte.
 
 ## 3. Contrôles locaux Windows
 Depuis la racine du dépôt, exécuter les contrôles séparément et noter le résultat exact :
@@ -51,17 +51,40 @@ Utiliser une société de test dans l'application native et noter les résultats
 Le mode navigateur est uniquement une démo volatile/non chiffrée ; il ne valide ni le coffre ni la persistance native.
 
 ## 5. Test manuel de migration SQLCipher v1 → v2
-À effectuer seulement avec une **copie dédiée** d'une base de test native v1 et son fichier `.salt` correspondant. Garder les deux fichiers originaux intacts et identifier clairement la copie.
+À effectuer seulement avec une base v1 de test (ou une copie locale d'une base v1, si tu es certain de pouvoir y conserver les données sur la machine). Garder le fichier d'origine intact. La variable de développement `SUPERPOWER_TEST_DATA_DIR` permet de lancer la build debug sur un dossier séparé ; elle n'est pas honorée par les builds release.
 
-1. Relever avant l'essai le nombre et quelques valeurs vérifiables de sociétés, écritures, lignes d'écriture et entrées d'audit.
-2. Faire une sauvegarde supplémentaire de la copie et de son `.salt`, application fermée.
-3. Ouvrir la copie avec la version actuelle de l'application et la phrase secrète de la copie. Le déverrouillage déclenche la migration transactionnelle.
-4. Vérifier que le déverrouillage réussit et que l'application arrive à l'état prêt.
-5. Vérifier que les sociétés, écritures, lignes et entrées d'audit précédentes sont toujours présentes avec les mêmes valeurs.
-6. Vérifier que les deux nouvelles tables `flux_previsionnels` et `flux_realisations` sont disponibles et que `PRAGMA user_version` vaut `2` si un outil compatible SQLCipher est disponible.
-7. Fermer puis rouvrir l'application sur la copie ; confirmer que le second déverrouillage fonctionne, sans nouvelle migration ni duplication.
-8. Créer un flux de test, le fermer, puis vérifier sa persistance dans l'application native.
-9. En cas d'échec, arrêter les essais, garder les journaux et revenir à la copie intacte. Ne pas remplacer les originaux.
+**Préparer le dossier isolé dans PowerShell depuis la racine du dépôt** (fermer d'abord SuperPower) :
+
+```powershell
+$source = Join-Path $env:APPDATA 'fr.superpower.alpha'
+$db = Join-Path $source 'superpower.db'
+$salt = Join-Path $source 'superpower.salt'
+if (!(Test-Path $db) -or !(Test-Path $salt)) { throw "Base ou fichier de sel introuvable dans $source. Ne poursuis pas avant d'avoir localisé la paire correcte." }
+$testDir = Join-Path $env:TEMP ('SuperPower-S06A-migration-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+New-Item -ItemType Directory -Path $testDir | Out-Null
+Copy-Item $db (Join-Path $testDir 'superpower.db')
+Copy-Item $salt (Join-Path $testDir 'superpower.salt')
+Write-Output "Dossier isolé : $testDir"
+```
+
+Vérifie que la source est bien une base v1 non encore migrée par S06-A. Si l'application a déjà été ouverte avec cette branche, la base source peut être passée en v2 ; dans ce cas, ne prétends pas avoir testé une migration v1 → v2. Utilise une sauvegarde v1 connue. Ne prends pas une base contenant des données que tu n'as pas le droit d'utiliser dans un test.
+
+Lance ensuite l'application en utilisant **le chemin isolé qui vient d'être créé** :
+
+```powershell
+$env:SUPERPOWER_TEST_DATA_DIR = $testDir
+npm run tauri:dev
+```
+
+1. Déverrouiller avec la phrase secrète associée au fichier copié. Le déverrouillage déclenche la migration transactionnelle de ce dossier uniquement.
+2. Vérifier que le déverrouillage réussit et que l'application arrive à l'état prêt.
+3. Vérifier que les sociétés, écritures, lignes et entrées d'audit préexistantes sont toujours présentes avec les mêmes valeurs.
+4. Vérifier que les tables `flux_previsionnels` et `flux_realisations` existent et que `PRAGMA user_version` vaut `2`, avec un outil compatible SQLCipher si disponible.
+5. Fermer puis rouvrir l'application en conservant la même variable `SUPERPOWER_TEST_DATA_DIR` ; confirmer que le deuxième déverrouillage fonctionne sans duplication.
+6. Créer un flux de test, fermer l'application, puis la relancer pour vérifier que le flux persiste.
+7. En cas d'échec, arrêter les essais, conserver la copie et les journaux. Ne jamais remettre le dossier temporaire à la place du dossier original.
+
+Pour revenir au fonctionnement normal dans cette fenêtre PowerShell : `Remove-Item Env:SUPERPOWER_TEST_DATA_DIR`. La variable n'a aucun effet sur un build release.
 
 Le test automatisé utilise SQLite en mémoire et le schéma v1 complet représentatif ; il augmente la confiance en la conservation des données, mais ne prouve pas l'ouverture, le déchiffrement et la migration d'un fichier SQLCipher existant sur Windows.
 
