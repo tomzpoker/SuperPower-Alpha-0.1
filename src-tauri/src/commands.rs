@@ -190,7 +190,11 @@ pub fn update_societe(
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
     let created_at: Option<String> = transaction
-        .query_row("SELECT created_at FROM societes WHERE id = ?1", [&id], |row| row.get(0))
+        .query_row(
+            "SELECT created_at FROM societes WHERE id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
         .optional()
         .map_err(db_error)?;
     let Some(created_at) = created_at else {
@@ -231,14 +235,20 @@ pub fn delete_societe(id: String, state: State<'_, AppState>) -> Result<(), Stri
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
     let company_name: Option<String> = transaction
-        .query_row("SELECT nom FROM societes WHERE id = ?1", [&id], |row| row.get(0))
+        .query_row("SELECT nom FROM societes WHERE id = ?1", [&id], |row| {
+            row.get(0)
+        })
         .optional()
         .map_err(db_error)?;
     let Some(company_name) = company_name else {
         return Err("La société à supprimer n'existe plus.".to_string());
     };
     let entry_count: i64 = transaction
-        .query_row("SELECT COUNT(*) FROM ecritures WHERE societe_id = ?1", [&id], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM ecritures WHERE societe_id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
         .map_err(db_error)?;
     if entry_count > 0 {
         return Err(format!(
@@ -253,7 +263,9 @@ pub fn delete_societe(id: String, state: State<'_, AppState>) -> Result<(), Stri
         serde_json::json!({"nom": company_name}),
     )
     .map_err(db_error)?;
-    transaction.execute("DELETE FROM societes WHERE id = ?1", [&id]).map_err(db_error)?;
+    transaction
+        .execute("DELETE FROM societes WHERE id = ?1", [&id])
+        .map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     Ok(())
 }
