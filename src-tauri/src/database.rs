@@ -323,7 +323,9 @@ mod migration_tests {
     #[test]
     fn migrates_v1_to_v2_preserves_existing_data_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        connection
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .unwrap();
         create_schema(&mut connection).unwrap();
 
         connection
