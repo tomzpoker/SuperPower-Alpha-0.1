@@ -60,3 +60,5 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Build Tauri application
         run: npm run tauri:build -- --verbose
+      - name: Workspace tests (including migration tests)
+        run: cargo test --workspace

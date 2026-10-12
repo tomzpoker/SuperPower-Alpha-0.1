@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DatabaseStatus,
-  EntryLine, EntryView, Societe,
+  EntryLine, EntryView, FluxInput, FluxRealisationView, FluxView, RealisationFluxInput, Societe,
 } from './types';
 
 // In the browser, only an in-memory preview is provided. Real data belongs in the
@@ -10,6 +10,7 @@ const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in wind
 let demoReady = false;
 let demoSocietes: Societe[] = [];
 let demoEntries: EntryView[] = [];
+let demoFlux: FluxView[] = [];
 const demoAccounts: Account[] = [
   ['101', 'Capital', 1], ['164', 'Emprunts auprès des établissements de crédit', 1],
   ['213', 'Constructions', 2], ['2813', 'Amortissements des constructions', 2],
@@ -19,6 +20,23 @@ const demoAccounts: Account[] = [
   ['622', 'Honoraires', 6], ['63512', 'Taxes foncières', 6], ['661', "Charges d'intérêts", 6],
   ['706', 'Prestations de services', 7], ['708', 'Produits des activités annexes', 7], ['758', 'Produits divers de gestion courante', 7],
 ].map(([code, label, accountClass]) => ({ code: String(code), label: String(label), accountClass: Number(accountClass) }));
+
+
+function demoToday(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+function summarizeFlux(flow: FluxView): FluxView {
+  const actual = flow.realisations.reduce((sum, item) => sum + (item.annuleeAt ? 0 : item.montantCents), 0);
+  let etat: FluxView['etat'];
+  if (flow.statut === 'annule') etat = 'annule';
+  else if (actual > flow.montantPrevuCents) etat = 'depasse';
+  else if (actual === flow.montantPrevuCents) etat = 'realise';
+  else if (actual > 0) etat = 'partiellement_realise';
+  else if (flow.datePrevue < demoToday()) etat = 'en_retard';
+  else etat = 'a_prevoir';
+  return { ...flow, montantRealiseCents: actual, resteCents: flow.montantPrevuCents - actual, etat };
+}
 
 function demoStatus(): DatabaseStatus {
   return demoReady ? 'ready' : 'needs_setup';
@@ -70,7 +88,62 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       }
       demoSocietes = demoSocietes.filter((company) => company.id !== id);
       return undefined as T;
-    }    case 'list_comptes': return demoAccounts as T;
+    }
+    case 'list_flux': {
+      const filter = args.societeId as string | null | undefined;
+      return demoFlux.filter(flow => !filter || flow.societeId === filter).map(summarizeFlux) as T;
+    }
+    case 'create_flux': {
+      const input = args.input as FluxInput;
+      if (!demoSocietes.some(company => company.id === input.societeId)) throw new Error('La société sélectionnée n’existe pas pour ce flux.');
+      if (!input.libelle.trim() || input.montantPrevuCents <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(input.datePrevue)) throw new Error('Vérifiez le libellé, la date et le montant prévu.');
+      const now = new Date().toISOString();
+      const flow: FluxView = summarizeFlux({ ...input, id: crypto.randomUUID(), statut: 'actif', etat: 'a_prevoir', montantRealiseCents: 0, resteCents: input.montantPrevuCents, realisations: [], createdAt: now, updatedAt: now });
+      demoFlux = [flow, ...demoFlux];
+      return flow as T;
+    }
+    case 'update_flux': {
+      const id = args.id as string, input = args.input as FluxInput;
+      const current = demoFlux.find(flow => flow.id === id);
+      if (!current) throw new Error('Ce flux n’existe plus.');
+      if (current.statut !== 'actif') throw new Error('Un flux annulé ne peut pas être modifié.');
+      if (current.societeId !== input.societeId) throw new Error('La société d’un flux existant ne peut pas être changée.');
+      if (!input.libelle.trim() || input.montantPrevuCents <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(input.datePrevue)) throw new Error('Vérifiez le libellé, la date et le montant prévu.');
+      const updated = summarizeFlux({ ...current, ...input, updatedAt: new Date().toISOString() });
+      demoFlux = demoFlux.map(flow => flow.id === id ? updated : flow);
+      return updated as T;
+    }
+    case 'cancel_flux': {
+      const id = args.id as string, current = demoFlux.find(flow => flow.id === id);
+      if (!current) throw new Error('Ce flux n’existe plus.');
+      if (current.statut === 'annule') throw new Error('Cette prévision est déjà annulée.');
+      const updated = summarizeFlux({ ...current, statut: 'annule', updatedAt: new Date().toISOString() });
+      demoFlux = demoFlux.map(flow => flow.id === id ? updated : flow);
+      return updated as T;
+    }
+    case 'register_flux_realisation': {
+      const fluxId = args.fluxId as string, input = args.input as RealisationFluxInput;
+      const current = demoFlux.find(flow => flow.id === fluxId);
+      if (!current) throw new Error('Ce flux n’existe plus.');
+      if (current.statut !== 'actif') throw new Error('Impossible de réaliser une prévision annulée.');
+      if (input.montantCents <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(input.dateRealisation)) throw new Error('Vérifiez la date et le montant réalisé.');
+      const item: FluxRealisationView = { id: crypto.randomUUID(), fluxId, ...input, createdAt: new Date().toISOString(), annuleeAt: null, motifAnnulation: null };
+      const updated = summarizeFlux({ ...current, realisations: [item, ...current.realisations], updatedAt: new Date().toISOString() });
+      demoFlux = demoFlux.map(flow => flow.id === fluxId ? updated : flow);
+      return updated as T;
+    }
+    case 'cancel_flux_realisation': {
+      const id = args.id as string, motif = String(args.motifAnnulation ?? '').trim();
+      if (!motif || motif.length > 300) throw new Error('Indiquez un motif d’annulation de 1 à 300 caractères.');
+      const owner = demoFlux.find(flow => flow.realisations.some(item => item.id === id));
+      if (!owner) throw new Error('Cette réalisation n’existe plus.');
+      const current = owner.realisations.find(item => item.id === id)!;
+      if (current.annuleeAt) throw new Error('Cette réalisation est déjà annulée.');
+      const updated = summarizeFlux({ ...owner, updatedAt: new Date().toISOString(), realisations: owner.realisations.map(item => item.id === id ? { ...item, annuleeAt: new Date().toISOString(), motifAnnulation: motif } : item) });
+      demoFlux = demoFlux.map(flow => flow.id === owner.id ? updated : flow);
+      return updated as T;
+    }
+    case 'list_comptes': return demoAccounts as T;
     case 'list_ecritures': {
       const filter = args.societeId as string | null | undefined;
       return demoEntries.filter((entry) => !filter || entry.societeId === filter) as T;
