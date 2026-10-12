@@ -275,7 +275,11 @@ pub fn delete_societe(id: String, state: State<'_, AppState>) -> Result<(), Stri
         ));
     }
     let flux_count: i64 = transaction
-        .query_row("SELECT COUNT(*) FROM flux_previsionnels WHERE societe_id = ?1", [&id], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM flux_previsionnels WHERE societe_id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
         .map_err(db_error)?;
     if flux_count > 0 {
         return Err(format!(
@@ -309,17 +313,30 @@ pub fn list_flux(
              FROM flux_previsionnels WHERE (?1 IS NULL OR societe_id = ?1)
              ORDER BY date_prevue ASC, created_at DESC LIMIT 500"
         ).map_err(db_error)?;
-        let rows = statement.query_map([societe_id], |row| {
-            Ok(FluxRecord {
-                id: row.get(0)?, societe_id: row.get(1)?, libelle: row.get(2)?,
-                sens: row.get(3)?, categorie: row.get(4)?, date_prevue: row.get(5)?,
-                montant_prevu_cents: row.get(6)?, tiers: row.get(7)?, reference: row.get(8)?,
-                statut: row.get(9)?, created_at: row.get(10)?, updated_at: row.get(11)?,
+        let rows = statement
+            .query_map([societe_id], |row| {
+                Ok(FluxRecord {
+                    id: row.get(0)?,
+                    societe_id: row.get(1)?,
+                    libelle: row.get(2)?,
+                    sens: row.get(3)?,
+                    categorie: row.get(4)?,
+                    date_prevue: row.get(5)?,
+                    montant_prevu_cents: row.get(6)?,
+                    tiers: row.get(7)?,
+                    reference: row.get(8)?,
+                    statut: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
             })
-        }).map_err(db_error)?;
+            .map_err(db_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?
     };
-    records.into_iter().map(|record| build_flux_view(&connection, record)).collect()
+    records
+        .into_iter()
+        .map(|record| build_flux_view(&connection, record))
+        .collect()
 }
 
 #[tauri::command]
@@ -336,10 +353,13 @@ pub fn create_flux(input: FluxInput, state: State<'_, AppState>) -> Result<FluxV
     let now = chrono::Utc::now().to_rfc3339();
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
-    let company_exists: bool = transaction.query_row(
-        "SELECT EXISTS(SELECT 1 FROM societes WHERE id = ?1)",
-        [&input.societe_id], |row| row.get(0)
-    ).map_err(db_error)?;
+    let company_exists: bool = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM societes WHERE id = ?1)",
+            [&input.societe_id],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
     if !company_exists {
         return Err("La société sélectionnée n'existe pas pour ce flux.".to_string());
     }
@@ -348,17 +368,28 @@ pub fn create_flux(input: FluxInput, state: State<'_, AppState>) -> Result<FluxV
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'actif', ?10, ?10)",
         params![id, input.societe_id, libelle, sens, categorie, date_prevue.to_string(), input.montant_prevu_cents, tiers, reference, now],
     ).map_err(db_error)?;
-    audit_tx(&transaction, "create", "flux_previsionnel", &id, serde_json::json!({
-        "societeId": input.societe_id, "libelle": input.libelle.trim(), "sens": sens,
-        "categorie": categorie, "datePrevue": date_prevue.to_string(),
-        "montantPrevuCents": input.montant_prevu_cents,
-    })).map_err(db_error)?;
+    audit_tx(
+        &transaction,
+        "create",
+        "flux_previsionnel",
+        &id,
+        serde_json::json!({
+            "societeId": input.societe_id, "libelle": input.libelle.trim(), "sens": sens,
+            "categorie": categorie, "datePrevue": date_prevue.to_string(),
+            "montantPrevuCents": input.montant_prevu_cents,
+        }),
+    )
+    .map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     build_flux_view(&connection, read_flux_record(&connection, &id)?)
 }
 
 #[tauri::command]
-pub fn update_flux(id: String, input: FluxInput, state: State<'_, AppState>) -> Result<FluxView, String> {
+pub fn update_flux(
+    id: String,
+    input: FluxInput,
+    state: State<'_, AppState>,
+) -> Result<FluxView, String> {
     validate_flux_input(&input).map_err(|error| error.to_string())?;
     let libelle = input.libelle.trim().to_string();
     let tiers = clean_optional(input.tiers);
@@ -370,15 +401,22 @@ pub fn update_flux(id: String, input: FluxInput, state: State<'_, AppState>) -> 
     let now = chrono::Utc::now().to_rfc3339();
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
-    let existing: Option<(String, String)> = transaction.query_row(
-        "SELECT societe_id, statut FROM flux_previsionnels WHERE id = ?1", [&id],
-        |row| Ok((row.get(0)?, row.get(1)?))
-    ).optional().map_err(db_error)?;
+    let existing: Option<(String, String)> = transaction
+        .query_row(
+            "SELECT societe_id, statut FROM flux_previsionnels WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db_error)?;
     let Some((societe_id, statut)) = existing else {
         return Err("Ce flux n'existe plus.".to_string());
     };
     if statut != "actif" {
-        return Err("Un flux annulé ne peut pas être modifié. Créez une nouvelle prévision si nécessaire.".to_string());
+        return Err(
+            "Un flux annulé ne peut pas être modifié. Créez une nouvelle prévision si nécessaire."
+                .to_string(),
+        );
     }
     if societe_id != input.societe_id {
         return Err("La société d'un flux existant ne peut pas être changée. Annulez-le puis créez le flux dans la bonne société.".to_string());
@@ -387,10 +425,17 @@ pub fn update_flux(id: String, input: FluxInput, state: State<'_, AppState>) -> 
         "UPDATE flux_previsionnels SET libelle = ?1, sens = ?2, categorie = ?3, date_prevue = ?4, montant_prevu_cents = ?5, tiers = ?6, reference = ?7, updated_at = ?8 WHERE id = ?9 AND statut = 'actif'",
         params![libelle, sens, categorie, date_prevue.to_string(), input.montant_prevu_cents, tiers, reference, now, id],
     ).map_err(db_error)?;
-    audit_tx(&transaction, "update", "flux_previsionnel", &id, serde_json::json!({
-        "libelle": input.libelle.trim(), "datePrevue": date_prevue.to_string(),
-        "montantPrevuCents": input.montant_prevu_cents, "sens": sens, "categorie": categorie,
-    })).map_err(db_error)?;
+    audit_tx(
+        &transaction,
+        "update",
+        "flux_previsionnel",
+        &id,
+        serde_json::json!({
+            "libelle": input.libelle.trim(), "datePrevue": date_prevue.to_string(),
+            "montantPrevuCents": input.montant_prevu_cents, "sens": sens, "categorie": categorie,
+        }),
+    )
+    .map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     build_flux_view(&connection, read_flux_record(&connection, &id)?)
 }
@@ -399,10 +444,14 @@ pub fn update_flux(id: String, input: FluxInput, state: State<'_, AppState>) -> 
 pub fn cancel_flux(id: String, state: State<'_, AppState>) -> Result<FluxView, String> {
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
-    let existing: Option<(String, String)> = transaction.query_row(
-        "SELECT libelle, statut FROM flux_previsionnels WHERE id = ?1", [&id],
-        |row| Ok((row.get(0)?, row.get(1)?))
-    ).optional().map_err(db_error)?;
+    let existing: Option<(String, String)> = transaction
+        .query_row(
+            "SELECT libelle, statut FROM flux_previsionnels WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db_error)?;
     let Some((libelle, statut)) = existing else {
         return Err("Ce flux n'existe plus.".to_string());
     };
@@ -410,12 +459,20 @@ pub fn cancel_flux(id: String, state: State<'_, AppState>) -> Result<FluxView, S
         return Err("Cette prévision est déjà annulée.".to_string());
     }
     let now = chrono::Utc::now().to_rfc3339();
-    transaction.execute(
-        "UPDATE flux_previsionnels SET statut = 'annule', updated_at = ?1 WHERE id = ?2",
-        params![now, id]
-    ).map_err(db_error)?;
-    audit_tx(&transaction, "cancel", "flux_previsionnel", &id, serde_json::json!({"libelle": libelle}))
+    transaction
+        .execute(
+            "UPDATE flux_previsionnels SET statut = 'annule', updated_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )
         .map_err(db_error)?;
+    audit_tx(
+        &transaction,
+        "cancel",
+        "flux_previsionnel",
+        &id,
+        serde_json::json!({"libelle": libelle}),
+    )
+    .map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     build_flux_view(&connection, read_flux_record(&connection, &id)?)
 }
@@ -435,12 +492,22 @@ pub fn register_flux_realisation(
     let now = chrono::Utc::now().to_rfc3339();
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
-    let status: Option<String> = transaction.query_row(
-        "SELECT statut FROM flux_previsionnels WHERE id = ?1", [&flux_id], |row| row.get(0)
-    ).optional().map_err(db_error)?;
-    let Some(status) = status else { return Err("Ce flux n'existe plus.".to_string()); };
+    let status: Option<String> = transaction
+        .query_row(
+            "SELECT statut FROM flux_previsionnels WHERE id = ?1",
+            [&flux_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_error)?;
+    let Some(status) = status else {
+        return Err("Ce flux n'existe plus.".to_string());
+    };
     if status != "actif" {
-        return Err("Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée.".to_string());
+        return Err(
+            "Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée."
+                .to_string(),
+        );
     }
     transaction.execute(
         "INSERT INTO flux_realisations(id, flux_id, date_realisation, montant_cents, reference, note, created_at, annulee_at, motif_annulation)
@@ -466,10 +533,14 @@ pub fn cancel_flux_realisation(
     }
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
-    let existing: Option<(String, Option<String>, i64)> = transaction.query_row(
-        "SELECT flux_id, annulee_at, montant_cents FROM flux_realisations WHERE id = ?1", [&id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    ).optional().map_err(db_error)?;
+    let existing: Option<(String, Option<String>, i64)> = transaction
+        .query_row(
+            "SELECT flux_id, annulee_at, montant_cents FROM flux_realisations WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db_error)?;
     let Some((flux_id, annulee_at, montant_cents)) = existing else {
         return Err("Cette réalisation n'existe plus.".to_string());
     };
@@ -481,15 +552,24 @@ pub fn cancel_flux_realisation(
         "UPDATE flux_realisations SET annulee_at = ?1, motif_annulation = ?2 WHERE id = ?3 AND annulee_at IS NULL",
         params![now, motif, id],
     ).map_err(db_error)?;
-    audit_tx(&transaction, "cancel", "flux_realisation", &id, serde_json::json!({
-        "fluxId": flux_id, "montantCents": montant_cents, "motif": motif,
-    })).map_err(db_error)?;
+    audit_tx(
+        &transaction,
+        "cancel",
+        "flux_realisation",
+        &id,
+        serde_json::json!({
+            "fluxId": flux_id, "montantCents": montant_cents, "motif": motif,
+        }),
+    )
+    .map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     build_flux_view(&connection, read_flux_record(&connection, &flux_id)?)
 }
 
 fn clean_optional(value: Option<String>) -> Option<String> {
-    value.map(|text| text.trim().to_string()).filter(|text| !text.is_empty())
+    value
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
 }
 
 fn read_flux_record(connection: &rusqlite::Connection, id: &str) -> Result<FluxRecord, String> {
@@ -506,37 +586,72 @@ fn read_flux_record(connection: &rusqlite::Connection, id: &str) -> Result<FluxR
      .ok_or_else(|| "Ce flux n'existe plus.".to_string())
 }
 
-fn build_flux_view(connection: &rusqlite::Connection, record: FluxRecord) -> Result<FluxView, String> {
+fn build_flux_view(
+    connection: &rusqlite::Connection,
+    record: FluxRecord,
+) -> Result<FluxView, String> {
     let realisations = {
         let mut statement = connection.prepare(
             "SELECT id, flux_id, date_realisation, montant_cents, reference, note, created_at, annulee_at, motif_annulation
              FROM flux_realisations WHERE flux_id = ?1 ORDER BY date_realisation DESC, created_at DESC"
         ).map_err(db_error)?;
-        let rows = statement.query_map([&record.id], |row| Ok(FluxRealisationView {
-            id: row.get(0)?, flux_id: row.get(1)?, date_realisation: row.get(2)?, montant_cents: row.get(3)?,
-            reference: row.get(4)?, note: row.get(5)?, created_at: row.get(6)?, annulee_at: row.get(7)?, motif_annulation: row.get(8)?,
-        })).map_err(db_error)?;
+        let rows = statement
+            .query_map([&record.id], |row| {
+                Ok(FluxRealisationView {
+                    id: row.get(0)?,
+                    flux_id: row.get(1)?,
+                    date_realisation: row.get(2)?,
+                    montant_cents: row.get(3)?,
+                    reference: row.get(4)?,
+                    note: row.get(5)?,
+                    created_at: row.get(6)?,
+                    annulee_at: row.get(7)?,
+                    motif_annulation: row.get(8)?,
+                })
+            })
+            .map_err(db_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?
     };
     let mut montant_realise_cents = 0_i64;
     for realisation in &realisations {
         if realisation.annulee_at.is_none() {
-            montant_realise_cents = montant_realise_cents.checked_add(realisation.montant_cents)
-                .ok_or_else(|| "Le cumul des réalisations dépasse la plage autorisée.".to_string())?;
+            montant_realise_cents = montant_realise_cents
+                .checked_add(realisation.montant_cents)
+                .ok_or_else(|| {
+                    "Le cumul des réalisations dépasse la plage autorisée.".to_string()
+                })?;
         }
     }
     let statut: StatutFlux = from_enum(&record.statut)?;
     let sens: SensFlux = from_enum(&record.sens)?;
     let categorie: CategorieFlux = from_enum(&record.categorie)?;
-    let date = NaiveDate::parse_from_str(&record.date_prevue, "%Y-%m-%d")
-        .map_err(|_| "Une date prévue enregistrée est invalide ; vérifiez la base et sa sauvegarde.".to_string())?;
-    let etat = compute_flux_state(statut, date, record.montant_prevu_cents, montant_realise_cents, Local::now().date_naive());
+    let date = NaiveDate::parse_from_str(&record.date_prevue, "%Y-%m-%d").map_err(|_| {
+        "Une date prévue enregistrée est invalide ; vérifiez la base et sa sauvegarde.".to_string()
+    })?;
+    let etat = compute_flux_state(
+        statut,
+        date,
+        record.montant_prevu_cents,
+        montant_realise_cents,
+        Local::now().date_naive(),
+    );
     Ok(FluxView {
-        id: record.id, societe_id: record.societe_id, libelle: record.libelle, sens, categorie,
-        date_prevue: record.date_prevue, montant_prevu_cents: record.montant_prevu_cents,
-        tiers: record.tiers, reference: record.reference, statut, etat, montant_realise_cents,
-        reste_cents: record.montant_prevu_cents - montant_realise_cents, realisations,
-        created_at: record.created_at, updated_at: record.updated_at,
+        id: record.id,
+        societe_id: record.societe_id,
+        libelle: record.libelle,
+        sens,
+        categorie,
+        date_prevue: record.date_prevue,
+        montant_prevu_cents: record.montant_prevu_cents,
+        tiers: record.tiers,
+        reference: record.reference,
+        statut,
+        etat,
+        montant_realise_cents,
+        reste_cents: record.montant_prevu_cents - montant_realise_cents,
+        realisations,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
     })
 }
 

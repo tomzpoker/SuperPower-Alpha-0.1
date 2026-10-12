@@ -146,28 +146,58 @@ pub fn validate_flux_input(input: &FluxInput) -> Result<(), FluxValidationError>
     if input.montant_prevu_cents <= 0 {
         return Err(FluxValidationError::MontantPrevuInvalide);
     }
-    if input.tiers.as_deref().unwrap_or_default().trim().chars().count() > 160 {
+    if input
+        .tiers
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .count()
+        > 160
+    {
         return Err(FluxValidationError::TiersTropLong);
     }
-    if input.reference.as_deref().unwrap_or_default().trim().chars().count() > 100 {
+    if input
+        .reference
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .count()
+        > 100
+    {
         return Err(FluxValidationError::ReferenceTropLong);
     }
     Ok(())
 }
 
-pub fn validate_realisation_input(
-    input: &RealisationFluxInput,
-) -> Result<(), FluxValidationError> {
+pub fn validate_realisation_input(input: &RealisationFluxInput) -> Result<(), FluxValidationError> {
     if NaiveDate::parse_from_str(&input.date_realisation, "%Y-%m-%d").is_err() {
         return Err(FluxValidationError::DateRealisationInvalide);
     }
     if input.montant_cents <= 0 {
         return Err(FluxValidationError::MontantRealiseInvalide);
     }
-    if input.reference.as_deref().unwrap_or_default().trim().chars().count() > 100 {
+    if input
+        .reference
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .count()
+        > 100
+    {
         return Err(FluxValidationError::ReferenceTropLong);
     }
-    if input.note.as_deref().unwrap_or_default().trim().chars().count() > 500 {
+    if input
+        .note
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .count()
+        > 500
+    {
         return Err(FluxValidationError::NoteTropLongue);
     }
     Ok(())
@@ -270,7 +300,10 @@ mod tests {
             note: Some("Versement partiel".into()),
         };
         assert_eq!(validate_realisation_input(&input), Ok(()));
-        let invalid = RealisationFluxInput { montant_cents: -1, ..input };
+        let invalid = RealisationFluxInput {
+            montant_cents: -1,
+            ..input
+        };
         assert_eq!(
             validate_realisation_input(&invalid),
             Err(FluxValidationError::MontantRealiseInvalide)

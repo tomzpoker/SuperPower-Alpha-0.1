@@ -133,20 +133,22 @@ impl AppState {
     }
 }
 
-
 /// Migrations du schéma SQLite/SQLCipher. Une version inconnue n'est jamais rétrogradée.
 fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
     let mut version = connection
         .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .map_err(|error| format!("Lecture de version de base impossible : {error}"))?;
     if version > 2 {
-        return Err(format!("Cette base est en version {version}, plus récente que celle prise en charge."));
+        return Err(format!(
+            "Cette base est en version {version}, plus récente que celle prise en charge."
+        ));
     }
     if version < 1 {
         return Err(format!("Version de schéma {version} inconnue ; aucune migration automatique n'a été appliquée."));
     }
     if version == 1 {
-        let transaction = connection.transaction()
+        let transaction = connection
+            .transaction()
             .map_err(|error| format!("Démarrage de migration v1 vers v2 impossible : {error}"))?;
         transaction.execute_batch(
             "CREATE TABLE IF NOT EXISTS flux_previsionnels (
@@ -179,12 +181,15 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
              CREATE INDEX IF NOT EXISTS idx_flux_realisations_flux_date ON flux_realisations(flux_id, date_realisation);
              PRAGMA user_version = 2;"
         ).map_err(|error| format!("Migration v1 vers v2 impossible : {error}"))?;
-        transaction.commit()
+        transaction
+            .commit()
             .map_err(|error| format!("Validation de migration v1 vers v2 impossible : {error}"))?;
         version = 2;
     }
     if version != 2 {
-        return Err(format!("La version de schéma {version} n'est pas prise en charge."));
+        return Err(format!(
+            "La version de schéma {version} n'est pas prise en charge."
+        ));
     }
     Ok(())
 }
@@ -311,7 +316,6 @@ fn create_schema(connection: &mut Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod migration_tests {
     use super::*;
@@ -319,30 +323,43 @@ mod migration_tests {
     #[test]
     fn migrates_v1_to_v2_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch(
-            "PRAGMA foreign_keys = ON;
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
              CREATE TABLE societes (id TEXT PRIMARY KEY NOT NULL);
-             PRAGMA user_version = 1;"
-        ).unwrap();
+             PRAGMA user_version = 1;",
+            )
+            .unwrap();
         migrate_schema(&mut connection).unwrap();
-        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(version, 2);
         for table in ["flux_previsionnels", "flux_realisations"] {
-            let count: i64 = connection.query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-                [table], |row| row.get(0)
-            ).unwrap();
+            let count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
             assert_eq!(count, 1);
         }
         migrate_schema(&mut connection).unwrap();
-        let final_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        let final_version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(final_version, 2);
     }
 
     #[test]
     fn refuses_a_database_from_an_unknown_future_version() {
         let mut connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("PRAGMA user_version = 99;").unwrap();
-        assert!(migrate_schema(&mut connection).unwrap_err().contains("plus récente"));
+        connection
+            .execute_batch("PRAGMA user_version = 99;")
+            .unwrap();
+        assert!(migrate_schema(&mut connection)
+            .unwrap_err()
+            .contains("plus récente"));
     }
 }
