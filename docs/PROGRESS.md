@@ -9,8 +9,8 @@
 | Main de référence | `5078de2` — socle précédent |
 | Lot en cours | S06-A — flux prévisionnels et réalisations guidées |
 | Branche | `feat/guided-cash-flows` |
-| Statut | IN_PROGRESS — CI après renforcement du test de migration à confirmer ; essai natif manuel restant |
-| Prochaine action | Vérifier la CI du dernier commit, puis tester l'application et la migration sur une copie de base v1 SQLCipher |
+| Statut | IN_PROGRESS — CI verte au commit `b65085c` ; test natif minimal et réouverture d'une copie réussis selon le retour utilisateur ; version source de la base et scénarios complémentaires à confirmer |
+| Prochaine action | Revalider la CI après cette mise à jour documentaire, confirmer la version initiale de la base de migration et compléter les cas métier non testés |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -29,18 +29,24 @@
 | 09 | Stocks | TODO | `SPRINTS/SPRINT_09_STOCKS.md` | Extension facultative |
 
 ## Validation automatisée
-Le run GitHub Actions `38316144097` a validé les trois tâches de CI du code S06-A précédent : formatage/tests Rust, vérifications frontend et build/test natif Windows. Le test de migration a ensuite été renforcé afin d'utiliser le schéma v1 complet avec une société, une écriture, ses lignes et une entrée d'audit préexistantes. Le formatage de ce nouveau test a été corrigé ; la CI de la dernière révision doit confirmer le résultat.
+
+Le run GitHub Actions [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762) est vert sur le commit de code `b65085c` (avant la présente mise à jour documentaire) : formatage/tests Rust, tests/typecheck/bundle frontend, build Tauri Windows et tests du workspace compris. La CI doit se réexécuter sur le commit documentaire qui suit.
 
 | Contrôle | Portée et état |
 |---|---|
-| `cargo fmt --all -- --check` | Passé sur la révision précédente ; revalidation en cours après ajout du test de préservation |
-| Tests Rust du domaine | Passés sur la révision précédente ; nouveaux tests à confirmer dans la dernière CI |
-| Tests workspace / migration | Test de préservation ajouté ; résultat de la dernière CI à confirmer |
-| Frontend | Typecheck, tests et bundle de production passés sur la révision précédente ; revalidation en cours |
-| Build Tauri Windows | Passé sur la révision précédente ; revalidation en cours |
-| Vérification Markdown et liens | Passée sur la révision précédente ; revalidation en cours |
-| Migration sur une vraie copie SQLCipher v1 | **À faire manuellement** avant fusion |
-| Parcours de l'interface native | **À faire manuellement** avant de considérer le lot livré |
+| `cargo fmt --all -- --check` | Passé en CI sur `b65085c` |
+| Tests Rust du domaine | Passés en CI sur `b65085c` |
+| Tests workspace / migration automatisée | Passés en CI sur `b65085c`, dont préservation de données représentatives et idempotence de la migration du schéma |
+| Frontend | Typecheck, tests et bundle de production passés en CI sur `b65085c` |
+| Build Tauri Windows | Passé en CI sur `b65085c` |
+| Vérification Markdown et liens | Passée en CI sur `b65085c` |
+| Parcours natif minimal (flux, réalisations partielles, annulation d'une réalisation, redémarrage) | **Réussi selon le test manuel utilisateur du 2026-10-13** ; scénarios étendus encore à parcourir |
+| Réouverture d'une copie isolée du coffre | **Réussie selon le test manuel utilisateur** ; les données existantes sont restées visibles selon le compte-rendu |
+| Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
+| Vérification directe de `user_version = 2` et des deux tables S06-A | À faire si un outil SQLCipher adapté est disponible ; ne pas ouvrir le coffre original directement |
+
+Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers temporaires. La base source n'a pas été remplacée ni fusionnée avec les données des tests.
+
 
 ## Livré dans main
 - Application native Tauri + React/TypeScript + noyau Rust.
@@ -70,4 +76,5 @@ Le run GitHub Actions `38316144097` a validé les trois tâches de CI du code S0
 | 2026-10-12 | 00/01 | Première tranche : Tauri, UI, sociétés, écritures, coffre | Sur main |
 | 2026-10-12 | CI | Formatage, cache Windows et diagnostics | Sur main |
 | 2026-10-13 | 06-A | Prévu/réalisé, migration v2 et documentation métier | Branche de travail, validation manuelle restante |
-| 2026-10-13 | 06-A | Renforcement du test de migration pour confirmer la conservation des données v1 | CI de la dernière révision à confirmer |
+| 2026-10-13 | 06-A | Renforcement du test de migration pour confirmer la conservation des données v1 | CI verte sur `b65085c` ; nouvelle exécution attendue après cette mise à jour documentaire |
+| 2026-10-13 | 06-A | Parcours natif minimal et réouverture d'une copie isolée du coffre | Réussis selon le retour utilisateur ; version initiale de la base non vérifiée indépendamment |
