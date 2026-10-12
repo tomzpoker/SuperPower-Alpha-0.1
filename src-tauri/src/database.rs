@@ -321,15 +321,98 @@ mod migration_tests {
     use super::*;
 
     #[test]
-    fn migrates_v1_to_v2_and_is_idempotent() {
+    fn migrates_v1_to_v2_preserves_existing_data_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&mut connection).unwrap();
+
         connection
-            .execute_batch(
-                "PRAGMA foreign_keys = ON;
-             CREATE TABLE societes (id TEXT PRIMARY KEY NOT NULL);
-             PRAGMA user_version = 1;",
+            .execute(
+                "INSERT INTO societes (
+                    id, nom, forme_juridique, regime_fiscal, regime_tva,
+                    exigibilite_tva, periodicite_tva, siret, fin_exercice, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    "soc-legacy",
+                    "SCI Héritage",
+                    "sci",
+                    "ir",
+                    "non_renseigne",
+                    "non_definie",
+                    "non_definie",
+                    Option::<String>::None,
+                    "2026-12-31",
+                    "2026-01-01T09:00:00Z"
+                ],
             )
             .unwrap();
+        connection
+            .execute(
+                "INSERT INTO ecritures (
+                    id, societe_id, date_ecriture, libelle, reference, statut, total_cents, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, 'validated', ?6, ?7)",
+                rusqlite::params![
+                    "entry-legacy",
+                    "soc-legacy",
+                    "2026-01-15",
+                    "Loyer de janvier",
+                    Some("FAC-2026-001"),
+                    123_45_i64,
+                    "2026-01-15T10:00:00Z"
+                ],
+            )
+            .unwrap();
+
+        let accounts: Vec<(String, String)> = {
+            let mut statement = connection
+                .prepare("SELECT code, label FROM accounts ORDER BY code LIMIT 2")
+                .unwrap();
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(accounts.len(), 2, "le schéma v1 doit fournir des comptes de base");
+        for (index, (code, label)) in accounts.iter().enumerate() {
+            let (debit, credit) = if index == 0 {
+                (12_345_i64, 0_i64)
+            } else {
+                (0_i64, 12_345_i64)
+            };
+            connection
+                .execute(
+                    "INSERT INTO lignes_ecriture (
+                        id, ecriture_id, ordre, compte_code, compte_libelle, libelle, debit_cents, credit_cents
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    rusqlite::params![
+                        format!("line-legacy-{index}"),
+                        "entry-legacy",
+                        index as i64,
+                        code,
+                        label,
+                        Option::<String>::None,
+                        debit,
+                        credit
+                    ],
+                )
+                .unwrap();
+        }
+        connection
+            .execute(
+                "INSERT INTO journal_audit (
+                    id, action, type_entite, entite_id, horodatage, details_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    "audit-legacy",
+                    "validate",
+                    "ecriture",
+                    "entry-legacy",
+                    "2026-01-15T10:00:01Z",
+                    "{\"totalCents\":12345}"
+                ],
+            )
+            .unwrap();
+
         migrate_schema(&mut connection).unwrap();
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -343,13 +426,52 @@ mod migration_tests {
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert_eq!(count, 1);
+            assert_eq!(count, 1, "la table {table} doit être créée");
         }
+
+        let company_name: String = connection
+            .query_row(
+                "SELECT nom FROM societes WHERE id = 'soc-legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(company_name, "SCI Héritage");
+        let (entry_label, entry_amount): (String, i64) = connection
+            .query_row(
+                "SELECT libelle, total_cents FROM ecritures WHERE id = 'entry-legacy'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(entry_label, "Loyer de janvier");
+        assert_eq!(entry_amount, 12_345);
+        let line_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM lignes_ecriture WHERE ecriture_id = 'entry-legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(line_count, 2);
+        let audit_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM journal_audit WHERE id = 'audit-legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audit_count, 1);
+
         migrate_schema(&mut connection).unwrap();
         let final_version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(final_version, 2);
+        let final_entry_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM ecritures WHERE id = 'entry-legacy'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(final_entry_count, 1, "la migration répétée ne doit rien dupliquer");
     }
 
     #[test]
