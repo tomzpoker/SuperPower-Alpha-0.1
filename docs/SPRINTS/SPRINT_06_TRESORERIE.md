@@ -96,7 +96,8 @@ Selon le test manuel utilisateur, dans un coffre temporaire distinct :
 - Deux réalisations de 300 € saisies sur des flux de test puis annulées depuis Historique ; les lignes annulées et leur motif restent visibles et ne comptent plus dans le cumul.
 - Prévision assurance à 240 € annulée ; affichée avec le filtre des prévisions annulées et les boutons de modification/réalisation ne sont plus proposés.
 - Totaux finaux observés : 1 400 € prévus à encaisser, 0 € prévus à payer, 400 € réalisés actifs.
-- La réalisation de 300 € pour un prévu de 240 € a été enregistrée puis annulée ; l'état visuel « Réalisé au-delà du prévu » doit encore être confirmé avant annulation. Le refus métier de réaliser sur une prévision annulée doit aussi être confirmé séparément.
+- L'utilisateur confirme avoir vu l'état « Réalisé au-delà du prévu » pour 300 € réalisés sur 240 € prévus, avant d'annuler la réalisation depuis l'historique.
+- Le refus métier de réaliser sur une prévision annulée doit encore être confirmé séparément ; les boutons disparaissaient déjà dans l'interface après annulation.
 
 ## État de livraison
 IN_PROGRESS. La CI précédente est verte sur les contrôles de code et les tests automatisés. Après cette mise à jour documentaire, confirmer la nouvelle CI. La copie native s'ouvre et se rouvre d'après le retour utilisateur, mais la version source `PRAGMA user_version` n'a pas été relevée indépendamment ; ne pas considérer la migration v1→v2 comme définitivement prouvée avant confirmation de la version source/cible et des tables S06-A.

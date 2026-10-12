@@ -10,7 +10,7 @@
 | Lot en cours | S06-A — flux prévisionnels et réalisations guidées |
 | Branche | `feat/guided-cash-flows` |
 | Statut | IN_PROGRESS — CI verte jusqu'au commit documentaire `1071158` ; plusieurs scénarios Trésorerie natifs confirmés par l'utilisateur ; version source de la base de migration et refus technique d'un réel sur prévision annulée à confirmer |
-| Prochaine action | Revalider la CI après cette mise à jour, confirmer la version de la base avant migration et tester le refus technique d'une réalisation sur une prévision annulée |
+| Prochaine action | Revalider la CI après cette mise à jour, confirmer la version de la base avant migration et tester le refus métier d'une réalisation sur une prévision annulée |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -43,7 +43,7 @@ Le run GitHub Actions [38319595762](https://github.com/tomzpoker/SuperPower-Alph
 | Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
 | Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
-| État `depasse` visible avant annulation | La réalisation de 300 € sur le prévu de 240 € a été enregistrée puis annulée ; l'écran final ne permet pas de confirmer que l'étiquette visuelle de dépassement a été constatée avant l'annulation |
+| État `depasse` visible avant annulation | **Confirmé par l'utilisateur** : il a vu l'étiquette « Réalisé au-delà du prévu » lors de la réalisation de 300 € pour une prévision de 240 €, avant d'annuler cette réalisation |
 | Refus technique d'une réalisation sur prévision annulée | À vérifier au niveau de la commande métier ; l'interface a masqué les boutons d'action après annulation |
 | Vérification directe de `user_version = 2` et des deux tables S06-A | À faire si un outil SQLCipher adapté est disponible ; ne pas ouvrir le coffre original directement |
 

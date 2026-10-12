@@ -61,7 +61,8 @@ Le moteur comptable futur devra traiter multi-lignes, tiers, principal/intérêt
 - Une copie du couple `superpower.db` / `superpower.salt` a été placée dans un dossier temporaire et ouverte avec la build de cette branche. L'ouverture, la réouverture du même dossier et la présence des données existantes ont été signalées comme réussies.
 - Les essais sont restés isolés : l'original n'a pas servi de cible de migration et aucune fusion des données de test dans le coffre habituel n'a été faite.
 - Réserve migration : la valeur initiale de `PRAGMA user_version` de la source n'a pas été relevée indépendamment ; l'essai ne prouve donc pas définitivement une migration v1 → v2. Le contrôle direct de `user_version = 2` et de la présence de `flux_previsionnels` / `flux_realisations` reste à faire.
-- Réserve métier : le réel de 300 € (prévu 240 €) a été saisi puis annulé. Il faut encore confirmer l'état visuel de dépassement pendant que ce réel est actif, ainsi que le refus côté commande métier d'une réalisation sur une prévision déjà annulée.
+- Résultat métier confirmé : l'utilisateur a vu l'état « Réalisé au-delà du prévu » lorsque 300 € étaient réalisés pour 240 € prévus, avant d'annuler cette réalisation depuis l'historique.
+- Réserve métier restante : le refus côté commande métier d'une nouvelle réalisation sur une prévision déjà annulée n'a pas encore été testé séparément ; dans l'interface, les boutons d'action disparaissent après annulation.
 
 ## Définition de Done
 
@@ -74,5 +75,5 @@ Le moteur comptable futur devra traiter multi-lignes, tiers, principal/intérêt
 - [x] CI verte sur la révision de code `b65085c` (run [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762)) ; la mise à jour documentaire doit déclencher un nouveau run.
 - [ ] Confirmer une migration réelle v1 → v2 sur une copie dont le `PRAGMA user_version` source est explicitement vérifié, puis vérifier `user_version = 2` et les tables S06-A. Une copie locale a été ouverte puis rouverte, avec données visibles selon le retour utilisateur, mais sa version source n'a pas été relevée indépendamment.
 - [x] Modification du loyer à 1 400 € avec conservation des 400 € réalisés ; enregistrement puis annulation depuis Historique de réalisations de 300 € sur les flux de test ; préservation des lignes/motifs et exclusion des montants annulés du cumul ; annulation de la prévision d'assurance et filtre des prévisions annulées — observés et confirmés par l'utilisateur.
-- [ ] Confirmer l'état visuel « Réalisé au-delà du prévu » tant que le réel de 300 € reste actif pour une prévision de 240 €.
+- [x] Confirmer visuellement l'état « Réalisé au-delà du prévu » pour 300 € réalisés sur 240 € prévus ; confirmation utilisateur reçue.
 - [ ] Confirmer que la commande métier refuse de créer une réalisation sur une prévision annulée (les boutons d'action ont disparu dans l'UI).
