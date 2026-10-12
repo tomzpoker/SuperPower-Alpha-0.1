@@ -36,7 +36,13 @@ npm run tauri:dev
 La CI Windows compile Tauri et exécute les tests du workspace. Éviter de lancer plusieurs compilations Cargo en parallèle. Pour SQLCipher/OpenSSL sous Windows, vérifier la présence de Strawberry Perl avec `where.exe perl` ; ne pas retirer SQLCipher comme contournement.
 
 ## 4. Test manuel métier — écran natif
-Utiliser une société de test dans l'application native et noter les résultats de chaque étape.
+Commencer dans un **coffre de test séparé**. Depuis la racine du dépôt, dans PowerShell, lance cette commande (elle crée un chemin temporaire neuf, l'affiche et démarre la fenêtre native) :
+
+```powershell
+$env:SUPERPOWER_TEST_DATA_DIR = Join-Path $env:TEMP ('SuperPower-S06A-UI-' + (Get-Date -Format 'yyyyMMdd-HHmmss')); Write-Output $env:SUPERPOWER_TEST_DATA_DIR; npm run tauri:dev
+```
+
+Utiliser une société fictive, une phrase secrète de test, et uniquement des montants/données fictifs. La variable reste définie dans cette fenêtre PowerShell pour que la relance de l'application rouvre le même coffre de test.
 
 1. Initialiser/déverrouiller le coffre de test.
 2. Ouvrir Trésorerie → prévisionnel et réalisé.
@@ -53,18 +59,10 @@ Le mode navigateur est uniquement une démo volatile/non chiffrée ; il ne valid
 ## 5. Test manuel de migration SQLCipher v1 → v2
 À effectuer seulement avec une base v1 de test (ou une copie locale d'une base v1, si tu es certain de pouvoir y conserver les données sur la machine). Garder le fichier d'origine intact. La variable de développement `SUPERPOWER_TEST_DATA_DIR` permet de lancer la build debug sur un dossier séparé ; elle n'est pas honorée par les builds release.
 
-**Préparer le dossier isolé dans PowerShell depuis la racine du dépôt** (fermer d'abord SuperPower) :
+**Préparer le dossier isolé dans PowerShell depuis la racine du dépôt** (fermer d'abord SuperPower). Cette commande s'arrête si la paire de fichiers n'est pas trouvée :
 
 ```powershell
-$source = Join-Path $env:APPDATA 'fr.superpower.alpha'
-$db = Join-Path $source 'superpower.db'
-$salt = Join-Path $source 'superpower.salt'
-if (!(Test-Path $db) -or !(Test-Path $salt)) { throw "Base ou fichier de sel introuvable dans $source. Ne poursuis pas avant d'avoir localisé la paire correcte." }
-$testDir = Join-Path $env:TEMP ('SuperPower-S06A-migration-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-New-Item -ItemType Directory -Path $testDir | Out-Null
-Copy-Item $db (Join-Path $testDir 'superpower.db')
-Copy-Item $salt (Join-Path $testDir 'superpower.salt')
-Write-Output "Dossier isolé : $testDir"
+$source=Join-Path $env:APPDATA 'fr.superpower.alpha'; $db=Join-Path $source 'superpower.db'; $salt=Join-Path $source 'superpower.salt'; if (!(Test-Path $db) -or !(Test-Path $salt)) { throw "Base ou fichier de sel introuvable dans $source. Stoppe ici et localise la paire correcte." }; $testDir=Join-Path $env:TEMP ('SuperPower-S06A-migration-'+(Get-Date -Format 'yyyyMMdd-HHmmss')); New-Item -ItemType Directory -Path $testDir | Out-Null; Copy-Item $db (Join-Path $testDir 'superpower.db'); Copy-Item $salt (Join-Path $testDir 'superpower.salt'); Write-Output "Dossier isolé : $testDir"
 ```
 
 Vérifie que la source est bien une base v1 non encore migrée par S06-A. Si l'application a déjà été ouverte avec cette branche, la base source peut être passée en v2 ; dans ce cas, ne prétends pas avoir testé une migration v1 → v2. Utilise une sauvegarde v1 connue. Ne prends pas une base contenant des données que tu n'as pas le droit d'utiliser dans un test.
@@ -72,8 +70,7 @@ Vérifie que la source est bien une base v1 non encore migrée par S06-A. Si l'a
 Lance ensuite l'application en utilisant **le chemin isolé qui vient d'être créé** :
 
 ```powershell
-$env:SUPERPOWER_TEST_DATA_DIR = $testDir
-npm run tauri:dev
+$env:SUPERPOWER_TEST_DATA_DIR=$testDir; npm run tauri:dev
 ```
 
 1. Déverrouiller avec la phrase secrète associée au fichier copié. Le déverrouillage déclenche la migration transactionnelle de ce dossier uniquement.
