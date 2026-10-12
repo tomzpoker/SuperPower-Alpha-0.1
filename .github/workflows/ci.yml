@@ -43,13 +43,20 @@ jobs:
   windows-native:
     name: Windows desktop build
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+          cache-on-failure: true
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
       - name: Build Tauri application
-        run: npm run tauri:build
+        run: npm run tauri:build -- --verbose
