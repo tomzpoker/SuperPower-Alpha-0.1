@@ -5,7 +5,7 @@
 |---|---|
 | Numéro | 06 |
 | Branche du lot initial | \`feat/guided-cash-flows\` |
-| Statut | IN_PROGRESS — CI et parcours natif à valider |
+| Statut | IN_PROGRESS — CI de la dernière révision à confirmer ; migration et parcours métier natifs à tester manuellement |
 | Décision | [ADR-0001](../DECISIONS/ADR-0001-flux-previsionnels.md) |
 
 ## Problème utilisateur
@@ -81,7 +81,7 @@ Propriétés IPC en \`camelCase\`, enums en \`snake_case\), erreurs françaises.
 
 ## Tests
 - Domaine : états futur/retard/partiel/réalisé/dépassement/annulé ; montants invalides ; libellé vide ; dates invalides.
-- Migration : v1→v2, tables présentes, idempotence, rejet version future.
+- Migration : v1→v2 depuis le schéma v1 complet, préservation vérifiée d'une société, d'une écriture, de ses lignes et d'une entrée d'audit, tables présentes, idempotence, rejet de version future. Ce test reste en mémoire et ne remplace pas un essai sur copie SQLCipher réelle.
 - Native : société inconnue, flux annulé, réalisation invalide, audit transactionnel.
 - Frontend : créer/modifier, réaliser partiellement puis compléter, annuler réalisation et vérifier cumul.
 - Non-régression : sociétés et écritures v1 préservées.
@@ -91,4 +91,4 @@ Propriétés IPC en \`camelCase\`, enums en \`snake_case\), erreurs françaises.
 Flux récurrents, projection 12/24/36 mois, alertes, import/rapprochement bancaire, baux, comptabilisation PCG multi-lignes, lettrage, TVA, fiscalité, FEC, OCR et synchronisation mobile.
 
 ## État de livraison
-IN_PROGRESS jusqu'à réussite de la CI de branche et du parcours natif.
+IN_PROGRESS. La CI précédente avait réussi sur les trois tâches ; le test de migration a été renforcé pour contrôler la conservation des données v1 puis son formatage corrigé. Confirmer la CI de la dernière révision. Avant toute fusion, tester le déverrouillage/migration sur une copie d'une base SQLCipher v1 existante, vérifier la conservation des données réelles, puis exécuter le parcours Trésorerie natif documenté dans [HANDOFF](../HANDOFF.md).
