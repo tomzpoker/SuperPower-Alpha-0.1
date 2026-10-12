@@ -323,6 +323,7 @@ mod migration_tests {
     #[test]
     fn migrates_v1_to_v2_preserves_existing_data_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         create_schema(&mut connection).unwrap();
 
         connection
@@ -356,7 +357,7 @@ mod migration_tests {
                     "2026-01-15",
                     "Loyer de janvier",
                     Some("FAC-2026-001"),
-                    123_45_i64,
+                    12_345_i64,
                     "2026-01-15T10:00:00Z"
                 ],
             )
@@ -372,7 +373,11 @@ mod migration_tests {
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap()
         };
-        assert_eq!(accounts.len(), 2, "le schéma v1 doit fournir des comptes de base");
+        assert_eq!(
+            accounts.len(),
+            2,
+            "le schéma v1 doit fournir des comptes de base"
+        );
         for (index, (code, label)) in accounts.iter().enumerate() {
             let (debit, credit) = if index == 0 {
                 (12_345_i64, 0_i64)
@@ -469,9 +474,16 @@ mod migration_tests {
             .unwrap();
         assert_eq!(final_version, 2);
         let final_entry_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM ecritures WHERE id = 'entry-legacy'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM ecritures WHERE id = 'entry-legacy'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert_eq!(final_entry_count, 1, "la migration répétée ne doit rien dupliquer");
+        assert_eq!(
+            final_entry_count, 1,
+            "la migration répétée ne doit rien dupliquer"
+        );
     }
 
     #[test]
