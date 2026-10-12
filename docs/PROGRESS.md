@@ -67,4 +67,4 @@
 | 2026-10-12 | 00/01 | Première tranche : Tauri, UI, sociétés, écritures, coffre | Sur main |
 | 2026-10-12 | CI | Formatage, cache Windows et diagnostics ; 3/3 confirmés ensuite | Sur main |
 | 2026-10-13 | 06-A | Parcours prévu/réalisé, migration v2 et documentation métier | Branche de travail, CI à confirmer |
-| 2026-10-13 | CI | Le premier contrôle Rust a signalé uniquement des écarts de formatage ; formatage corrigé dans le commit suivant. La nouvelle CI doit confirmer compilation et tests. | À revalider |
+| 2026-10-13 | CI | Le premier contrôle Rust a signalé des écarts de formatage, corrigés dans le commit suivant. Sur le commit formaté, le check de formatage et les tests du noyau passent ; les contrôles frontend et la compilation native Windows restent à confirmer. | À revalider |
