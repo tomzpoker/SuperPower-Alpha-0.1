@@ -56,10 +56,13 @@ Le moteur comptable futur devra traiter multi-lignes, tiers, principal/intérêt
 - Construire récurrences/baux dès le premier lot : retarde la validation du parcours simple.
 
 ## Définition de Done
-- [ ] Migration v1→v2 et idempotence testées.
-- [ ] Domaine Rust et validations testés.
-- [ ] Commandes natives compilées et enregistrées.
-- [ ] UI Trésorerie sans plan de comptes.
-- [ ] Mode démo cohérent et explicitement volatile.
-- [ ] Contrôles docs, Rust, frontend et CI Windows passés.
-- [ ] Handoff mis à jour après résultats réels.
+
+- [x] Migration v1→v2 et idempotence couvertes par test automatisé sur le schéma v1 complet, avec vérification de conservation de données représentatives.
+- [x] Domaine Rust et validations couverts par tests unitaires.
+- [x] Commandes natives enregistrées et compilation Tauri Windows réussie sur la révision CI précédente.
+- [x] UI Trésorerie construite avec tests frontend et typecheck réussis sur la révision CI précédente.
+- [x] Mode démo navigateur cohérent et explicitement volatile.
+- [x] Contrôles Rust, frontend, bundle de production, build Windows et Markdown passés sur la révision CI précédente.
+- [ ] Confirmer que la CI est verte sur la dernière révision après renforcement des tests et mise à jour documentaire.
+- [ ] Effectuer le parcours natif sur une copie de base SQLCipher v1 existante et vérifier la préservation réelle des données.
+- [ ] Parcourir manuellement le scénario métier prévu/réalisé dans l'application native et consigner les résultats.
