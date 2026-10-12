@@ -1,0 +1,25 @@
+[package]
+name = "superpower-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[lib]
+name = "superpower_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+superpower-core = { path = "../crates/core" }
+tauri = { version = "2", features = [] }
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
+argon2 = "0.5"
+rand = "0.8"
+hex = "0.4"
