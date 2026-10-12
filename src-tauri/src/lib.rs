@@ -11,6 +11,19 @@ pub fn run() {
             #[cfg(debug_assertions)]
             let app_data_dir = std::env::var_os("SUPERPOWER_TEST_DATA_DIR")
                 .map(std::path::PathBuf::from)
+                .map(|test_dir| {
+                    if !test_dir.is_absolute()
+                        || test_dir.as_path() == default_app_data_dir.as_path()
+                    {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "SUPERPOWER_TEST_DATA_DIR doit pointer vers un dossier absolu distinct du coffre habituel.",
+                        ))
+                    } else {
+                        Ok(test_dir)
+                    }
+                })
+                .transpose()?
                 .unwrap_or(default_app_data_dir);
             #[cfg(not(debug_assertions))]
             let app_data_dir = default_app_data_dir;

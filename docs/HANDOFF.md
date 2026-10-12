@@ -17,7 +17,7 @@ Ne pas fusionner ou déclarer S06-A terminé avant :
 3. Parcours manuel de l'écran Trésorerie de l'application native.
 4. Mise à jour du présent handoff, de `PROGRESS.md` et des cases de l'ADR avec les résultats réellement observés.
 
-Ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ». L'application de développement reconnaît `SUPERPOWER_TEST_DATA_DIR` pour utiliser un dossier distinct ; cette variable est ignorée dans les builds release. Le test décrit plus bas doit être lancé avec cette variable définie afin que la copie, et non le coffre habituel, soit ouverte.
+Ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ». L'application de développement reconnaît `SUPERPOWER_TEST_DATA_DIR` uniquement si elle pointe vers un chemin absolu distinct du coffre habituel ; cette variable est ignorée dans les builds release. Le test décrit plus bas doit être lancé avec cette variable définie afin que la copie, et non le coffre habituel, soit ouverte.
 
 ## 3. Contrôles locaux Windows
 Depuis la racine du dépôt, exécuter les contrôles séparément et noter le résultat exact :
