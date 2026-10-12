@@ -6,16 +6,21 @@
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
 - `main` de référence : `5078de2`.
 - Branche de travail : `feat/guided-cash-flows`, pull request [#1 — Sprint 06](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/1).
-- Le dernier run complètement vert avant le renforcement du test de migration est [38316144097](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38316144097). Le nouveau test contient désormais une société, une écriture, deux lignes comptables et une ligne d'audit sur le schéma v1 complet. Vérifier la CI de la révision la plus récente avant de déclarer le lot validé.
+- Le run [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762) est vert sur le commit de code `b65085c` : Rust, frontend, build Tauri Windows et tests workspace passent. La mise à jour documentaire qui consigne le retour manuel doit déclencher une nouvelle CI.
 
 Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une saisie comptable technique. S06-A ajoute le suivi des flux de trésorerie prévisionnels et réalisés sans choix de comptes comptables.
 
-## 2. Ce qui doit rester IN_PROGRESS
-Ne pas fusionner ou déclarer S06-A terminé avant :
-1. CI verte sur la révision actuelle.
-2. Test manuel sur une **copie** d'une vraie base chiffrée SQLCipher v1, avec vérification de la conservation des sociétés, écritures, lignes et journal d'audit.
-3. Parcours manuel de l'écran Trésorerie de l'application native.
-4. Mise à jour du présent handoff, de `PROGRESS.md` et des cases de l'ADR avec les résultats réellement observés.
+## 2. État de validation et contrôles encore ouverts
+
+Résultats manuels signalés le 2026-10-13 :
+- Parcours natif minimal : société fictive, prévision, deux réalisations partielles, annulation d'une réalisation, fermeture/réouverture avec le même dossier isolé ; les données ont persisté.
+- Copie de `superpower.db` et `superpower.salt` dans un dossier temporaire : l'application s'est déverrouillée, les données existantes ont été signalées présentes et la réouverture de cette même copie a fonctionné.
+- Aucun test n'a utilisé le coffre habituel comme cible de migration ; il a servi uniquement de source pour copier les fichiers.
+
+Ne pas fusionner ou déclarer S06-A entièrement terminé avant :
+1. CI verte sur le commit documentaire le plus récent.
+2. Confirmation indépendante que la copie source de migration était bien au `user_version = 1`, puis vérification que la copie migrée est au `user_version = 2` et possède les tables `flux_previsionnels` et `flux_realisations`.
+3. Parcours étendu des cas métier non encore essayés (sortie prévisionnelle, modification, dépassement, annulation de prévision et filtres).
 
 Ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ». L'application de développement reconnaît `SUPERPOWER_TEST_DATA_DIR` uniquement si elle pointe vers un chemin absolu distinct du coffre habituel ; cette variable est ignorée dans les builds release. Le test décrit plus bas doit être lancé avec cette variable définie afin que la copie, et non le coffre habituel, soit ouverte.
 
@@ -54,6 +59,10 @@ Utiliser une société fictive, une phrase secrète de test, et uniquement des m
 8. Annuler une prévision ; vérifier qu'elle refuse de nouvelles réalisations et qu'elle apparaît avec le filtre des éléments annulés.
 9. Fermer puis relancer l'application et vérifier que les données enregistrées dans le coffre natif persistent.
 
+### Résultat du parcours natif minimal (2026-10-13)
+
+Le parcours natif minimal est **réussi selon le retour utilisateur** pour les actions effectivement réalisées : création, réalisations partielles, annulation d'une réalisation et persistance après redémarrage avec le même `SUPERPOWER_TEST_DATA_DIR`. Les cas supplémentaires numérotés ci-dessus restent à parcourir.
+
 Le mode navigateur est uniquement une démo volatile/non chiffrée ; il ne valide ni le coffre ni la persistance native.
 
 ## 5. Test manuel de migration SQLCipher v1 → v2
@@ -82,6 +91,12 @@ $env:SUPERPOWER_TEST_DATA_DIR=$testDir; npm run tauri:dev
 7. En cas d'échec, arrêter les essais, conserver la copie et les journaux. Ne jamais remettre le dossier temporaire à la place du dossier original.
 
 Pour revenir au fonctionnement normal dans cette fenêtre PowerShell : `Remove-Item Env:SUPERPOWER_TEST_DATA_DIR`. La variable n'a aucun effet sur un build release.
+
+### Résultat de l'essai sur copie native (2026-10-13)
+
+L'utilisateur a copié `superpower.db` et `superpower.salt` dans un dossier temporaire, lancé la branche avec `SUPERPOWER_TEST_DATA_DIR`, puis confirmé que l'application s'ouvrait, que les données existantes étaient visibles et que le deuxième lancement avec la même copie fonctionnait. Le dossier de l'application habituelle n'a pas été utilisé comme cible de migration.
+
+**Réserve importante :** la version initiale du fichier source n'a pas été relevée indépendamment. Ne pas présenter cet essai comme preuve définitive d'une migration v1 → v2 tant que `PRAGMA user_version` de la source et de la copie migrée n'a pas été confirmé, ainsi que la présence des tables S06-A.
 
 Le test automatisé utilise SQLite en mémoire et le schéma v1 complet représentatif ; il augmente la confiance en la conservation des données, mais ne prouve pas l'ouverture, le déchiffrement et la migration d'un fichier SQLCipher existant sur Windows.
 
