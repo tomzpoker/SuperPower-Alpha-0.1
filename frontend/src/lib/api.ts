@@ -52,6 +52,57 @@ function demoCompany(input: CreateSocieteInput): Societe {
   return { ...input, id: crypto.randomUUID(), siret: input.siret || null, createdAt: new Date().toISOString(), warnings };
 }
 
+
+function isValidIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value + 'T00:00:00.000Z');
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function textLength(value: string): number {
+  return Array.from(value).length;
+}
+
+function cleanDemoOptional(value: string | null | undefined): string | null {
+  const cleaned = value?.trim() ?? '';
+  return cleaned || null;
+}
+
+function validateDemoFluxInput(input: FluxInput): void {
+  if (!input.societeId?.trim()) throw new Error('La société du flux est obligatoire.');
+  if (!input.libelle?.trim()) throw new Error('Le libellé du flux est obligatoire.');
+  if (textLength(input.libelle.trim()) > 160) throw new Error('Le libellé du flux ne peut pas dépasser 160 caractères.');
+  if (!isValidIsoDate(input.datePrevue)) throw new Error('La date prévue doit être au format AAAA-MM-JJ.');
+  if (!Number.isSafeInteger(input.montantPrevuCents) || input.montantPrevuCents <= 0) {
+    throw new Error('Le montant prévu doit être strictement positif.');
+  }
+  if (textLength(input.tiers?.trim() ?? '') > 160) throw new Error('Le tiers ne peut pas dépasser 160 caractères.');
+  if (textLength(input.reference?.trim() ?? '') > 100) throw new Error('La référence ne peut pas dépasser 100 caractères.');
+  if (!['encaissement', 'decaissement'].includes(input.sens)) throw new Error('Le sens du flux est invalide.');
+  if (!['loyer', 'charge_courante', 'travaux', 'impot_taxe', 'emprunt', 'apport_associe', 'autre'].includes(input.categorie)) {
+    throw new Error('La catégorie du flux est invalide.');
+  }
+}
+
+function normalizeDemoFluxInput(input: FluxInput): FluxInput {
+  return {
+    ...input,
+    societeId: input.societeId.trim(),
+    libelle: input.libelle.trim(),
+    tiers: cleanDemoOptional(input.tiers),
+    reference: cleanDemoOptional(input.reference),
+  };
+}
+
+function validateDemoRealisationInput(input: RealisationFluxInput): void {
+  if (!isValidIsoDate(input.dateRealisation)) throw new Error('La date de réalisation doit être au format AAAA-MM-JJ.');
+  if (!Number.isSafeInteger(input.montantCents) || input.montantCents <= 0) {
+    throw new Error('Le montant réalisé doit être strictement positif.');
+  }
+  if (textLength(input.reference?.trim() ?? '') > 100) throw new Error('La référence ne peut pas dépasser 100 caractères.');
+  if (textLength(input.note?.trim() ?? '') > 500) throw new Error('La note ne peut pas dépasser 500 caractères.');
+}
+
 async function browserCommand<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   switch (command) {
     case 'database_status': return demoStatus() as T;
@@ -86,6 +137,9 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       if (demoEntries.some((entry) => entry.societeId === id)) {
         throw new Error('Suppression impossible : des écritures comptables sont liées à cette société.');
       }
+      if (demoFlux.some((flow) => flow.societeId === id)) {
+        throw new Error("Suppression refusée : cette société possède des flux prévisionnels, même annulés. Conservez l’historique.");
+      }
       demoSocietes = demoSocietes.filter((company) => company.id !== id);
       return undefined as T;
     }
@@ -94,21 +148,23 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       return demoFlux.filter(flow => !filter || flow.societeId === filter).map(summarizeFlux) as T;
     }
     case 'create_flux': {
-      const input = args.input as FluxInput;
-      if (!demoSocietes.some(company => company.id === input.societeId)) throw new Error('La société sélectionnée n’existe pas pour ce flux.');
-      if (!input.libelle.trim() || input.montantPrevuCents <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(input.datePrevue)) throw new Error('Vérifiez le libellé, la date et le montant prévu.');
+      const rawInput = args.input as FluxInput;
+      if (!demoSocietes.some(company => company.id === rawInput.societeId)) throw new Error('La société sélectionnée n’existe pas pour ce flux.');
+      validateDemoFluxInput(rawInput);
+      const input = normalizeDemoFluxInput(rawInput);
       const now = new Date().toISOString();
       const flow: FluxView = summarizeFlux({ ...input, id: crypto.randomUUID(), statut: 'actif', etat: 'a_prevoir', montantRealiseCents: 0, resteCents: input.montantPrevuCents, realisations: [], createdAt: now, updatedAt: now });
       demoFlux = [flow, ...demoFlux];
       return flow as T;
     }
     case 'update_flux': {
-      const id = args.id as string, input = args.input as FluxInput;
+      const id = args.id as string, rawInput = args.input as FluxInput;
       const current = demoFlux.find(flow => flow.id === id);
       if (!current) throw new Error('Ce flux n’existe plus.');
       if (current.statut !== 'actif') throw new Error('Un flux annulé ne peut pas être modifié.');
-      if (current.societeId !== input.societeId) throw new Error('La société d’un flux existant ne peut pas être changée.');
-      if (!input.libelle.trim() || input.montantPrevuCents <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(input.datePrevue)) throw new Error('Vérifiez le libellé, la date et le montant prévu.');
+      if (current.societeId !== rawInput.societeId) throw new Error('La société d’un flux existant ne peut pas être changée.');
+      validateDemoFluxInput(rawInput);
+      const input = normalizeDemoFluxInput(rawInput);
       const updated = summarizeFlux({ ...current, ...input, updatedAt: new Date().toISOString() });
       demoFlux = demoFlux.map(flow => flow.id === id ? updated : flow);
       return updated as T;
@@ -122,11 +178,16 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       return updated as T;
     }
     case 'register_flux_realisation': {
-      const fluxId = args.fluxId as string, input = args.input as RealisationFluxInput;
+      const fluxId = args.fluxId as string, rawInput = args.input as RealisationFluxInput;
       const current = demoFlux.find(flow => flow.id === fluxId);
       if (!current) throw new Error('Ce flux n’existe plus.');
       if (current.statut !== 'actif') throw new Error('Impossible de réaliser une prévision annulée.');
-      if (input.montantCents <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(input.dateRealisation)) throw new Error('Vérifiez la date et le montant réalisé.');
+      validateDemoRealisationInput(rawInput);
+      const input = {
+        ...rawInput,
+        reference: cleanDemoOptional(rawInput.reference),
+        note: cleanDemoOptional(rawInput.note),
+      };
       const item: FluxRealisationView = { id: crypto.randomUUID(), fluxId, ...input, createdAt: new Date().toISOString(), annuleeAt: null, motifAnnulation: null };
       const updated = summarizeFlux({ ...current, realisations: [item, ...current.realisations], updatedAt: new Date().toISOString() });
       demoFlux = demoFlux.map(flow => flow.id === fluxId ? updated : flow);
