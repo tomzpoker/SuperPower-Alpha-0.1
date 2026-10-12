@@ -9,8 +9,8 @@
 | Main de référence | `5078de2` — socle précédent |
 | Lot en cours | S06-A — flux prévisionnels et réalisations guidées |
 | Branche | `feat/guided-cash-flows` |
-| Statut | IN_PROGRESS — CI verte au commit `b65085c` ; test natif minimal et réouverture d'une copie réussis selon le retour utilisateur ; version source de la base et scénarios complémentaires à confirmer |
-| Prochaine action | Revalider la CI après cette mise à jour documentaire, confirmer la version initiale de la base de migration et compléter les cas métier non testés |
+| Statut | IN_PROGRESS — CI verte jusqu'au commit documentaire `1071158` ; plusieurs scénarios Trésorerie natifs confirmés par l'utilisateur ; version source de la base de migration et refus technique d'un réel sur prévision annulée à confirmer |
+| Prochaine action | Revalider la CI après cette mise à jour, confirmer la version de la base avant migration et tester le refus technique d'une réalisation sur une prévision annulée |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -40,9 +40,11 @@ Le run GitHub Actions [38319595762](https://github.com/tomzpoker/SuperPower-Alph
 | Frontend | Typecheck, tests et bundle de production passés en CI sur `b65085c` |
 | Build Tauri Windows | Passé en CI sur `b65085c` |
 | Vérification Markdown et liens | Passée en CI sur `b65085c` |
-| Parcours natif minimal (flux, réalisations partielles, annulation d'une réalisation, redémarrage) | **Réussi selon le test manuel utilisateur du 2026-10-13** ; scénarios étendus encore à parcourir |
-| Réouverture d'une copie isolée du coffre | **Réussie selon le test manuel utilisateur** ; les données existantes sont restées visibles selon le compte-rendu |
+| Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
+| Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
+| État `depasse` visible avant annulation | La réalisation de 300 € sur le prévu de 240 € a été enregistrée puis annulée ; l'écran final ne permet pas de confirmer que l'étiquette visuelle de dépassement a été constatée avant l'annulation |
+| Refus technique d'une réalisation sur prévision annulée | À vérifier au niveau de la commande métier ; l'interface a masqué les boutons d'action après annulation |
 | Vérification directe de `user_version = 2` et des deux tables S06-A | À faire si un outil SQLCipher adapté est disponible ; ne pas ouvrir le coffre original directement |
 
 Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers temporaires. La base source n'a pas été remplacée ni fusionnée avec les données des tests.
@@ -77,4 +79,4 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 | 2026-10-12 | CI | Formatage, cache Windows et diagnostics | Sur main |
 | 2026-10-13 | 06-A | Prévu/réalisé, migration v2 et documentation métier | Branche de travail, validation manuelle restante |
 | 2026-10-13 | 06-A | Renforcement du test de migration pour confirmer la conservation des données v1 | CI verte sur `b65085c` ; nouvelle exécution attendue après cette mise à jour documentaire |
-| 2026-10-13 | 06-A | Parcours natif minimal et réouverture d'une copie isolée du coffre | Réussis selon le retour utilisateur ; version initiale de la base non vérifiée indépendamment |
+| 2026-10-13 | 06-A | Parcours Trésorerie natif détaillé et réouverture d'une copie isolée du coffre | Loyer modifié, assurance créée, réalisations annulées depuis l'historique, prévision annulée et totaux vérifiés selon le retour utilisateur ; version source de la base non vérifiée indépendamment |

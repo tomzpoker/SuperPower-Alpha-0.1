@@ -13,14 +13,16 @@ Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une 
 ## 2. État de validation et contrôles encore ouverts
 
 Résultats manuels signalés le 2026-10-13 :
-- Parcours natif minimal : société fictive, prévision, deux réalisations partielles, annulation d'une réalisation, fermeture/réouverture avec le même dossier isolé ; les données ont persisté.
+- Parcours natif du 2026-10-13 confirmé par l'utilisateur : prévision de loyer modifiée à 1 400 € avec 400 € réalisés conservés ; prévision d'assurance de 240 € ; réalisation de 300 € enregistrée puis annulée via l'historique ; historique conservé avec motif d'annulation ; prévision assurance annulée et affichée via le filtre ; totaux observés : 1 400 € prévus à encaisser, 0 € prévus à payer, 400 € réalisés actifs.
+- Une autre réalisation de 300 € liée au loyer est également conservée dans l'historique avec motif d'annulation ; le cumul actif du loyer reste 400 €.
+- L'utilisateur a fermé puis relancé l'application avec le même dossier temporaire et confirme que la société et les prévisions/réalisations sont revenues.
 - Copie de `superpower.db` et `superpower.salt` dans un dossier temporaire : l'application s'est déverrouillée, les données existantes ont été signalées présentes et la réouverture de cette même copie a fonctionné.
 - Aucun test n'a utilisé le coffre habituel comme cible de migration ; il a servi uniquement de source pour copier les fichiers.
 
 Ne pas fusionner ou déclarer S06-A entièrement terminé avant :
 1. CI verte sur le commit documentaire le plus récent.
 2. Confirmation indépendante que la copie source de migration était bien au `user_version = 1`, puis vérification que la copie migrée est au `user_version = 2` et possède les tables `flux_previsionnels` et `flux_realisations`.
-3. Parcours étendu des cas métier non encore essayés (sortie prévisionnelle, modification, dépassement, annulation de prévision et filtres).
+3. Compléter les vérifications restantes : confirmer visuellement l'état « Réalisé au-delà du prévu » sur un flux dont le réel supérieur au prévu est encore actif ; vérifier le refus métier (pas seulement les boutons masqués) d'ajouter une réalisation à une prévision annulée ; confirmer les tables et la version du schéma sur la copie migrée.
 
 Ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ». L'application de développement reconnaît `SUPERPOWER_TEST_DATA_DIR` uniquement si elle pointe vers un chemin absolu distinct du coffre habituel ; cette variable est ignorée dans les builds release. Le test décrit plus bas doit être lancé avec cette variable définie afin que la copie, et non le coffre habituel, soit ouverte.
 
@@ -61,7 +63,9 @@ Utiliser une société fictive, une phrase secrète de test, et uniquement des m
 
 ### Résultat du parcours natif minimal (2026-10-13)
 
-Le parcours natif minimal est **réussi selon le retour utilisateur** pour les actions effectivement réalisées : création, réalisations partielles, annulation d'une réalisation et persistance après redémarrage avec le même `SUPERPOWER_TEST_DATA_DIR`. Les cas supplémentaires numérotés ci-dessus restent à parcourir.
+Le parcours natif Trésorerie est **réussi selon le retour utilisateur** pour les actions observées : création de prévision d'assurance (240 €), modification du loyer à 1 400 € sans écraser les 400 € réalisés, création de réalisations de 300 €, annulation de ces réalisations via la section Historique, maintien des lignes annulées avec leur motif et exclusion du cumul, annulation de la prévision d'assurance et visibilité dans le filtre. L'écran final montrait 1 400 € prévus à encaisser, 0 € à payer et 400 € réalisés actifs.
+
+Réserve : la réalisation de 300 € sur une prévision d'assurance de 240 € a été enregistrée puis annulée. Le rendu final ne suffit pas à confirmer que l'étiquette « Réalisé au-delà du prévu » a été vue avant annulation ; ce point est encore à contrôler sur un flux actif. Après l'annulation de la prévision, les boutons d'action étaient masqués, mais le refus côté commande Rust d'une nouvelle réalisation n'a pas été testé manuellement séparément.
 
 Le mode navigateur est uniquement une démo volatile/non chiffrée ; il ne valide ni le coffre ni la persistance native.
 
