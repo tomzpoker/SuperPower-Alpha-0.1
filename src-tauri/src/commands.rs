@@ -337,7 +337,7 @@ pub fn list_flux(
              FROM flux_previsionnels f
              LEFT JOIN flux_recurrences r ON r.id = f.recurrence_id
              WHERE (?1 IS NULL OR f.societe_id = ?1)
-             ORDER BY f.date_prevue ASC, f.created_at DESC LIMIT 500"
+             ORDER BY f.date_prevue ASC, f.created_at DESC LIMIT 10000"
         ).map_err(db_error)?;
         let rows = statement
             .query_map([societe_id], |row| {
