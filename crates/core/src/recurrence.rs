@@ -68,14 +68,16 @@ pub fn generer_echeances(
         return Err(ErreurRecurrence::FinAvantDebut);
     }
 
+    // Une prévision ponctuelle n'est pas bornée par l'horizon de récurrence.
+    // Elle doit exister même si sa date est située à plus de 36 mois.
+    let Some(intervalle_mois) = frequence.intervalle_mois() else {
+        return Ok(vec![debut]);
+    };
+
     let borne = date_fin.map_or(horizon, |fin| fin.min(horizon));
     if borne < debut {
         return Ok(Vec::new());
     }
-
-    let Some(intervalle_mois) = frequence.intervalle_mois() else {
-        return Ok(vec![debut]);
-    };
 
     let mut dates = Vec::new();
     let mut indice = 0_u32;
@@ -144,6 +146,20 @@ mod tests {
                 1,
             ),
             Ok(vec![date("2026-01-31")])
+        );
+    }
+
+    #[test]
+    fn ponctuel_reste_valide_meme_apres_l_horizon_de_recurrence() {
+        assert_eq!(
+            generer_echeances(
+                FrequenceFlux::Ponctuel,
+                date("2032-01-31"),
+                None,
+                date("2029-12-31"),
+                1,
+            ),
+            Ok(vec![date("2032-01-31")])
         );
     }
 
