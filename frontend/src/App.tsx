@@ -748,7 +748,7 @@ function taskAttemptStatusLabel(status: TaskAttempt['status']): string {
 }
 
 function PlannedPage({ page, onNewCompany }: { page: PageKey; onNewCompany: () => void }) {
-  const meta: Record<Exclude<PageKey, 'dashboard' | 'societes' | 'ecritures'>, { eyebrow: string; title: string; description: string; sprint: string; icon: typeof Files; features: string[] }> = {
+  const meta: Record<Exclude<PageKey, 'dashboard' | 'societes' | 'ecritures' | 'taches'>, { eyebrow: string; title: string; description: string; sprint: string; icon: typeof Files; features: string[] }> = {
     documents: { eyebrow: 'CENTRE DOCUMENTAIRE', title: 'Documents', description: 'Une boîte d’entrée pour vos pièces, avec un classement explicable et vérifiable.', sprint: 'Sprint 04', icon: Files, features: ['Import PDF et fichiers bureautiques', 'Détection des doublons', 'Classification par règles et score de confiance'] },
     tresorerie: { eyebrow: 'ANTICIPATION FINANCIÈRE', title: 'Trésorerie', description: 'Projeter les entrées et sorties, comparer les prévisions à la banque et anticiper les tensions.', sprint: 'Sprint 06', icon: Wallet, features: ['Flux récurrents et échéances', 'Projection à 12, 24 et 36 mois', 'Alertes de seuil et rapprochement du réel'] },
     locatif: { eyebrow: 'GESTION IMMOBILIÈRE', title: 'Gestion locative', description: 'Baux, loyers, charges et échéances réunis dans un suivi adapté aux lots immobiliers.', sprint: 'Sprint 05', icon: House, features: ['Biens, lots, baux et locataires', 'Appels de loyers, encaissements et impayés', 'Révisions contractuelles et suivi des justificatifs'] },
