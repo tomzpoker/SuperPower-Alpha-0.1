@@ -640,7 +640,7 @@ function TasksPage() {
       setTitle(task.title);
       setModuleName(task.module);
       setTaskType(task.taskType);
-      setScheduledAt(toLocalDateTimeInput(task.scheduledAt));
+      setScheduledAt(toLocalDateTimeInput(task.cronExpression ? task.cronAnchorAt ?? task.scheduledAt : task.scheduledAt));
       setCronExpression(task.cronExpression ?? '');
       setMaxAttempts(task.maxAttempts);
       setPayloadJson(JSON.stringify(task.payload, null, 2) ?? '{}');

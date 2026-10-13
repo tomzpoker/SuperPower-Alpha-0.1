@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Persistance/migration v3→v4, commandes de base et page Tâches codées ; validation en cours, handlers/cron/calendrier manquants |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Migrations v3→v5, page liste/calendrier, cron persisté et worker one-shot ; worker de fond et handlers métier non livrés |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |

@@ -87,6 +87,8 @@ export interface NewTask {
 
 export interface Task extends NewTask {
   id: string;
+  /** Date de départ d'origine conservée pour l'idempotence des tâches cron. */
+  cronAnchorAt?: string | null;
   status: TaskStatus;
   createdAt: string;
   updatedAt: string;

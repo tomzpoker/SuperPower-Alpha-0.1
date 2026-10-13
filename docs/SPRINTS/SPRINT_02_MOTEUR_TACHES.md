@@ -52,12 +52,12 @@
 
 ### Contrôles avant clôture
 
-- [ ] Rejouer cargo fmt --all -- --check sur le commit de migration.
-- [ ] Rejouer cargo test -p task-engine et cargo test --workspace sur le commit de migration.
-- [ ] Confirmer le build Tauri Windows et vérifier la migration v3 → v4, le schéma S06 préservé et le refus des versions futures.
+- [ ] Confirmer `cargo fmt --all -- --check` sur le commit de migration cron.
+- [ ] Confirmer `cargo test -p task-engine` et `cargo test --workspace` sur le commit de migration cron.
+- [ ] Confirmer le build Tauri Windows et vérifier les migrations v3 → v5, la préservation du schéma S06, l'ajout des colonnes cron et le refus des versions futures.
 - [ ] Vérifier les tests sur fichiers SQLCipher réouverts : idempotence, reprise sur expiration de bail et historique des erreurs.
 - [x] Exposer les opérations de consultation/création/statut/historique via IPC (CI verte sur le commit précédent).
-- [x] Ajouter une première API de registre de handlers et un worker one-shot ; le nouveau commit doit être validé par la CI.
+- [x] Ajouter une première API de registre de handlers et un worker one-shot ; la CI associée au commit actuel doit confirmer le build et les tests workspace.
 - [x] Persister l'expression et l'ancre cron dans la migration v4→v5, puis matérialiser idempotemment les occurrences échues dans le worker one-shot.
 - [x] Ajouter un parseur cron à cinq champs avec validation stricte et tests unitaires.
 - [ ] Intégrer le démarrage/arrêt du worker à Tauri avec arrêt propre et handlers métier explicites ; enregistrer les handlers métier avant le premier lancement.
