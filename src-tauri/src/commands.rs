@@ -1466,8 +1466,14 @@ mod recurrence_materialization_tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!(second_count, first_count, "aucune échéance ne doit être dupliquée");
-        assert_eq!(second_audit_count, first_audit_count, "la matérialisation répétée ne doit pas produire de faux événements d'audit");
+        assert_eq!(
+            second_count, first_count,
+            "aucune échéance ne doit être dupliquée"
+        );
+        assert_eq!(
+            second_audit_count, first_audit_count,
+            "la matérialisation répétée ne doit pas produire de faux événements d'audit"
+        );
 
         let (distinct_ids, distinct_dates): (i64, i64) = connection
             .query_row(
@@ -1479,6 +1485,5 @@ mod recurrence_materialization_tests {
             .unwrap();
         assert_eq!(distinct_ids, first_count);
         assert_eq!(distinct_dates, first_count);
-
     }
 }
