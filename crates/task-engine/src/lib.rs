@@ -12,7 +12,9 @@
 use std::io;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, types::Type, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
+use rusqlite::{
+    params, types::Type, Connection, OptionalExtension, Row, Transaction, TransactionBehavior,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -313,8 +315,7 @@ impl TaskEngine {
         status: TaskStatus,
         now: &str,
     ) -> Result<Task, TaskEngineError> {
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let task = Self::update_task_status_in_transaction(&transaction, task_id, status, now)?;
         transaction.commit()?;
         Ok(task)
