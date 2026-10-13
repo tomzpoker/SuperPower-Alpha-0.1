@@ -775,6 +775,116 @@ mod tests {
     }
 
     #[test]
+    fn worker_materializes_monthly_occurrences_from_original_anchor_without_duplicates() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        TaskEngine::install_schema(&connection).expect("install schema");
+
+        let input = NewTask {
+            idempotency_key: "worker-monthly-anchor".to_string(),
+            module: "documents".to_string(),
+            task_type: "classify_document".to_string(),
+            title: "Contrôle mensuel du document".to_string(),
+            payload: serde_json::json!({"documentId": "document-monthly-test"}),
+            scheduled_at: "2026-01-31T10:00:00Z".to_string(),
+            recurrence_frequency: TaskRecurrenceFrequency::Monthly,
+            cron_expression: None,
+            max_attempts: 2,
+        };
+        let task = TaskEngine::create_task(
+            &connection,
+            &input,
+            "2026-01-01T09:00:00Z",
+        )
+        .expect("create monthly task");
+        assert_eq!(
+            task.cron_anchor_at.as_deref(),
+            Some("2026-01-31T10:00:00.000Z")
+        );
+
+        let registry = TaskHandlerRegistry::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let handler_calls = Arc::clone(&calls);
+        registry
+            .register_handler("documents", "classify_document", move |_task, _execution| {
+                handler_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+            .expect("register handler");
+
+        let occurrences = [
+            (
+                "2026-01-31T10:01:00Z",
+                "2026-01-31T10:00:00.000Z",
+                "2026-02-28T10:00:00.000Z",
+            ),
+            (
+                "2026-02-28T10:01:00Z",
+                "2026-02-28T10:00:00.000Z",
+                "2026-03-31T10:00:00.000Z",
+            ),
+            (
+                "2026-03-31T10:01:00Z",
+                "2026-03-31T10:00:00.000Z",
+                "2026-04-30T10:00:00.000Z",
+            ),
+        ];
+
+        for (index, (now, expected_occurrence, expected_next)) in
+            occurrences.iter().enumerate()
+        {
+            let outcome = TaskWorker::run_once(
+                &mut connection,
+                &registry,
+                at(now),
+                TaskWorkerConfig::default(),
+            )
+            .expect("run monthly occurrence");
+            assert!(matches!(outcome, WorkerOutcome::Succeeded { .. }));
+
+            let mut executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+            executions.sort_by(|left, right| left.scheduled_for.cmp(&right.scheduled_for));
+            assert_eq!(executions.len(), index + 1);
+            assert_eq!(executions[index].scheduled_for, *expected_occurrence);
+            assert_eq!(
+                executions[index].status,
+                ExecutionStatus::Succeeded
+            );
+
+            let updated = TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(updated.scheduled_at, *expected_next);
+            assert_eq!(
+                updated.cron_anchor_at.as_deref(),
+                Some("2026-01-31T10:00:00.000Z"),
+                "l'ancre d'origine ne doit pas dériver"
+            );
+
+            let repeated = TaskWorker::run_once(
+                &mut connection,
+                &registry,
+                at(if now.ends_with("10:01:00Z") {
+                    &now.replace("10:01:00Z", "10:02:00Z")
+                } else {
+                    now
+                }),
+                TaskWorkerConfig::default(),
+            )
+            .expect("repeat the worker pass");
+            assert_eq!(repeated, WorkerOutcome::Idle);
+            assert_eq!(
+                TaskEngine::list_executions(&connection, &task.id)
+                    .unwrap()
+                    .len(),
+                index + 1,
+                "la passe répétée ne doit pas dupliquer l'occurrence"
+            );
+            assert_eq!(calls.load(Ordering::SeqCst), index + 1);
+        }
+    }
+
+    #[test]
     fn worker_materializes_due_cron_occurrences_idempotently_and_advances_next_date() {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
