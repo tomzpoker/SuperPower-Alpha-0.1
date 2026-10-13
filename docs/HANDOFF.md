@@ -6,13 +6,15 @@
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
 - `main` de référence : `17966e1009daca10b8daa53cc6c937fdc22073d3`.
 - S06-A et S06-B sont fusionnés dans `main`; la PR [#5 — S06-B, flux prévisionnels récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5) a été fusionnée le 13 octobre 2026.
-- Une tranche prototype du Sprint 02 est en cours sur la branche `sprint/02-moteur-taches-prototype` (non fusionnée) : crate `task-engine`, stockage des définitions/exécutions/tentatives dans une connexion SQLCipher fournie, clés d'idempotence et reprise par expiration de bail. Cette tranche n'est pas intégrée à `AppState`, ne migre pas le schéma applicatif et n'a pas encore de commandes/UI/cron. Tests et CI de cette branche à confirmer avant intégration.
+- Une tranche du Sprint 02 est en cours sur `sprint/02-moteur-taches-prototype` (non fusionnée) : crate `task-engine`, stockage des définitions/exécutions/tentatives dans une connexion SQLCipher, idempotence et reprise par expiration de bail. La migration applicative transactionnelle v3→v4 est désormais câblée sur cette branche et crée les tables du moteur. Les commandes Tauri, handlers, cron et l'UI restent à intégrer ; la CI et les tests sur le dernier commit de migration doivent être confirmés avant de poursuivre.
 - Le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb`, y compris build Tauri Windows et tests workspace. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est en cours sur `17966e1`; frontend et Rust sont verts, build Windows encore en cours au dernier relevé.
 - S06-B conserve les prévisions ponctuelles au-delà de trois ans ; pour les récurrences, l'horizon glissant de 36 mois part d'aujourd'hui.
 
 Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une saisie comptable technique. S06-A ajoute le suivi des flux de trésorerie prévisionnels et réalisés sans choix de comptes comptables.
 
 ## 2. État de validation et contrôles encore ouverts
+
+État du Sprint 02 au 2026-10-13 : l'utilisateur a exécuté `cargo fmt --all -- --check`, `cargo test -p task-engine` (3 tests) et `cargo test --workspace` (29 tests) avec succès sur le prototype initial. Ces résultats précèdent le dernier changement qui câble la migration v3→v4 dans `database.rs` : relancer les contrôles après récupération du commit le plus récent. Une compilation native Windows sur le commit courant reste requise.
 
 Résultats manuels signalés le 2026-10-13 :
 - Parcours natif du 2026-10-13 confirmé par l'utilisateur : prévision de loyer modifiée à 1 400 € avec 400 € réalisés conservés ; prévision d'assurance de 240 € ; réalisation de 300 € enregistrée puis annulée via l'historique ; historique conservé avec motif d'annulation ; prévision assurance annulée et affichée via le filtre ; totaux observés : 1 400 € prévus à encaisser, 0 € prévus à payer, 400 € réalisés actifs.
