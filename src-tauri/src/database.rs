@@ -461,7 +461,11 @@ mod migration_tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(version, 3);
-        for table in ["flux_previsionnels", "flux_realisations", "flux_recurrences"] {
+        for table in [
+            "flux_previsionnels",
+            "flux_realisations",
+            "flux_recurrences",
+        ] {
             let count: i64 = connection
                 .query_row(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -479,7 +483,10 @@ mod migration_tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(recurrence_column_count, 1, "le lien facultatif vers une série doit être ajouté");
+        assert_eq!(
+            recurrence_column_count, 1,
+            "le lien facultatif vers une série doit être ajouté"
+        );
 
         let company_name: String = connection
             .query_row(
