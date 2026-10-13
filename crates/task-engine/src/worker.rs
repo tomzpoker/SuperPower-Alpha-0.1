@@ -791,12 +791,8 @@ mod tests {
             cron_expression: None,
             max_attempts: 2,
         };
-        let task = TaskEngine::create_task(
-            &connection,
-            &input,
-            "2026-01-01T09:00:00Z",
-        )
-        .expect("create monthly task");
+        let task = TaskEngine::create_task(&connection, &input, "2026-01-01T09:00:00Z")
+            .expect("create monthly task");
         assert_eq!(
             task.cron_anchor_at.as_deref(),
             Some("2026-01-31T10:00:00.000Z")
@@ -806,10 +802,14 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let handler_calls = Arc::clone(&calls);
         registry
-            .register_handler("documents", "classify_document", move |_task, _execution| {
-                handler_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
+            .register_handler(
+                "documents",
+                "classify_document",
+                move |_task, _execution| {
+                    handler_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                },
+            )
             .expect("register handler");
 
         let occurrences = [
@@ -849,10 +849,7 @@ mod tests {
             executions.sort_by(|left, right| left.scheduled_for.cmp(&right.scheduled_for));
             assert_eq!(executions.len(), index + 1);
             assert_eq!(executions[index].scheduled_for, *expected_occurrence);
-            assert_eq!(
-                executions[index].status,
-                ExecutionStatus::Succeeded
-            );
+            assert_eq!(executions[index].status, ExecutionStatus::Succeeded);
 
             let updated = TaskEngine::get_task_by_id(&connection, &task.id)
                 .unwrap()
