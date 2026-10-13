@@ -9,7 +9,7 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le calendrier accessible, recherche/filtres, historique avec durées, commandes de tâche testées sur SQLCipher et cycle lock/unlock couvert. Un handler métier `tresorerie/rappel_flux` est ajouté pour notifier le solde restant des flux existants, en attente de CI. Le parcours visuel/IPC natif reste ouvert. |
+| Statut | S06-B est dans `main`. La branche S02 couvre calendrier accessible, recherche/filtres, historique avec durées, cycle SQLCipher et handler `tresorerie/rappel_flux` validé en CI #38459805017. Un bouton de création idempotente depuis la trésorerie est ajouté pour la prochaine validation frontend/Windows. Le parcours visuel/IPC natif reste ouvert. |
 | Prochaine action | Vérifier le parcours natif des commandes Tauri de verrouillage/déverrouillage sur coffre temporaire, puis choisir le prochain handler métier à partir d’un cas d’usage existant. Les tests de récurrence et de persistance utilisent des dates déterministes. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Deux handlers prévus (`general/reminder`, `tresorerie/rappel_flux`) ; le rappel de trésorerie vérifie le flux SQLCipher et le solde non réalisé ; CI du nouveau handler en attente ; test natif lock/unlock reste ouvert |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Handler SQLCipher trésorerie validé ; bouton « Programmer un rappel » et tests frontend en cours de CI ; vérification native du verrouillage/déverrouillage encore ouverte |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |

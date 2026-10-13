@@ -12,6 +12,7 @@ import { formatDate, formatMoney, parseAmountToCents } from './lib/money';
 import { readReminderMessage, withReminderMessage } from './lib/task-payload';
 import { taskCalendarOccurrenceDates } from './lib/task-calendar';
 import { formatElapsedDuration } from './lib/task-history';
+import { buildFluxReminderTaskInput } from './lib/flux-reminder';
 import { filterTasks } from './lib/task-filter';
 import type { TaskStatusFilter } from './lib/task-filter';
 import type {
@@ -347,6 +348,35 @@ function App() {
     } catch (reason) { setError(errorMessage(reason)); return false; }
   }
 
+  async function createFluxReminder(flow: FluxView): Promise<void> {
+    setError('');
+    try {
+      if (!isDesktopRuntime()) {
+        throw new Error('Les rappels de trésorerie nécessitent l’application native et son coffre déverrouillé.');
+      }
+      const input = buildFluxReminderTaskInput(flow);
+      const currentTasks = await api<Task[]>('list_tasks');
+      const existingTask = currentTasks.find((task) => task.idempotencyKey === input.idempotencyKey);
+      if (existingTask) {
+        const executions = await api<TaskExecution[]>('list_task_executions', { taskId: existingTask.id });
+        if (executions.length > 0) {
+          showToast('Ce flux possède déjà un rappel historisé. Consultez la page Tâches pour son résultat.');
+          return;
+        }
+        if (existingTask.status !== 'scheduled') {
+          await api<Task>('update_task_status', { taskId: existingTask.id, status: 'scheduled' });
+        }
+        await api<Task>('update_task', { taskId: existingTask.id, input });
+        showToast(`Rappel de trésorerie mis à jour pour le ${flow.datePrevue}.`);
+        return;
+      }
+      await api<Task>('create_task', { input });
+      showToast(`Rappel de trésorerie programmé pour le ${flow.datePrevue}.`);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
+
   if (status === 'loading') {
     return <div className="boot-screen"><div className="brand-mark large">S<span>+</span></div><p>Ouverture de SuperPower…</p></div>;
   }
@@ -415,7 +445,7 @@ function App() {
         {page === 'societes' && <CompaniesPage onNew={() => { setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} editingSocieteId={editingSocieteId} onEdit={handleEditCompany} onDelete={handleDeleteCompany} societes={societes} showForm={showCompanyForm} setShowForm={setShowCompanyForm} form={companyForm} setForm={setCompanyForm} onSubmit={handleCreateCompany} />}
         {page === 'ecritures' && <EntriesPage entries={entries.filter((entry) => !selectedSocieteId || entry.societeId === selectedSocieteId)} societes={societes} accounts={accounts} activeCompany={activeCompany} setSelectedSocieteId={setSelectedSocieteId} showForm={showEntryForm} setShowForm={setShowEntryForm} onSubmit={handleCreateEntry} entryDate={entryDate} setEntryDate={setEntryDate} entryLabel={entryLabel} setEntryLabel={setEntryLabel} entryReference={entryReference} setEntryReference={setEntryReference} debitAccount={debitAccount} setDebitAccount={setDebitAccount} creditAccount={creditAccount} setCreditAccount={setCreditAccount} entryAmount={entryAmount} setEntryAmount={setEntryAmount} busy={entryBusy} onRefresh={refreshEntries} />}
         {page === 'taches' && <TasksPage />}
-        {page === 'tresorerie' && <CashflowPage societes={societes} selectedSocieteId={selectedSocieteId} flux={flux.filter(flow => !selectedSocieteId || flow.societeId === selectedSocieteId)} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onCreate={createFlow} onUpdate={updateFlow} onRealise={realiseFlow} onCancel={cancelFlow} onCancelRealisation={cancelRealisation} onStopRecurrence={stopRecurrence} />}
+        {page === 'tresorerie' && <CashflowPage societes={societes} selectedSocieteId={selectedSocieteId} flux={flux.filter(flow => !selectedSocieteId || flow.societeId === selectedSocieteId)} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onCreate={createFlow} onUpdate={updateFlow} onRealise={realiseFlow} onCancel={cancelFlow} onCancelRealisation={cancelRealisation} onStopRecurrence={stopRecurrence} onCreateReminder={createFluxReminder} />}
         {page !== 'dashboard' && page !== 'societes' && page !== 'ecritures' && page !== 'tresorerie' && page !== 'taches' && <PlannedPage page={page} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} />}
         <footer className="page-footer"><span>SuperPower Alpha 0.1</span><span><span className="footer-dot" /> Coffre local {isDesktopRuntime() ? 'chiffré' : 'démo volatile'}</span><span>Conçu pour garder le contrôle.</span></footer>
       </div>
@@ -523,12 +553,13 @@ function frequenceFluxLabel(value: FrequenceFlux): string {
 function fluxStateLabel(value: FluxView['etat']): string {
   return ({ a_prevoir: 'À prévoir', en_retard: 'En retard', partiellement_realise: 'Partiellement réalisé', realise: 'Réalisé', depasse: 'Réalisé au-delà du prévu', annule: 'Prévision annulée' })[value];
 }
-function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreate, onUpdate, onRealise, onCancel, onCancelRealisation, onStopRecurrence }: {
+function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreate, onUpdate, onRealise, onCancel, onCancelRealisation, onStopRecurrence, onCreateReminder }: {
   societes: Societe[]; selectedSocieteId: string; flux: FluxView[]; onNewCompany: () => void;
   onCreate: (input: FluxInput) => Promise<boolean>; onUpdate: (id: string, input: FluxInput) => Promise<boolean>;
   onRealise: (fluxId: string, input: RealisationFluxInput) => Promise<boolean>;
   onCancel: (id: string) => Promise<boolean>; onCancelRealisation: (id: string, motif: string) => Promise<boolean>;
   onStopRecurrence: (recurrenceId: string, dateFin: string) => Promise<boolean>;
+  onCreateReminder: (flow: FluxView) => Promise<void>;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -639,7 +670,7 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
         <div className="cashflow-card-header"><div className="cashflow-title-row"><span className={'cashflow-direction ' + flow.sens}>{flow.sens === 'encaissement' ? <ArrowDownLeft size={19} /> : <ArrowUpRight size={19} />}</span><div><h3>{flow.libelle}</h3><p>{formatDate(flow.datePrevue)} · {fluxCategoryLabel(flow.categorie)} · {societes.find(company => company.id === flow.societeId)?.nom ?? 'Société'} · {frequenceFluxLabel(flow.frequenceRecurrence)}</p></div></div><span className={'cashflow-status status-' + flow.etat}>{fluxStateLabel(flow.etat)}</span></div>
         <div className="cashflow-amounts"><div><span>Prévu</span><strong>{formatMoney(flow.montantPrevuCents)}</strong></div><div><span>Réalisé</span><strong>{formatMoney(flow.montantRealiseCents)}</strong></div><div><span>Écart (prévu − réalisé)</span><strong>{formatMoney(flow.resteCents)}</strong></div></div>
         {(flow.tiers || flow.reference) && <div className="cashflow-meta">{flow.tiers && <span><strong>Tiers :</strong> {flow.tiers}</span>}{flow.reference && <span><strong>Réf. :</strong> {flow.reference}</span>}</div>}
-        {flow.statut === 'actif' && <div className="cashflow-actions"><button type="button" className="button secondary small" onClick={() => openEdit(flow)}><Pencil size={14} /> Modifier le prévu</button><button type="button" className="button primary small" onClick={() => openRealisation(flow)}><CheckCircle2 size={14} /> Enregistrer {flow.sens === 'encaissement' ? 'un encaissement' : 'un paiement'}</button><button type="button" className="button secondary small" onClick={() => void cancelForecast(flow)}><X size={14} /> Annuler la prévision</button></div>}
+        {flow.statut === 'actif' && <div className="cashflow-actions">{isDesktopRuntime() && flow.resteCents > 0 && <button type="button" className="button secondary small" onClick={() => void onCreateReminder(flow)}><Clock3 size={14} /> Programmer un rappel</button>}<button type="button" className="button secondary small" onClick={() => openEdit(flow)}><Pencil size={14} /> Modifier le prévu</button><button type="button" className="button primary small" onClick={() => openRealisation(flow)}><CheckCircle2 size={14} /> Enregistrer {flow.sens === 'encaissement' ? 'un encaissement' : 'un paiement'}</button><button type="button" className="button secondary small" onClick={() => void cancelForecast(flow)}><X size={14} /> Annuler la prévision</button></div>}
         {flow.recurrenceId && flow.recurrenceActive && <div className="cashflow-actions"><button type="button" className="button secondary small" onClick={() => void stopForecastRecurrence(flow)}><X size={14} /> Arrêter la récurrence</button></div>}
         {realisingId === flow.id && <form className="cashflow-realisation-form" onSubmit={event => void submitRealisation(event, flow)}><h4>Enregistrer ce qui s’est réellement passé</h4><p>Vous pouvez enregistrer une réalisation partielle. Un dépassement est signalé, jamais masqué.</p><div className="form-grid two-cols"><Field label="Date réelle *"><input type="date" required value={realForm.dateRealisation} onChange={e => setRealForm({ ...realForm, dateRealisation: e.target.value })} /></Field><Field label="Montant réellement reçu/payé (€) *"><input required inputMode="decimal" value={realForm.montant} onChange={e => setRealForm({ ...realForm, montant: e.target.value })} placeholder="Ex. 600,00" /></Field><Field label="Référence du paiement"><input maxLength={100} value={realForm.reference} onChange={e => setRealForm({ ...realForm, reference: e.target.value })} /></Field><Field label="Note"><input maxLength={500} value={realForm.note} onChange={e => setRealForm({ ...realForm, note: e.target.value })} placeholder="Virement partiel" /></Field></div>{localError && <div className="alert error">{localError}</div>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => { setRealisingId(null); setLocalError(''); }}>Annuler</button><button type="submit" className="button primary"><CheckCircle2 size={16} /> Confirmer la réalisation</button></div></form>}
         {!!flow.realisations.length && <details className="cashflow-history"><summary>Historique des réalisations ({flow.realisations.length})</summary><div>{flow.realisations.map(item => <div className={'cashflow-realisation' + (item.annuleeAt ? ' is-cancelled' : '')} key={item.id}><div><strong>{formatDate(item.dateRealisation)} · {formatMoney(item.montantCents)}</strong><span>{item.note || item.reference || 'Réalisation enregistrée'}{item.annuleeAt ? ' · Annulée : ' + (item.motifAnnulation || 'motif absent') : ''}</span></div>{!item.annuleeAt && <button type="button" className="button secondary small" onClick={() => void cancelActual(item)}>Annuler cette réalisation</button>}</div>)}</div></details>}
