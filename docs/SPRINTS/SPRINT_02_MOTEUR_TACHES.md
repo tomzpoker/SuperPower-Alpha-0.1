@@ -71,4 +71,4 @@
 
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
-- Le commit `14da025` ajoute la suppression contrôlée et ses tests SQLCipher. Le run #143 a validé le frontend mais a signalé deux écarts de formatage Rust dans les assertions de test ; le correctif correspondant suit dans la branche.
+- Le commit `14da025` ajoute la suppression contrôlée et ses tests SQLCipher. Le run #143 a validé le frontend ainsi que le build Windows/workspace, mais le contrôle Rust a relevé deux écarts de formatage dans les assertions. Le commit `92b9cdd` corrige ces deux lignes ; le commit `078d365` met à jour ce handoff. La prochaine CI doit valider l'ensemble.
