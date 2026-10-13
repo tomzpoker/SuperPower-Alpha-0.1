@@ -503,12 +503,8 @@ pub fn register_flux_realisation(
     let Some(status) = status else {
         return Err("Ce flux n'existe plus.".to_string());
     };
-    if status != "actif" {
-        return Err(
-            "Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée."
-                .to_string(),
-        );
-    }
+    ensure_flux_realisation_allowed(&status)?;
+
     transaction.execute(
         "INSERT INTO flux_realisations(id, flux_id, date_realisation, montant_cents, reference, note, created_at, annulee_at, motif_annulation)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL)",
@@ -564,6 +560,17 @@ pub fn cancel_flux_realisation(
     .map_err(db_error)?;
     transaction.commit().map_err(db_error)?;
     build_flux_view(&connection, read_flux_record(&connection, &flux_id)?)
+}
+
+fn ensure_flux_realisation_allowed(status: &str) -> Result<(), String> {
+    if status == "actif" {
+        Ok(())
+    } else {
+        Err(
+            "Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée."
+                .to_string(),
+        )
+    }
 }
 
 fn clean_optional(value: Option<String>) -> Option<String> {
@@ -867,4 +874,26 @@ fn from_enum<T: for<'de> Deserialize<'de>>(value: &str) -> Result<T, String> {
 
 fn db_error(error: rusqlite::Error) -> String {
     format!("Erreur de base de données : {error}")
+}
+
+#[cfg(test)]
+mod flux_realisation_guard_tests {
+    use super::ensure_flux_realisation_allowed;
+
+    #[test]
+    fn active_forecast_accepts_realisation_but_cancelled_forecast_refuses_it() {
+        assert_eq!(ensure_flux_realisation_allowed("actif"), Ok(()));
+        assert_eq!(
+            ensure_flux_realisation_allowed("annule"),
+            Err(
+                "Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée."
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn unknown_forecast_status_is_rejected_safely() {
+        assert!(ensure_flux_realisation_allowed("inconnu").is_err());
+    }
 }
