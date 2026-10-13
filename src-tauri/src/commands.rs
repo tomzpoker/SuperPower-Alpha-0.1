@@ -1,4 +1,4 @@
-use chrono::{Local, NaiveDate};
+use chrono::{Local, Months, NaiveDate};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use superpower_core::{
@@ -9,6 +9,7 @@ use superpower_core::{
     },
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
+use superpower_core::recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux};
 use tauri::State;
 use uuid::Uuid;
 
@@ -85,6 +86,28 @@ struct FluxRecord {
     tiers: Option<String>,
     reference: Option<String>,
     statut: String,
+    created_at: String,
+    updated_at: String,
+    recurrence_id: Option<String>,
+    frequence_recurrence: Option<String>,
+    date_fin_recurrence: Option<String>,
+    recurrence_active: Option<i64>,
+}
+
+#[derive(Debug)]
+struct RecurrenceRecord {
+    id: String,
+    societe_id: String,
+    frequence: String,
+    date_debut: String,
+    date_fin: Option<String>,
+    actif: i64,
+    libelle: String,
+    sens: String,
+    categorie: String,
+    montant_prevu_cents: i64,
+    tiers: Option<String>,
+    reference: Option<String>,
     created_at: String,
     updated_at: String,
 }
