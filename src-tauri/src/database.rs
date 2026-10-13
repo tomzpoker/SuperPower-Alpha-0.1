@@ -875,13 +875,14 @@ mod migration_tests {
             }
         }
 
-        let vault = TemporaryVault(std::env::temp_dir().join(format!(
-            "superpower-lock-cycle-{}.db",
-            Uuid::new_v4()
-        )));
+        let vault = TemporaryVault(
+            std::env::temp_dir().join(format!("superpower-lock-cycle-{}.db", Uuid::new_v4())),
+        );
         let state = AppState::new(vault.0.clone());
         let passphrase = "integration monthly test secret";
-        state.initialize(passphrase).expect("initialize SQLCipher vault");
+        state
+            .initialize(passphrase)
+            .expect("initialize SQLCipher vault");
 
         let task = {
             let connection = state.connection().expect("open initialized vault");
@@ -931,10 +932,7 @@ mod migration_tests {
             assert!(matches!(outcome, WorkerOutcome::Succeeded { .. }));
             let executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
             assert_eq!(executions.len(), 1);
-            assert_eq!(
-                executions[0].scheduled_for,
-                "2027-01-31T10:00:00.000Z"
-            );
+            assert_eq!(executions[0].scheduled_for, "2027-01-31T10:00:00.000Z");
         }
 
         state.lock();
@@ -978,14 +976,16 @@ mod migration_tests {
 
             let mut executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
             executions.sort_by(|left, right| left.scheduled_for.cmp(&right.scheduled_for));
-            assert_eq!(executions.len(), 2, "no occurrence may be duplicated after unlock");
+            assert_eq!(
+                executions.len(),
+                2,
+                "no occurrence may be duplicated after unlock"
+            );
             assert_eq!(executions[0].scheduled_for, "2027-01-31T10:00:00.000Z");
             assert_eq!(executions[1].scheduled_for, "2027-02-28T10:00:00.000Z");
-            assert!(
-                executions
-                    .iter()
-                    .all(|execution| execution.status == ExecutionStatus::Succeeded)
-            );
+            assert!(executions
+                .iter()
+                .all(|execution| execution.status == ExecutionStatus::Succeeded));
             assert_eq!(calls.load(Ordering::SeqCst), 2);
 
             let next = TaskEngine::get_task_by_id(&connection, &task.id)
