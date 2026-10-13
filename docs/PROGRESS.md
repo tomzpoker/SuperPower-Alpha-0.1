@@ -30,16 +30,16 @@
 
 ## Validation automatisée
 
-Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38326327437) est vert sur le commit S06-A `41d26e6`. Pour S06-B, le run [#88](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38331494863) a confirmé frontend et Rust sur le commit `14e755b`; le build Tauri Windows et les tests workspace étaient encore en cours au dernier relevé.
+Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38326327437) est vert sur le commit S06-A `41d26e6`. Pour S06-B, le run [#94](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332295125) a confirmé frontend et Rust sur le commit `0102103`; le build Tauri Windows et les tests workspace restent à confirmer.
 
 | Contrôle | Portée et état |
 |---|---|
-| `cargo fmt --all -- --check` | S06-A passé sur `b65085c` ; S06-B passé sur le run #88 |
-| Tests Rust du domaine | S06-A passé sur `b65085c` ; S06-B passé sur le run #88 |
+| `cargo fmt --all -- --check` | S06-A passé sur `b65085c` ; S06-B passé sur le run #94 |
+| Tests Rust du domaine | S06-A passé sur `b65085c` ; S06-B passé sur le run #94 |
 | Tests workspace / migration automatisée | Passés en CI sur `b65085c`, dont préservation de données représentatives et idempotence de la migration du schéma |
-| Frontend | S06-A passé sur `b65085c` ; typecheck/tests/bundle S06-B passés sur le run #88 |
-| Build Tauri Windows | S06-A passé sur `b65085c` ; S06-B en cours sur le run #88 |
-| Vérification Markdown et liens | S06-A passée sur `b65085c` ; S06-B passée sur le run #88 |
+| Frontend | S06-A passé sur `b65085c` ; typecheck/tests/bundle S06-B passés sur le run #94 |
+| Build Tauri Windows | S06-A passé sur `b65085c` ; S06-B en cours sur le run #94 |
+| Vérification Markdown et liens | S06-A passée sur `b65085c` ; S06-B passée sur le run #94 |
 | Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
 | Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
@@ -66,7 +66,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 
 ## Limites / risques connus
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
-- Récurrences en implémentation dans [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5), mais pas encore livrées dans `main`. La fenêtre glissante de 36 mois sert à matérialiser les échéances ; elle ne remplace pas une projection financière dédiée.
+- Récurrences en implémentation dans [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5), mais pas encore livrées dans `main`. La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
 - Baux, import bancaire, grand livre/balance, FEC validé, clôture et fiscalité automatisée non livrés.
 - Plan de comptes limité au socle illustratif.

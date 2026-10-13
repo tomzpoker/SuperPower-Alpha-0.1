@@ -7,7 +7,7 @@
 - `main` de référence : `7f87caf9d878db0ae2e254fcbd4f01b7acc48a2c`.
 - S06-A est fusionné ; les PR #3 (spécification S06-B) et #4 (test du garde-fou des flux annulés) sont également fusionnées.
 - PR de travail : [#5 — S06-B, flux prévisionnels récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5), branche `feat/s06b-recurrence-domain`.
-- Le run [#88](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38331494863) a passé frontend et Rust sur `14e755b`; build Tauri Windows et tests workspace étaient encore en cours au dernier relevé. Ne pas fusionner avant résultat vert sur le dernier SHA de la PR.
+- Le run [#94](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332295125) a passé frontend et Rust sur `0102103`; build Tauri Windows et tests workspace restent à confirmer. La dernière correction conserve une prévision ponctuelle même au-delà de trois ans et n'affiche la suite d'une récurrence que dans l'horizon glissant de 36 mois. Ne pas fusionner avant CI verte sur le dernier SHA.
 
 Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une saisie comptable technique. S06-A ajoute le suivi des flux de trésorerie prévisionnels et réalisés sans choix de comptes comptables.
 

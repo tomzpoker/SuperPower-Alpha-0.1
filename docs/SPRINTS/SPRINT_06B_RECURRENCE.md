@@ -17,9 +17,9 @@ Ce lot étend le suivi prévu/réalisé de S06-A. Il ne produit toujours aucune 
 
 ## État de l'implémentation (2026-10-13)
 
-Le formulaire, les commandes Rust, le générateur de calendrier, la génération idempotente des occurrences et la migration SQLCipher v2→v3 sont implémentés sur la [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). Le mode démo navigateur et ses tests couvrent aussi les principales règles de fréquence et d'arrêt. Cette fonctionnalité n'est pas encore livrée dans `main` tant que la PR n'est pas fusionnée.
+Le formulaire, les commandes Rust, le générateur de calendrier, la génération idempotente des occurrences et la migration SQLCipher v2→v3 sont implémentés sur la [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). Le mode démo navigateur et ses tests couvrent aussi les principales règles de fréquence et d'arrêt. La fenêtre de 36 mois est calculée depuis aujourd'hui ; si la première échéance est plus éloignée, elle reste enregistrée et les suivantes sont matérialisées au fur et à mesure de l'avancée de la fenêtre. Une prévision ponctuelle n'est pas limitée par cette fenêtre. Cette fonctionnalité n'est pas encore livrée dans `main` tant que la PR n'est pas fusionnée.
 
-Dernier état CI vérifié : les contrôles frontend et Rust sont verts sur le commit `14e755b` ([run #88](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38331494863)); la compilation Tauri Windows et les tests workspace étaient encore en cours au dernier relevé. L'essai natif SQLCipher v2→v3 reste à effectuer sur une copie isolée, sans toucher au coffre habituel.
+Dernier état CI vérifié : les contrôles frontend et Rust sont verts sur le commit `0102103` ([run #94](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332295125)); la compilation Tauri Windows et les tests workspace restaient à confirmer au dernier relevé. L'essai natif SQLCipher v2→v3 reste à effectuer sur une copie isolée, sans toucher au coffre habituel.
 
 ## User stories et critères d'acceptation
 
@@ -77,7 +77,7 @@ La génération doit être déterministe, bornée à 36 mois glissants au-delà 
 
 ## Couverture de tests requise
 
-- Domaine : fréquence ponctuelle et récurrente, dates de fin, génération mensuelle/trimestrielle/annuelle, mois de 28/29/30/31 jours, années bissextiles.
+- Domaine : fréquence ponctuelle même au-delà de 36 mois ; dates de fin ; récurrence démarrant hors fenêtre avec première échéance conservée ; génération mensuelle/trimestrielle/annuelle, mois de 28/29/30/31 jours, années bissextiles.
 - Persistance : v2 → v3 sans perte, contrainte d'unicité des occurrences, génération idempotente et rollback en cas d'échec.
 - Commandes : création/modification/arrêt d'une série, société incorrecte refusée, occurrence annulée sans effet sur les autres.
 - Frontend : les quatre choix, date de fin, fréquence visible, totaux par occurrences, arrêt de récurrence et données conservées après redémarrage.
