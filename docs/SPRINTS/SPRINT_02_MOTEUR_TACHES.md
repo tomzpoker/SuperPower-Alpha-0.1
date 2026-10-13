@@ -57,7 +57,7 @@
 - [x] `cargo test -p task-engine` et `cargo test --workspace` confirmés par le build/tests Windows de la CI #139.
 - [x] Build Tauri Windows et tests de migration/schéma confirmés par la CI #139.
 - [x] Tests SQLCipher, idempotence, reprise de bail et historique des erreurs inclus dans les tests du workspace passés par la CI #139.
-- [ ] Valider l'aperçu cron natif et ses nouveaux tests dans la prochaine CI.
+- [x] Aperçu cron natif et tests de régression de l'ancre validés par la CI #142 sur le commit `a656e83`.
 - [x] Exposer les opérations de consultation/création/statut/historique via IPC (CI verte sur le commit précédent).
 - [x] Ajouter une première API de registre de handlers et un worker one-shot ; la CI associée au commit actuel doit confirmer le build et les tests workspace.
 - [x] Persister l'expression et l'ancre cron dans la migration v4→v5, puis matérialiser idempotemment les occurrences échues dans le worker one-shot.
@@ -67,6 +67,8 @@
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
 
-### Validation CI la plus récente
+### Validation CI confirmée
 
-Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations. L'aperçu cron natif et ses nouveaux tests sont ajoutés dans la tranche suivante ; ils restent à valider par la CI qui sera déclenchée par ce commit.
+- Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
+- Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
+- Le commit `14da025` ajoute la suppression contrôlée et ses tests SQLCipher. Le run #143 a validé le frontend mais a signalé deux écarts de formatage Rust dans les assertions de test ; le correctif correspondant suit dans la branche.
