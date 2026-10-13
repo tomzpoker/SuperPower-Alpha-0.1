@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; fréquences métier ancrées ; CI #38445019655 verte sur `2c13cc8`, incluant le test SQLCipher AppState lock/unlock, l’historique et la reprise du worker sans doublon ; validation manuelle des commandes Tauri encore ouverte |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; récurrences ancrées, calendrier accessible et filtres de liste ; CI #38449610042 verte sur `50f289e` (frontend, Rust, build Windows/Tauri et workspace/migrations) ; validation native des commandes Tauri encore ouverte |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -43,7 +43,7 @@
 - Les exécutions en cours portent un bail. Après interruption, un bail expiré est inscrit comme tentative échouée puis peut être repris ; les tentatives épuisées deviennent terminales.
 - flexiq-core est absent du dépôt et n'est pas ajouté sans prototype ni vérification de compatibilité.
 - La migration transactionnelle v3→v4 est câblée dans `src-tauri/src/database.rs` et ajoute les tables `task_definitions`, `task_executions` et `task_attempts`. Elle conserve les tables existantes, versionne le schéma et possède un test de conservation d'un flux v3 ; les migrations v3→v6 sont validées en CI #38445019655.
-- Les commandes Tauri (liste/création/modification/suppression contrôlée/statut/historique) et la page UI Tâches sont ajoutées. La liste dispose d’une recherche insensible aux accents sur titre/module/type et de filtres d’état combinables ; un résultat vide propose de réinitialiser les filtres. Une tâche ne peut être modifiée ou supprimée qu'avant sa première exécution ; suppression et audit sont atomiques, et une tâche avec historique doit être annulée pour préserver ses résultats.
+- Les commandes Tauri (liste/création/modification/suppression contrôlée/statut/historique) et la page UI Tâches sont ajoutées. La liste dispose d’une recherche insensible aux accents sur titre/module/type et de filtres d’état combinables ; un résultat vide propose de réinitialiser les filtres. L’historique d’exécution peut être actualisé sans fermer le panneau, avec rechargement des détails de la tentative ouverte. Une tâche ne peut être modifiée ou supprimée qu'avant sa première exécution ; suppression et audit sont atomiques, et une tâche avec historique doit être annulée pour préserver ses résultats.
 - La page dispose maintenant d'un calendrier mensuel en grille, avec navigation entre mois et affichage des échéances par statut ; la liste reste l'endroit prévu pour modifier une tâche et consulter son historique. Les fréquences métier mensuelle, trimestrielle et annuelle y projettent désormais toutes les occurrences de la grille depuis l’ancre originale ; les tâches en pause/annulées n’affichent pas d’occurrences hypothétiques et cron personnalisé n’affiche que son échéance courante. Chaque occurrence du calendrier est maintenant un bouton accessible au clavier : sa sélection bascule vers la liste, fait défiler jusqu’à la tâche correspondante et affiche la date précise de l’occurrence choisie. Un test frontend vérifie que la sélection émet l’identifiant de la tâche et la date exacte de l’occurrence et que `aria-pressed` reflète l’état choisi.
 - Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
@@ -60,6 +60,8 @@
 - [x] Tests SQLCipher, idempotence, reprise de bail et historique des erreurs inclus dans les tests du workspace passés par la CI #139.
 - [x] Aperçu cron natif et tests de régression de l'ancre validés par la CI #142 sur le commit `a656e83`.
 - [x] Exposer les opérations de consultation/création/statut/historique via IPC (CI verte sur le commit précédent).
+- [x] Actualiser l’historique depuis son panneau, y compris les détails de la tentative ouverte, sans fermer la vue.
+- [x] Tester dans le mode aperçu les transitions pause/reprise/annulation/réactivation sans créer de définition de tâche en double.
 - [x] Ajouter une première API de registre de handlers et un worker one-shot ; build Tauri Windows et tests workspace confirmés par la CI #146 sur `881fcd5`.
 - [x] Persister l'expression et l'ancre cron dans la migration v4→v5, puis matérialiser idempotemment les occurrences échues dans le worker one-shot.
 - [x] Ajouter un parseur cron à cinq champs avec validation stricte et tests unitaires.
@@ -84,4 +86,5 @@
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
 - La suppression contrôlée, le test frontend du mode démo, les migrations historiques v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
+- La CI #38449610042 est verte sur `50f289e` : le test frontend du calendrier interactif, les six tests de recherche/filtres, les tests Rust, le build Tauri Windows et les tests workspace/migrations sont tous réussis.
 - La CI #38445019655 est verte sur `2c13cc8` : formatage/tests Rust, frontend, build Tauri Windows et tests workspace/migrations. Le test SQLCipher AppState verrouille/déverrouille le coffre temporaire, conserve l’historique de janvier/février et vérifie la reprise sans doublon ainsi que la prochaine occurrence au 31 mars. La CI #38438886275 valide séparément start/stop/restart du contrôleur. Le test natif du rappel simple est réussi ; la vérification manuelle des commandes de verrouillage/déverrouillage reste ouverte. [Résultats CI #38445019655](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38445019655).

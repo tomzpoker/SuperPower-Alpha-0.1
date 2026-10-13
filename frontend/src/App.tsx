@@ -680,6 +680,7 @@ function TasksPage() {
   const [executionHistory, setExecutionHistory] = useState<Record<string, TaskExecution[]>>({});
   const [attemptHistory, setAttemptHistory] = useState<Record<string, TaskAttempt[]>>({});
   const [openAttemptId, setOpenAttemptId] = useState<string | null>(null);
+  const [refreshingHistoryTaskId, setRefreshingHistoryTaskId] = useState<string | null>(null);
   const filteredTasks = useMemo(() => filterTasks(tasks, taskSearch, taskStatusFilter), [tasks, taskSearch, taskStatusFilter]);
   const [selectedCalendarOccurrence, setSelectedCalendarOccurrence] = useState<{ taskId: string; scheduledAt: string } | null>(null);
 
@@ -950,6 +951,33 @@ function TasksPage() {
     }
   }
 
+  async function refreshTaskHistory(taskId: string) {
+    setError('');
+    setRefreshingHistoryTaskId(taskId);
+    try {
+      const rows = await api<TaskExecution[]>('list_task_executions', { taskId });
+      setExecutionHistory((current) => ({ ...current, [taskId]: rows }));
+
+      if (openAttemptId && rows.some((execution) => execution.id === openAttemptId)) {
+        const attempts = await api<TaskAttempt[]>('list_task_attempts', { executionId: openAttemptId });
+        setAttemptHistory((current) => ({ ...current, [openAttemptId]: attempts }));
+      } else if (openAttemptId) {
+        setAttemptHistory((current) => {
+          const next = { ...current };
+          delete next[openAttemptId];
+          return next;
+        });
+        setOpenAttemptId(null);
+      }
+
+      setNotice('Historique d’exécution actualisé.');
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setRefreshingHistoryTaskId(null);
+    }
+  }
+
   async function toggleAttempts(executionId: string) {
     if (openAttemptId === executionId) {
       setOpenAttemptId(null);
@@ -1042,7 +1070,7 @@ function TasksPage() {
               ? <button className="button danger-ghost" onClick={() => void deleteTask(task)}>Supprimer</button>
               : null}
           </div>
-          {historyTaskId === task.id && <div className="task-history"><h4>Historique d’exécution</h4>{(executionHistory[task.id] ?? []).length === 0 ? <p>Aucune exécution enregistrée. Le worker de fond n’est pas encore lancé automatiquement.</p> : (executionHistory[task.id] ?? []).map((execution) => <div className="task-execution" key={execution.id}>
+          {historyTaskId === task.id && <div className="task-history"><div className="task-history-heading"><h4>Historique d’exécution</h4><button type="button" className="button ghost" onClick={() => void refreshTaskHistory(task.id)} disabled={refreshingHistoryTaskId === task.id}>{refreshingHistoryTaskId === task.id ? 'Actualisation…' : 'Actualiser'}</button></div>{(executionHistory[task.id] ?? []).length === 0 ? <p>Aucune exécution enregistrée. Le worker de fond n’est pas encore lancé automatiquement.</p> : (executionHistory[task.id] ?? []).map((execution) => <div className="task-execution" key={execution.id}>
               <div><strong>{new Date(execution.scheduledFor).toLocaleString('fr-FR')}</strong><span>{taskExecutionStatusLabel(execution.status)} · {execution.attemptCount}/{execution.maxAttempts} tentative(s)</span>{execution.lastError && <p className="task-error-detail">{execution.lastError}</p>}</div>
               <button className="button ghost" onClick={() => void toggleAttempts(execution.id)}>{openAttemptId === execution.id ? 'Masquer les tentatives' : 'Tentatives'}</button>
               {openAttemptId === execution.id && <div className="task-attempts">{(attemptHistory[execution.id] ?? []).length === 0 ? <p>Aucune tentative historisée.</p> : (attemptHistory[execution.id] ?? []).map((attempt) => <div className="task-attempt" key={attempt.id}><span>#{attempt.attemptNumber} · {taskAttemptStatusLabel(attempt.status)}</span><span>{new Date(attempt.startedAt).toLocaleString('fr-FR')}</span>{attempt.errorMessage && <p>{attempt.errorMessage}</p>}</div>)}</div>}

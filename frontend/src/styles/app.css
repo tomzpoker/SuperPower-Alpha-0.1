@@ -492,6 +492,9 @@ body { font-size: 16px; }
 .alert.success button { margin-left: auto; border: 0; background: transparent; color: inherit; display: grid; place-items: center; }
 .task-history { margin-top: 17px; padding-top: 15px; border-top: 1px solid var(--border); }
 .task-history h4 { font-size: 13px; margin: 0 0 10px; }
+.task-history-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.task-history-heading h4 { margin:0; }
+.task-history-heading .button { min-height:30px; padding:6px 9px; font-size:11px; }
 .task-history > p, .task-history > p { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0; }
 .task-execution { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
 .task-execution > div:first-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
