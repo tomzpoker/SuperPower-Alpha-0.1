@@ -11,6 +11,7 @@ import { api, isDesktopRuntime } from './lib/api';
 import { formatDate, formatMoney, parseAmountToCents } from './lib/money';
 import { readReminderMessage, withReminderMessage } from './lib/task-payload';
 import { taskCalendarOccurrenceDates } from './lib/task-calendar';
+import { formatElapsedDuration } from './lib/task-history';
 import { filterTasks } from './lib/task-filter';
 import type { TaskStatusFilter } from './lib/task-filter';
 import type {
@@ -1071,9 +1072,9 @@ function TasksPage() {
               : null}
           </div>
           {historyTaskId === task.id && <div className="task-history"><div className="task-history-heading"><h4>Historique d’exécution</h4><button type="button" className="button ghost" onClick={() => void refreshTaskHistory(task.id)} disabled={refreshingHistoryTaskId === task.id}>{refreshingHistoryTaskId === task.id ? 'Actualisation…' : 'Actualiser'}</button></div>{(executionHistory[task.id] ?? []).length === 0 ? <p>Aucune exécution enregistrée. Le worker de fond n’est pas encore lancé automatiquement.</p> : (executionHistory[task.id] ?? []).map((execution) => <div className="task-execution" key={execution.id}>
-              <div><strong>{new Date(execution.scheduledFor).toLocaleString('fr-FR')}</strong><span>{taskExecutionStatusLabel(execution.status)} · {execution.attemptCount}/{execution.maxAttempts} tentative(s)</span>{execution.lastError && <p className="task-error-detail">{execution.lastError}</p>}</div>
+              <div><strong>Échéance : {new Date(execution.scheduledFor).toLocaleString('fr-FR')}</strong><span>{taskExecutionStatusLabel(execution.status)} · {execution.attemptCount}/{execution.maxAttempts} tentative(s)</span><span>Début : {execution.startedAt ? new Date(execution.startedAt).toLocaleString('fr-FR') : 'Pas encore démarrée'}</span><span>Fin : {execution.finishedAt ? new Date(execution.finishedAt).toLocaleString('fr-FR') : execution.status === 'running' ? 'En cours' : '—'}</span>{formatElapsedDuration(execution.startedAt, execution.finishedAt) !== null && <span>Durée : {formatElapsedDuration(execution.startedAt, execution.finishedAt)}</span>}{execution.lastError && <p className="task-error-detail">{execution.lastError}</p>}</div>
               <button className="button ghost" onClick={() => void toggleAttempts(execution.id)}>{openAttemptId === execution.id ? 'Masquer les tentatives' : 'Tentatives'}</button>
-              {openAttemptId === execution.id && <div className="task-attempts">{(attemptHistory[execution.id] ?? []).length === 0 ? <p>Aucune tentative historisée.</p> : (attemptHistory[execution.id] ?? []).map((attempt) => <div className="task-attempt" key={attempt.id}><span>#{attempt.attemptNumber} · {taskAttemptStatusLabel(attempt.status)}</span><span>{new Date(attempt.startedAt).toLocaleString('fr-FR')}</span>{attempt.errorMessage && <p>{attempt.errorMessage}</p>}</div>)}</div>}
+              {openAttemptId === execution.id && <div className="task-attempts">{(attemptHistory[execution.id] ?? []).length === 0 ? <p>Aucune tentative historisée.</p> : (attemptHistory[execution.id] ?? []).map((attempt) => <div className="task-attempt" key={attempt.id}><span>#{attempt.attemptNumber} · {taskAttemptStatusLabel(attempt.status)}</span><span>Début : {new Date(attempt.startedAt).toLocaleString('fr-FR')}</span>{attempt.finishedAt && <span>Fin : {new Date(attempt.finishedAt).toLocaleString('fr-FR')}</span>}{formatElapsedDuration(attempt.startedAt, attempt.finishedAt) !== null && <span>Durée : {formatElapsedDuration(attempt.startedAt, attempt.finishedAt)}</span>}{attempt.errorMessage && <p>{attempt.errorMessage}</p>}</div>)}</div>}
             </div>)}</div>}
         </article>)}</div>}
   </section>;

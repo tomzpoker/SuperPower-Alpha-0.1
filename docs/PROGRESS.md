@@ -9,7 +9,7 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher et le worker natif, les récurrences ancrées, le calendrier accessible, la recherche/filtres et l’actualisation d’historique. CI #38449610042 est verte sur `50f289e` (frontend, tests Rust, build Tauri Windows et workspace/migrations). Le parcours natif des commandes Tauri reste à vérifier. |
+| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher, les récurrences ancrées, le calendrier accessible, la recherche/filtres et un historique actualisable. CI #38450618601 est verte sur le parent `f744b1b`; l’ajout d’horodatages/durées dans le widget est en cours de validation. Le parcours natif des commandes Tauri reste à vérifier. |
 | Prochaine action | Vérifier le parcours natif des commandes Tauri de verrouillage/déverrouillage sur coffre temporaire, puis choisir le prochain handler métier à partir d’un cas d’usage existant. Les tests de récurrence et de persistance utilisent des dates déterministes. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Recherche/filtres, calendrier récurrent accessible, historique actualisable avec détails des tentatives ; parcours natif de verrouillage et finalisation du cycle de vie encore ouverts |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Recherche/filtres, calendrier récurrent accessible, actualisation d’historique ; horodatages et durées de tentatives en validation ; parcours natif encore ouvert |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |

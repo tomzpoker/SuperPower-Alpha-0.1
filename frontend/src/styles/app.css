@@ -499,6 +499,9 @@ body { font-size: 16px; }
 .task-execution { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
 .task-execution > div:first-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .task-execution strong { font-size: 12px; }
+.task-execution span { line-height:1.45; overflow-wrap:anywhere; }
+.task-attempt span { overflow-wrap:anywhere; }
+.task-attempt span:nth-child(n+3) { color:var(--muted); font-weight:450; text-align:left; }
 .task-execution span { color: var(--muted); font-size: 12px; }
 .task-error-detail { color: var(--red); font-size: 12px; overflow-wrap: anywhere; margin: 0; }
 .task-attempts { grid-column: 1 / -1; background: var(--surface-2); border-radius: 9px; padding: 10px 12px; }
