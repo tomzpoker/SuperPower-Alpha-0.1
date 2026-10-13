@@ -150,6 +150,25 @@ describe('browser demo cashflow behaviour', () => {
     expect(series.filter(flow => flow.datePrevue > '2026-11-13').every(flow => flow.statut === 'annule')).toBe(true);
   });
 
+  it('only stops a recurrence on an existing occurrence within the visible horizon', async () => {
+    const company = await createCompany();
+    const first = await api<FluxView>('create_flux', {
+      input: flowInput(company.id, {
+        datePrevue: '2026-10-13',
+        frequenceRecurrence: 'mensuel',
+        dateFinRecurrence: '2027-02-13',
+      }),
+    });
+    await expect(api<void>('arreter_flux_recurrence', {
+      recurrenceId: first.recurrenceId,
+      dateFin: '2026-11-12',
+    })).rejects.toThrow('correspondre à une échéance réelle');
+    const listed = await api<FluxView[]>('list_flux');
+    const series = listed.filter(flow => flow.recurrenceId === first.recurrenceId);
+    expect(series.every(flow => flow.recurrenceActive)).toBe(true);
+    expect(series.every(flow => flow.statut === 'actif')).toBe(true);
+  });
+
   it('rejects end dates for one-off forecasts and end dates before the first occurrence', async () => {
     const company = await createCompany();
     await expect(api<FluxView>('create_flux', {
