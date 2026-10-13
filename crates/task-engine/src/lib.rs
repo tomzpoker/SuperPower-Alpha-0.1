@@ -9,20 +9,10 @@
 //! la file persistante, l'historique des tentatives et la reprise après expiration d'un
 //! bail. Le calcul cron, les handlers métier et les commandes/UI Tauri viennent ensuite.
 
-use std::{
-    io,
-    path::PathBuf,
-};
+use std::{io, path::PathBuf};
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{
-    params,
-    types::Type,
-    Connection,
-    OptionalExtension,
-    Row,
-    TransactionBehavior,
-};
+use rusqlite::{params, types::Type, Connection, OptionalExtension, Row, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -285,10 +275,12 @@ impl TaskEngine {
             ],
         )?;
 
-        let existing = find_task_by_idempotency_key(connection, &idempotency_key)?
-            .ok_or_else(|| TaskEngineError::InvalidInput(
-                "La tâche créée est introuvable après insertion.".to_string()
-            ))?;
+        let existing =
+            find_task_by_idempotency_key(connection, &idempotency_key)?.ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "La tâche créée est introuvable après insertion.".to_string(),
+                )
+            })?;
 
         let same_request = existing.module == module
             && existing.task_type == task_type
@@ -322,8 +314,7 @@ impl TaskEngine {
         now: &str,
     ) -> Result<Task, TaskEngineError> {
         let now = normalize_timestamp(now, "date de modification")?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let changed = transaction.execute(
             "UPDATE task_definitions SET status = ?1, updated_at = ?2 WHERE id = ?3",
@@ -393,10 +384,11 @@ impl TaskEngine {
         )?;
 
         let execution =
-            find_execution_by_key(connection, task_id, &idempotency_key)?
-                .ok_or_else(|| TaskEngineError::InvalidInput(
-                    "L'exécution est introuvable après insertion.".to_string()
-                ))?;
+            find_execution_by_key(connection, task_id, &idempotency_key)?.ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "L'exécution est introuvable après insertion.".to_string(),
+                )
+            })?;
         if execution.scheduled_for != scheduled_for {
             return Err(TaskEngineError::IdempotencyConflict);
         }
@@ -705,12 +697,8 @@ fn conversion_error(index: usize, kind: &str, value: &str) -> rusqlite::Error {
 }
 
 fn task_status_from_db(value: &str) -> Result<TaskStatus, rusqlite::Error> {
-    TaskStatus::from_db_str(value).map_err(|message| conversion_error(7, "statut de tâche", &message))
-}
-
-fn execution_status_from_db(value: &str) -> Result<ExecutionStatus, rusqlite::Error> {
-    ExecutionStatus::from_db_str(value)
-        .map_err(|message| conversion_error(5, "statut d'exécution", &message))
+    TaskStatus::from_db_str(value)
+        .map_err(|message| conversion_error(7, "statut de tâche", &message))
 }
 
 fn attempt_status_from_db(value: &str) -> Result<AttemptStatus, rusqlite::Error> {
@@ -857,8 +845,7 @@ mod tests {
     use super::*;
     use rusqlite::OpenFlags;
 
-    const KEY_HEX: &str =
-        "2727272727272727272727272727272727272727272727272727272727272727";
+    const KEY_HEX: &str = "2727272727272727272727272727272727272727272727272727272727272727";
     const BEFORE_DUE: &str = "2026-10-13T09:00:00Z";
     const DUE: &str = "2026-10-13T10:00:00Z";
 
@@ -869,10 +856,8 @@ mod tests {
     impl TemporaryDatabase {
         fn new() -> Self {
             Self {
-                path: std::env::temp_dir().join(format!(
-                    "superpower-task-engine-{}.db",
-                    Uuid::new_v4()
-                )),
+                path: std::env::temp_dir()
+                    .join(format!("superpower-task-engine-{}.db", Uuid::new_v4())),
             }
         }
 
@@ -976,18 +961,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first.id, repeated.id);
-        assert_eq!(TaskEngine::list_executions(&connection, &task.id).unwrap().len(), 1);
+        assert_eq!(
+            TaskEngine::list_executions(&connection, &task.id)
+                .unwrap()
+                .len(),
+            1
+        );
         drop(connection);
 
         // Reopen with the same key to prove that the queued execution survived restart.
         let mut connection = database.connect();
-        let claimed = TaskEngine::claim_next_due(
-            &mut connection,
-            DUE,
-            "2026-10-13T10:01:00Z",
-        )
-        .unwrap()
-        .expect("first claim");
+        let claimed = TaskEngine::claim_next_due(&mut connection, DUE, "2026-10-13T10:01:00Z")
+            .unwrap()
+            .expect("first claim");
         assert_eq!(claimed.attempt_count, 1);
         assert_eq!(claimed.status, ExecutionStatus::Running);
         let execution_id = claimed.id.clone();
@@ -1028,10 +1014,7 @@ mod tests {
         let attempts = TaskEngine::list_attempts(&connection, &execution_id).unwrap();
         assert_eq!(attempts.len(), 2);
         assert_eq!(attempts[1].status, AttemptStatus::Failed);
-        assert_eq!(
-            attempts[1].error_message.as_deref(),
-            Some("Erreur de test")
-        );
+        assert_eq!(attempts[1].error_message.as_deref(), Some("Erreur de test"));
     }
 
     #[test]
@@ -1055,13 +1038,9 @@ mod tests {
         .unwrap();
 
         let mut connection = connection;
-        let claimed = TaskEngine::claim_next_due(
-            &mut connection,
-            DUE,
-            "2026-10-13T10:01:00Z",
-        )
-        .unwrap()
-        .unwrap();
+        let claimed = TaskEngine::claim_next_due(&mut connection, DUE, "2026-10-13T10:01:00Z")
+            .unwrap()
+            .unwrap();
         let completed = TaskEngine::complete_execution(
             &mut connection,
             &execution.id,
@@ -1079,6 +1058,9 @@ mod tests {
         let attempts = TaskEngine::list_attempts(&connection, &claimed.id).unwrap();
         assert_eq!(attempts.len(), 1);
         assert_eq!(attempts[0].status, AttemptStatus::Succeeded);
-        assert_eq!(attempts[0].finished_at.as_deref(), Some("2026-10-13T10:00:30.000Z"));
+        assert_eq!(
+            attempts[0].finished_at.as_deref(),
+            Some("2026-10-13T10:00:30.000Z")
+        );
     }
 }
