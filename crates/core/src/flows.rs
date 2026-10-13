@@ -2,6 +2,8 @@
 //! Ce module ne déduit ni compte PCG ni traitement de TVA.
 
 use chrono::NaiveDate;
+
+use crate::recurrence::FrequenceFlux;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -59,6 +61,10 @@ pub struct FluxInput {
     pub montant_prevu_cents: i64,
     pub tiers: Option<String>,
     pub reference: Option<String>,
+    #[serde(default)]
+    pub frequence_recurrence: FrequenceFlux,
+    #[serde(default)]
+    pub date_fin_recurrence: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +108,10 @@ pub struct FluxView {
     /// Prévu moins réalisé ; cette valeur est négative en cas de dépassement.
     pub reste_cents: i64,
     pub realisations: Vec<FluxRealisationView>,
+    pub recurrence_id: Option<String>,
+    pub frequence_recurrence: FrequenceFlux,
+    pub date_fin_recurrence: Option<String>,
+    pub recurrence_active: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -122,6 +132,12 @@ pub enum FluxValidationError {
     TiersTropLong,
     #[error("La référence ne peut pas dépasser 100 caractères.")]
     ReferenceTropLong,
+    #[error("La date de fin de récurrence doit être au format AAAA-MM-JJ.")]
+    DateFinRecurrenceInvalide,
+    #[error("La date de fin de récurrence ne peut pas précéder la première échéance.")]
+    FinRecurrenceAvantDebut,
+    #[error("Une date de fin ne s'applique pas à une prévision ponctuelle.")]
+    FinSansRecurrence,
     #[error("La date de réalisation doit être au format AAAA-MM-JJ.")]
     DateRealisationInvalide,
     #[error("Le montant réalisé doit être strictement positif.")]
@@ -167,6 +183,18 @@ pub fn validate_flux_input(input: &FluxInput) -> Result<(), FluxValidationError>
         > 100
     {
         return Err(FluxValidationError::ReferenceTropLong);
+    }
+    if let Some(fin) = input.date_fin_recurrence.as_deref() {
+        if input.frequence_recurrence == FrequenceFlux::Ponctuel {
+            return Err(FluxValidationError::FinSansRecurrence);
+        }
+        let date_fin = NaiveDate::parse_from_str(fin, "%Y-%m-%d")
+            .map_err(|_| FluxValidationError::DateFinRecurrenceInvalide)?;
+        let debut = NaiveDate::parse_from_str(&input.date_prevue, "%Y-%m-%d")
+            .map_err(|_| FluxValidationError::DatePrevueInvalide)?;
+        if date_fin < debut {
+            return Err(FluxValidationError::FinRecurrenceAvantDebut);
+        }
     }
     Ok(())
 }
@@ -278,6 +306,8 @@ mod tests {
             montant_prevu_cents: 0,
             tiers: None,
             reference: None,
+            frequence_recurrence: FrequenceFlux::Ponctuel,
+            date_fin_recurrence: None,
         };
         assert_eq!(
             validate_flux_input(&input),
