@@ -14,6 +14,7 @@ SuperPower est une application desktop locale de pilotage opérationnel, comptab
 6. [\`REFERENCES_FISCALES.md\`](REFERENCES_FISCALES.md) — sources officielles et limites.
 7. [\`ROADMAP_SPRINTS.md\`](ROADMAP_SPRINTS.md), puis le sprint concerné.
 8. [\`DECISIONS/ADR-0001-flux-previsionnels.md\`](DECISIONS/ADR-0001-flux-previsionnels.md) — séparation flux métier/réalisation/écriture comptable.
+9. [\`DECISIONS/ADR-0002-task-engine.md\`](DECISIONS/ADR-0002-task-engine.md) — décision de prototype du moteur de tâches persistant.
 
 ## Règles de développement
 - Ne pas déclarer un sprint terminé sans exécuter ses contrôles.
