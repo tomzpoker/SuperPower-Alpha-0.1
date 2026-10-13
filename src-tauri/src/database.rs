@@ -576,10 +576,7 @@ mod migration_tests {
             )
             .unwrap();
         connection
-            .execute(
-                "INSERT INTO societes(id) VALUES ('soc-v2')",
-                [],
-            )
+            .execute("INSERT INTO societes(id) VALUES ('soc-v2')", [])
             .unwrap();
         connection
             .execute(
