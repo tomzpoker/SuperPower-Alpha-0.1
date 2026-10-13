@@ -14,11 +14,13 @@ import type {
   Account, CreateEntryInput, CreateSocieteInput, DashboardSummary, DatabaseStatus,
   EntryView, ExigibiliteTva, FluxInput, FluxRealisationView, FluxView, FormeJuridique,
   CategorieFlux, FrequenceFlux, NewTask, PeriodiciteTva, RealisationFluxInput, RegimeFiscal, RegimeTva, SensFlux, Societe,
-  Task, TaskAttempt, TaskExecution, TaskStatus,
+  Task, TaskAttempt, TaskExecution, TaskRecurrenceFrequency, TaskStatus,
 } from './lib/types';
 
 type PageKey = 'dashboard' | 'societes' | 'ecritures' | 'documents' | 'taches' | 'tresorerie' | 'locatif' | 'fiscalite' | 'parametres';
 type ThemeKey = 'aurora' | 'sakura' | 'mint' | 'sunset' | 'midnight';
+
+const taskRecurrenceLabels: Record<TaskRecurrenceFrequency, string> = { once: 'Ponctuelle', monthly: 'Mensuelle', quarterly: 'Trimestrielle', yearly: 'Annuelle', custom_cron: 'Cron personnalisé' };
 
 type TaskReminderEvent = {
   executionId: string;
@@ -660,6 +662,7 @@ function TasksPage() {
   const [moduleName, setModuleName] = useState('general');
   const [taskType, setTaskType] = useState('reminder');
   const [scheduledAt, setScheduledAt] = useState(() => defaultTaskDateTime());
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<TaskRecurrenceFrequency>('once');
   const [cronExpression, setCronExpression] = useState('');
   const [cronPreview, setCronPreview] = useState<{ anchor: string; expression: string; occurrences: string[] } | null>(null);
   const [cronPreviewLoading, setCronPreviewLoading] = useState(false);
@@ -744,6 +747,7 @@ function TasksPage() {
     setTaskType('reminder');
     setReminderMessage('');
     setScheduledAt(defaultTaskDateTime());
+    setRecurrenceFrequency('once');
     setCronExpression('');
     setCronPreview(null);
     setMaxAttempts(3);
@@ -798,7 +802,9 @@ function TasksPage() {
       setModuleName(task.module);
       setTaskType(task.taskType);
       setReminderMessage(readReminderMessage(task.payload));
-      setScheduledAt(toLocalDateTimeInput(task.cronExpression ? task.cronAnchorAt ?? task.scheduledAt : task.scheduledAt));
+      const taskFrequency = task.recurrenceFrequency ?? (task.cronExpression ? 'custom_cron' : 'once');
+      setRecurrenceFrequency(taskFrequency);
+      setScheduledAt(toLocalDateTimeInput(taskFrequency !== 'once' ? task.cronAnchorAt ?? task.scheduledAt : task.scheduledAt));
       setCronExpression(task.cronExpression ?? '');
       setMaxAttempts(task.maxAttempts);
       setPayloadJson(JSON.stringify(task.payload, null, 2) ?? '{}');
@@ -832,6 +838,7 @@ function TasksPage() {
         : parsedPayload;
       const plannedDate = new Date(scheduledAt);
       if (Number.isNaN(plannedDate.getTime())) throw new Error('Choisissez une date de planification valide.');
+      if (recurrenceFrequency === 'custom_cron' && !cronExpression.trim()) throw new Error('Saisissez une expression cron pour utiliser le mode avancé.');
       const existingTask = editingTaskId ? tasks.find((task) => task.id === editingTaskId) : undefined;
       if (editingTaskId && !existingTask) throw new Error('Cette tâche n’existe plus. Actualisez la liste.');
       const input: NewTask = {
@@ -841,7 +848,8 @@ function TasksPage() {
         title: title.trim(),
         payload: taskPayload,
         scheduledAt: plannedDate.toISOString(),
-        cronExpression: cronExpression.trim() || null,
+        recurrenceFrequency,
+        cronExpression: recurrenceFrequency === 'custom_cron' ? cronExpression.trim() || null : null,
         maxAttempts,
       };
       const saved = existingTask
@@ -853,6 +861,7 @@ function TasksPage() {
       setTaskType('reminder');
       setReminderMessage('');
       setScheduledAt(defaultTaskDateTime());
+      setRecurrenceFrequency('once');
       setCronExpression('');
       setCronPreview(null);
       setMaxAttempts(3);
@@ -955,8 +964,11 @@ function TasksPage() {
         <Field label="Titre"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required placeholder="Ex. Vérifier les pièces de novembre" /></Field>
         <Field label="Module"><select value={moduleName} onChange={(event) => changeTaskModule(event.target.value)}><option value="general">Général</option><option value="documents">Documents</option><option value="import_bancaire">Import bancaire</option><option value="locatif">Gestion locative</option><option value="fiscalite">Fiscalité</option></select></Field>
         <Field label="Type technique"><input value={taskType} onChange={(event) => changeTaskType(event.target.value)} maxLength={100} required placeholder="Ex. reminder" /><small>Seul « Général / reminder » est exécuté automatiquement ; les autres types restent en attente.</small></Field>
-        <Field label={cronExpression.trim() ? 'Date de départ de la récurrence' : 'Date et heure prévues'}><input type="datetime-local" value={scheduledAt} onChange={(event) => { setScheduledAt(event.target.value); setCronPreview(null); }} required /></Field>
-        <Field label="Expression cron (facultative, UTC)"><input value={cronExpression} onChange={(event) => { setCronExpression(event.target.value); setCronPreview(null); }} maxLength={200} placeholder="*/15 9-17 * * 1-5" /><div className="cron-preview-actions"><button type="button" className="button secondary small" onClick={() => void previewCronSchedule()} disabled={!isDesktopRuntime() || cronPreviewLoading || !cronExpression.trim() || !scheduledAt}>{cronPreviewLoading ? 'Calcul des occurrences…' : 'Prévisualiser les prochaines échéances'}</button>{!isDesktopRuntime() && <span>Disponible dans l’application de bureau.</span>}</div></Field>
+       <Field label="Fréquence"><select value={recurrenceFrequency} onChange={(event) => { setRecurrenceFrequency(event.target.value as TaskRecurrenceFrequency); setCronExpression(''); setCronPreview(null); }}>
+         <option value="once">Ponctuelle — une seule échéance</option><option value="monthly">Mensuelle</option><option value="quarterly">Trimestrielle</option><option value="yearly">Annuelle</option><option value="custom_cron">Avancée — expression cron UTC</option>
+       </select><small>Les fréquences métier repartent de la date d'origine. Exemple : 31 janvier → 28 février → 31 mars.</small></Field>
+       <Field label={recurrenceFrequency === 'once' ? 'Date et heure prévues' : 'Date et heure de départ'}><input type="datetime-local" value={scheduledAt} onChange={(event) => { setScheduledAt(event.target.value); setCronPreview(null); }} required /></Field>
+       {recurrenceFrequency === 'custom_cron' && <Field label="Expression cron (UTC)"><input value={cronExpression} onChange={(event) => { setCronExpression(event.target.value); setCronPreview(null); }} maxLength={200} required placeholder="*/15 9-17 * * 1-5" /><div className="cron-preview-actions"><button type="button" className="button secondary small" onClick={() => void previewCronSchedule()} disabled={!isDesktopRuntime() || cronPreviewLoading || !cronExpression.trim() || !scheduledAt}>{cronPreviewLoading ? 'Calcul des occurrences…' : 'Prévisualiser les prochaines échéances'}</button>{!isDesktopRuntime() && <span>Disponible dans l’application de bureau.</span>}</div></Field>
         <Field label="Nombre maximal de tentatives"><input type="number" value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} min={1} max={100} required /></Field>
       </div>
       {cronPreview && <div className="cron-preview-results" aria-live="polite">
@@ -991,7 +1003,7 @@ function TasksPage() {
         : <div className="tasks-list">{tasks.map((task) => <article className="panel task-card" key={task.id}>
           <div className="task-card-main">
             <div className="task-card-icon"><Clock3 size={19} /></div>
-            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}{task.cronExpression ? <> · Cron UTC : {task.cronExpression}</> : ''}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
+            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}{(task.recurrenceFrequency ?? (task.cronExpression ? 'custom_cron' : 'once')) === 'custom_cron' && task.cronExpression ? <> · Cron UTC : {task.cronExpression}</> : (task.recurrenceFrequency ?? 'once') !== 'once' ? <> · {taskRecurrenceLabels[task.recurrenceFrequency ?? 'once']}</> : ''}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
           </div>
           <div className="task-card-actions">
             {task.status !== 'cancelled' && <button className="button secondary" onClick={() => void startEditingTask(task)}>Modifier</button>}

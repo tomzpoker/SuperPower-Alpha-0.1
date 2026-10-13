@@ -70,6 +70,7 @@ export interface CreateEntryInput {
   lines: EntryLine[];
 }
 
+export type TaskRecurrenceFrequency = 'once' | 'monthly' | 'quarterly' | 'yearly' | 'custom_cron';
 export type TaskStatus = 'scheduled' | 'paused' | 'cancelled';
 export type TaskExecutionStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type TaskAttemptStatus = 'running' | 'succeeded' | 'failed';
@@ -81,13 +82,15 @@ export interface NewTask {
   title: string;
   payload: unknown;
   scheduledAt: string;
+  recurrenceFrequency?: TaskRecurrenceFrequency;
   cronExpression?: string | null;
   maxAttempts: number;
 }
 
 export interface Task extends NewTask {
   id: string;
-  /** Date de départ d'origine conservée pour l'idempotence des tâches cron. */
+  recurrenceFrequency?: TaskRecurrenceFrequency;
+  /** Date de départ d'origine conservée pour la récurrence. */
   cronAnchorAt?: string | null;
   status: TaskStatus;
   createdAt: string;
