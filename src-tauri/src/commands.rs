@@ -659,6 +659,22 @@ pub fn arreter_flux_recurrence(
             "La date d'arrêt ne peut pas prolonger une récurrence déjà limitée.".to_string(),
         );
     }
+    if fin > horizon_recurrence(debut) {
+        return Err("Choisissez une dernière échéance dans l'horizon prévisionnel visible de 36 mois.".to_string());
+    }
+    let fin_est_echeance: bool = transaction
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM flux_previsionnels
+                WHERE recurrence_id = ?1 AND date_prevue = ?2
+            )",
+            params![recurrence_id, fin.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if !fin_est_echeance {
+        return Err("La date d'arrêt doit correspondre à une échéance réelle de cette série.".to_string());
+    }
 
     transaction
         .execute(
