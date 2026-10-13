@@ -270,10 +270,16 @@ mod tests {
 
     #[test]
     fn rejects_wrong_field_count_and_out_of_range_values() {
-        assert_eq!(CronSchedule::parse("0 0 * * * *"), Err(CronError::FieldCount));
+        assert_eq!(
+            CronSchedule::parse("0 0 * * * *"),
+            Err(CronError::FieldCount)
+        );
         assert!(matches!(
             CronSchedule::parse("60 * * * *"),
-            Err(CronError::InvalidField { field: "minute", .. })
+            Err(CronError::InvalidField {
+                field: "minute",
+                ..
+            })
         ));
         assert!(CronSchedule::parse("*/0 * * * *").is_err());
         assert!(CronSchedule::parse("5-2 * * * *").is_err());
