@@ -71,40 +71,39 @@ L'utilisateur confirme avoir vu l'état « Réalisé au-delà du prévu » lors 
 
 Le mode navigateur est uniquement une démo volatile/non chiffrée ; il ne valide ni le coffre ni la persistance native.
 
-## 5. Test manuel de migration SQLCipher v1 → v2
-À effectuer seulement avec une base v1 de test (ou une copie locale d'une base v1, si tu es certain de pouvoir y conserver les données sur la machine). Garder le fichier d'origine intact. La variable de développement `SUPERPOWER_TEST_DATA_DIR` permet de lancer la build debug sur un dossier séparé ; elle n'est pas honorée par les builds release.
+## 5. Test manuel de migration SQLCipher v2 → v3 (S06-B)
 
-**Préparer le dossier isolé dans PowerShell depuis la racine du dépôt** (fermer d'abord SuperPower). Cette commande s'arrête si la paire de fichiers n'est pas trouvée :
+À effectuer seulement sur une **copie** d'une base v2 de test. Ne jamais lancer une migration de test sur la base habituelle. Il faut copier ensemble le fichier SQLCipher et son fichier de sel ; `SUPERPOWER_TEST_DATA_DIR` est pris en compte en build debug et pas dans les builds release.
+
+**Préparer une copie isolée dans PowerShell depuis la racine du dépôt** (fermer d'abord SuperPower) :
 
 ```powershell
-$source=Join-Path $env:APPDATA 'fr.superpower.alpha'; $db=Join-Path $source 'superpower.db'; $salt=Join-Path $source 'superpower.salt'; if (!(Test-Path $db) -or !(Test-Path $salt)) { throw "Base ou fichier de sel introuvable dans $source. Stoppe ici et localise la paire correcte." }; $testDir=Join-Path $env:TEMP ('SuperPower-S06A-migration-'+(Get-Date -Format 'yyyyMMdd-HHmmss')); New-Item -ItemType Directory -Path $testDir | Out-Null; Copy-Item $db (Join-Path $testDir 'superpower.db'); Copy-Item $salt (Join-Path $testDir 'superpower.salt'); Write-Output "Dossier isolé : $testDir"
+$source=Join-Path $env:APPDATA 'fr.superpower.alpha'; $db=Join-Path $source 'superpower.db'; $salt=Join-Path $source 'superpower.salt'; if (!(Test-Path $db) -or !(Test-Path $salt)) { throw "Base ou fichier de sel introuvable dans $source. Stoppe ici et localise la paire correcte." }; $testDir=Join-Path $env:TEMP ('SuperPower-S06B-migration-'+(Get-Date -Format 'yyyyMMdd-HHmmss')); New-Item -ItemType Directory -Path $testDir | Out-Null; Copy-Item $db (Join-Path $testDir 'superpower.db'); Copy-Item $salt (Join-Path $testDir 'superpower.salt'); Write-Output "Dossier isolé : $testDir"
 ```
 
-Vérifie que la source est bien une base v1 non encore migrée par S06-A. Si l'application a déjà été ouverte avec cette branche, la base source peut être passée en v2 ; dans ce cas, ne prétends pas avoir testé une migration v1 → v2. Utilise une sauvegarde v1 connue. Ne prends pas une base contenant des données que tu n'as pas le droit d'utiliser dans un test.
+Avant d'ouvrir la copie avec la branche S06-B, lire son `PRAGMA user_version` au moyen d'un outil compatible SQLCipher et confirmer que la source est en v2. Si la version ne peut pas être relevée, documenter le résultat comme un simple test de démarrage, pas comme une preuve formelle de migration v2→v3. Ne pas utiliser une sauvegarde inconnue pour conclure à une migration précise.
 
-Lance ensuite l'application en utilisant **le chemin isolé qui vient d'être créé** :
+Lancer l'application en pointant vers le dossier temporaire exact affiché par la commande :
 
 ```powershell
 $env:SUPERPOWER_TEST_DATA_DIR=$testDir; npm run tauri:dev
 ```
 
-1. Déverrouiller avec la phrase secrète associée au fichier copié. Le déverrouillage déclenche la migration transactionnelle de ce dossier uniquement.
-2. Vérifier que le déverrouillage réussit et que l'application arrive à l'état prêt.
-3. Vérifier que les sociétés, écritures, lignes et entrées d'audit préexistantes sont toujours présentes avec les mêmes valeurs.
-4. Vérifier que les tables `flux_previsionnels` et `flux_realisations` existent et que `PRAGMA user_version` vaut `2`, avec un outil compatible SQLCipher si disponible.
-5. Fermer puis rouvrir l'application en conservant la même variable `SUPERPOWER_TEST_DATA_DIR` ; confirmer que le deuxième déverrouillage fonctionne sans duplication.
-6. Créer un flux de test, fermer l'application, puis la relancer pour vérifier que le flux persiste.
-7. En cas d'échec, arrêter les essais, conserver la copie et les journaux. Ne jamais remettre le dossier temporaire à la place du dossier original.
+1. Déverrouiller la copie avec sa phrase secrète. Seul le dossier temporaire peut être modifié par ce test.
+2. Vérifier que l'application s'ouvre et que la société et les données v2 préexistantes (prévisions et réalisations) sont conservées.
+3. Avec un outil compatible SQLCipher, vérifier après migration `PRAGMA user_version = 3), la table `flux_recurrences` et la colonne nullable `flux_previsionnels.recurrence_id`.
+4. Vérifier que chaque flux v2 existant reste ponctuel : `recurrence_id IS NULL`, montant/libellé/date prévus préservés et réalisations intactes.
+5. Créer un flux récurrent mensuel de test et vérifier que les échéances futures s'affichent, que les dates de fin de mois ne dérivent pas et que chaque occurrence a son propre historique.
+6. Fermer puis rouvrir l'application en gardant le même `SUPERPOWER_TEST_DATA_DIR). Vérifier la persistance et l'absence de doublons après le rechargement.
+7. En cas d'échec, arrêter les essais, garder la copie et les journaux pour diagnostic. Ne jamais remplacer la base habituelle avec cette copie.
 
-Pour revenir au fonctionnement normal dans cette fenêtre PowerShell : `Remove-Item Env:SUPERPOWER_TEST_DATA_DIR`. La variable n'a aucun effet sur un build release.
+Pour revenir au fonctionnement normal dans cette fenêtre PowerShell : `Remove-Item Env:SUPERPOWER_TEST_DATA_DIR`.
 
-### Résultat de l'essai sur copie native (2026-10-13)
+### Historique du précédent essai (2026-10-13)
 
-L'utilisateur a copié `superpower.db` et `superpower.salt` dans un dossier temporaire, lancé la branche avec `SUPERPOWER_TEST_DATA_DIR`, puis confirmé que l'application s'ouvrait, que les données existantes étaient visibles et que le deuxième lancement avec la même copie fonctionnait. Le dossier de l'application habituelle n'a pas été utilisé comme cible de migration.
+L'utilisateur a précédemment copié `superpower.db` et `superpower.salt` vers un dossier temporaire, confirmé que le coffre s'ouvrait et que les données restaient visibles après réouverture. La version source n'a pas été relevée indépendamment ; cet essai ne constitue pas une preuve de migration v1→v2 ni v2→v3.
 
-**Réserve importante :** la version initiale du fichier source n'a pas été relevée indépendamment. Ne pas présenter cet essai comme preuve définitive d'une migration v1 → v2 tant que `PRAGMA user_version` de la source et de la copie migrée n'a pas été confirmé, ainsi que la présence des tables S06-A.
-
-Le test automatisé utilise SQLite en mémoire et le schéma v1 complet représentatif ; il augmente la confiance en la conservation des données, mais ne prouve pas l'ouverture, le déchiffrement et la migration d'un fichier SQLCipher existant sur Windows.
+Les tests automatisés utilisent des bases en mémoire ; ils ne prouvent pas à eux seuls le déchiffrement et la migration d'un fichier SQLCipher existant sur Windows.
 
 ## 6. Conventions de développement
 - Montants en centimes entiers côté Rust (`i64`) ; frontend via `parseAmountToCents`.
