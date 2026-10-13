@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DatabaseStatus,
-  EntryLine, EntryView, FluxInput, FluxRealisationView, FluxView, RealisationFluxInput, Societe,
+  EntryLine, EntryView, FluxInput, FluxRealisationView, FluxView, FrequenceFlux, RealisationFluxInput, Societe,
 } from './types';
 
 // In the browser, only an in-memory preview is provided. Real data belongs in the
@@ -59,6 +59,63 @@ function isValidIsoDate(value: unknown): value is string {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+function demoAddMonthsAnchored(start: string, months: number): string {
+  const [startYear, startMonth, startDay] = start.split('-').map(Number);
+  const absoluteMonth = startYear * 12 + startMonth - 1 + months;
+  const year = Math.floor(absoluteMonth / 12);
+  const month = absoluteMonth % 12 + 1;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const day = Math.min(startDay, lastDay);
+  return [year, String(month).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
+}
+
+function demoRecurrenceDates(input: FluxInput): string[] {
+  const frequency = input.frequenceRecurrence ?? 'ponctuel';
+  if (frequency === 'ponctuel') return [input.datePrevue];
+  const monthStep: Record<Exclude<FrequenceFlux, 'ponctuel'>, number> = {
+    mensuel: 1, trimestriel: 3, annuel: 12,
+  };
+  const horizonToday = demoAddMonthsAnchored(demoToday(), 36);
+  const horizonStart = demoAddMonthsAnchored(input.datePrevue, 36);
+  const horizon = horizonToday > horizonStart ? horizonToday : horizonStart;
+  const bound = input.dateFinRecurrence && input.dateFinRecurrence < horizon
+    ? input.dateFinRecurrence
+    : horizon;
+  const step = monthStep[frequency];
+  const dates: string[] = [];
+  for (let index = 0; index < 1200; index += 1) {
+    const occurrence = demoAddMonthsAnchored(input.datePrevue, index * step);
+    if (occurrence > bound) return dates;
+    dates.push(occurrence);
+  }
+  throw new Error('La récurrence dépasse la limite de 1 200 échéances.');
+}
+
+function demoOccurrence(
+  input: FluxInput,
+  datePrevue: string,
+  recurrenceId: string | null,
+  now: string,
+  existing?: FluxView,
+): FluxView {
+  return summarizeFlux({
+    ...input,
+    ...(existing ?? {}),
+    ...input,
+    id: existing?.id ?? crypto.randomUUID(),
+    datePrevue,
+    recurrenceId,
+    recurrenceActive: recurrenceId !== null,
+    statut: existing?.statut ?? 'actif',
+    etat: existing?.etat ?? 'a_prevoir',
+    montantRealiseCents: existing?.montantRealiseCents ?? 0,
+    resteCents: existing?.resteCents ?? input.montantPrevuCents,
+    realisations: existing?.realisations ?? [],
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  });
+}
+
 function textLength(value: string): number {
   return Array.from(value).length;
 }
@@ -82,6 +139,15 @@ function validateDemoFluxInput(input: FluxInput): void {
   if (!['loyer', 'charge_courante', 'travaux', 'impot_taxe', 'emprunt', 'apport_associe', 'autre'].includes(input.categorie)) {
     throw new Error('La catégorie du flux est invalide.');
   }
+  const frequency = input.frequenceRecurrence ?? 'ponctuel';
+  if (!['ponctuel', 'mensuel', 'trimestriel', 'annuel'].includes(frequency)) {
+    throw new Error('La fréquence de récurrence est invalide.');
+  }
+  if (input.dateFinRecurrence != null && input.dateFinRecurrence !== '') {
+    if (frequency === 'ponctuel') throw new Error('Une date de fin ne s’applique pas à une prévision ponctuelle.');
+    if (!isValidIsoDate(input.dateFinRecurrence)) throw new Error('La date de fin de récurrence doit être au format AAAA-MM-JJ.');
+    if (input.dateFinRecurrence < input.datePrevue) throw new Error('La date de fin ne peut pas précéder la première échéance.');
+  }
 }
 
 function normalizeDemoFluxInput(input: FluxInput): FluxInput {
@@ -91,6 +157,8 @@ function normalizeDemoFluxInput(input: FluxInput): FluxInput {
     libelle: input.libelle.trim(),
     tiers: cleanDemoOptional(input.tiers),
     reference: cleanDemoOptional(input.reference),
+    frequenceRecurrence: input.frequenceRecurrence ?? 'ponctuel',
+    dateFinRecurrence: cleanDemoOptional(input.dateFinRecurrence),
   };
 }
 
@@ -153,9 +221,10 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       validateDemoFluxInput(rawInput);
       const input = normalizeDemoFluxInput(rawInput);
       const now = new Date().toISOString();
-      const flow: FluxView = summarizeFlux({ ...input, id: crypto.randomUUID(), statut: 'actif', etat: 'a_prevoir', montantRealiseCents: 0, resteCents: input.montantPrevuCents, realisations: [], createdAt: now, updatedAt: now });
-      demoFlux = [flow, ...demoFlux];
-      return flow as T;
+      const recurrenceId = input.frequenceRecurrence === 'ponctuel' ? null : crypto.randomUUID();
+      const occurrences = demoRecurrenceDates(input).map(date => demoOccurrence(input, date, recurrenceId, now));
+      demoFlux = [...occurrences, ...demoFlux];
+      return (occurrences.find(flow => flow.datePrevue === input.datePrevue) ?? occurrences[0]) as T;
     }
     case 'update_flux': {
       const id = args.id as string, rawInput = args.input as FluxInput;
@@ -165,7 +234,26 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       if (current.societeId !== rawInput.societeId) throw new Error('La société d’un flux existant ne peut pas être changée.');
       validateDemoFluxInput(rawInput);
       const input = normalizeDemoFluxInput(rawInput);
-      const updated = summarizeFlux({ ...current, ...input, updatedAt: new Date().toISOString() });
+      if (current.recurrenceId) {
+        if (input.frequenceRecurrence !== current.frequenceRecurrence || input.dateFinRecurrence !== current.dateFinRecurrence) {
+          throw new Error('La fréquence d’une série existante ne se modifie pas depuis une occurrence. Arrêtez la série puis créez une nouvelle prévision récurrente.');
+        }
+        if (input.datePrevue !== current.datePrevue) throw new Error('La date d’une échéance récurrente est liée au calendrier de sa série ; elle ne peut pas être déplacée individuellement.');
+        const updated = summarizeFlux({ ...current, ...input, recurrenceId: current.recurrenceId, recurrenceActive: current.recurrenceActive, updatedAt: new Date().toISOString() });
+        demoFlux = demoFlux.map(flow => flow.id === id ? updated : flow);
+        return updated as T;
+      }
+      if (input.frequenceRecurrence !== 'ponctuel') {
+        const recurrenceId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const occurrenceDates = demoRecurrenceDates(input);
+        const occurrences = occurrenceDates.map(date => date === input.datePrevue
+          ? demoOccurrence(input, date, recurrenceId, now, current)
+          : demoOccurrence(input, date, recurrenceId, now));
+        demoFlux = [...occurrences, ...demoFlux.filter(flow => flow.id !== id)];
+        return (occurrences.find(flow => flow.id === id) ?? occurrences[0]) as T;
+      }
+      const updated = summarizeFlux({ ...current, ...input, recurrenceId: null, recurrenceActive: false, updatedAt: new Date().toISOString() });
       demoFlux = demoFlux.map(flow => flow.id === id ? updated : flow);
       return updated as T;
     }
@@ -176,6 +264,31 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       const updated = summarizeFlux({ ...current, statut: 'annule', updatedAt: new Date().toISOString() });
       demoFlux = demoFlux.map(flow => flow.id === id ? updated : flow);
       return updated as T;
+    }
+    case 'arreter_flux_recurrence': {
+      const recurrenceId = String(args.recurrenceId ?? '');
+      const dateFin = String(args.dateFin ?? '');
+      const seriesFlows = demoFlux.filter(flow => flow.recurrenceId === recurrenceId);
+      if (!seriesFlows.length) throw new Error('Cette série de récurrence n’existe plus.');
+      if (!seriesFlows.some(flow => flow.recurrenceActive)) throw new Error('Cette récurrence est déjà arrêtée.');
+      if (!isValidIsoDate(dateFin)) throw new Error('La date d’arrêt doit être au format AAAA-MM-JJ.');
+      const start = seriesFlows.map(flow => flow.datePrevue).sort()[0];
+      const existingEnd = seriesFlows[0].dateFinRecurrence;
+      if (dateFin < start) throw new Error('La date d’arrêt ne peut pas précéder la première échéance.');
+      if (existingEnd && dateFin > existingEnd) throw new Error('La date d’arrêt ne peut pas prolonger une récurrence déjà limitée.');
+      const now = new Date().toISOString();
+      demoFlux = demoFlux.map(flow => {
+        if (flow.recurrenceId !== recurrenceId) return flow;
+        const cancelled = flow.datePrevue > dateFin && flow.statut === 'actif';
+        return summarizeFlux({
+          ...flow,
+          dateFinRecurrence: dateFin,
+          recurrenceActive: false,
+          statut: cancelled ? 'annule' : flow.statut,
+          updatedAt: now,
+        });
+      });
+      return undefined as T;
     }
     case 'register_flux_realisation': {
       const fluxId = args.fluxId as string, rawInput = args.input as RealisationFluxInput;
