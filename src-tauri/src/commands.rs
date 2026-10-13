@@ -1353,8 +1353,8 @@ fn db_error(error: rusqlite::Error) -> String {
 #[cfg(test)]
 mod recurrence_materialization_tests {
     use super::materialiser_recurrences;
-    use chrono::Local;
-    use rusqlite::{params, Connection};
+    use chrono::{Local, Months};
+    use rusqlite::Connection;
 
     #[test]
     fn materialization_is_idempotent_and_keeps_each_occurrence_independent() {
@@ -1479,7 +1479,5 @@ mod recurrence_materialization_tests {
             .unwrap();
         assert_eq!(distinct_ids, first_count);
         assert_eq!(distinct_dates, first_count);
-
-        let _ = params!["smoke"];
-    }
+\n    }
 }
