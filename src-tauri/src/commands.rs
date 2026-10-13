@@ -329,12 +329,17 @@ pub fn list_flux(
     societe_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<FluxView>, String> {
-    let connection = state.connection()?;
+    let mut connection = state.connection()?;
+    materialiser_recurrences(&mut connection)?;
     let records = {
         let mut statement = connection.prepare(
-            "SELECT id, societe_id, libelle, sens, categorie, date_prevue, montant_prevu_cents, tiers, reference, statut, created_at, updated_at
-             FROM flux_previsionnels WHERE (?1 IS NULL OR societe_id = ?1)
-             ORDER BY date_prevue ASC, created_at DESC LIMIT 500"
+            "SELECT f.id, f.societe_id, f.libelle, f.sens, f.categorie, f.date_prevue,
+                    f.montant_prevu_cents, f.tiers, f.reference, f.statut, f.created_at, f.updated_at,
+                    f.recurrence_id, r.frequence, r.date_fin, r.actif
+             FROM flux_previsionnels f
+             LEFT JOIN flux_recurrences r ON r.id = f.recurrence_id
+             WHERE (?1 IS NULL OR f.societe_id = ?1)
+             ORDER BY f.date_prevue ASC, f.created_at DESC LIMIT 500"
         ).map_err(db_error)?;
         let rows = statement
             .query_map([societe_id], |row| {
@@ -351,6 +356,10 @@ pub fn list_flux(
                     statut: row.get(9)?,
                     created_at: row.get(10)?,
                     updated_at: row.get(11)?,
+                    recurrence_id: row.get(12)?,
+                    frequence_recurrence: row.get(13)?,
+                    date_fin_recurrence: row.get(14)?,
+                    recurrence_active: row.get(15)?,
                 })
             })
             .map_err(db_error)?;
