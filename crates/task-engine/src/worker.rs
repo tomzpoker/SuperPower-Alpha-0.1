@@ -25,10 +25,7 @@ pub enum HandlerRegistryError {
     #[error("Le type de tâche doit contenir entre 1 et 100 caractères.")]
     InvalidTaskType,
     #[error("Un gestionnaire existe déjà pour « {module}/{task_type} ».")]
-    Duplicate {
-        module: String,
-        task_type: String,
-    },
+    Duplicate { module: String, task_type: String },
     #[error("Le registre des gestionnaires est indisponible : son verrou est empoisonné.")]
     Poisoned,
 }
@@ -192,8 +189,7 @@ impl TaskWorker {
             }
         }
 
-        let Some(execution) =
-            TaskEngine::claim_next_due(connection, &now_text, &lease_until)?
+        let Some(execution) = TaskEngine::claim_next_due(connection, &now_text, &lease_until)?
         else {
             return Ok(WorkerOutcome::Idle);
         };
@@ -348,12 +344,16 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let handler_calls = Arc::clone(&calls);
         registry
-            .register_handler(" documents ", "classify_document", move |task, execution| {
-                assert_eq!(task.title, "Classer un document");
-                assert_eq!(execution.attempt_count, 1);
-                handler_calls.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
+            .register_handler(
+                " documents ",
+                "classify_document",
+                move |task, execution| {
+                    assert_eq!(task.title, "Classer un document");
+                    assert_eq!(execution.attempt_count, 1);
+                    handler_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                },
+            )
             .expect("register handler");
 
         let outcome = TaskWorker::run_once(
