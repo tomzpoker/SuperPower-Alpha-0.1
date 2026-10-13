@@ -7,10 +7,10 @@
 |---|---|
 | Version | `0.1.0-alpha.1` |
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
-| Lot en cours | Vérification native de migration SQLCipher v2→v3 et parcours natif des récurrences |
-| Branche | `main` |
-| Statut | S06-B fusionné dans `main` (commit `17966e1`). CI PR #5 entièrement verte au run #96. CI post-fusion #97 : frontend et Rust verts, build Windows encore en cours au dernier relevé. Essai natif SQLCipher v2→v3 et parcours UI récurrences à confirmer. |
-| Prochaine action | Finir de confirmer la CI post-fusion #97, puis tester la migration v2→v3 sur une copie SQLCipher isolée et vérifier les quatre fréquences dans l'interface native. |
+| Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
+| Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
+| Statut | S06-B est dans `main`. Le prototype S02 est isolé sur sa branche : stockage SQLCipher des tâches/exécutions, idempotence et reprise par bail en cours de validation ; pas encore intégré au coffre, aux commandes Tauri ni à l'UI. |
+| Prochaine action | Valider `task-engine` sur sa branche, puis intégrer son schéma par migration v3→v4 et exposer les commandes ; ajouter ensuite handlers, cron et UI. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | TODO | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Prototype durable/idempotent à décider |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Prototype interne SQLCipher sur `sprint/02-moteur-taches-prototype` ; non intégré à l'application |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
@@ -36,7 +36,7 @@ Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/3832
 |---|---|
 | `cargo fmt --all -- --check` | S06-B passé sur le run #96 |
 | Tests Rust du domaine | S06-B passé sur le run #96 et le run post-fusion #97 |
-| Tests workspace / migrations automatisées | Passés sur le run #96 ; migration v2→v3 sur fichier SQLCipher natif à valider séparément |
+| Tests workspace / migrations automatisées | 26 tests existants passés localement avant le prototype S02 ; les nouveaux tests `task-engine` doivent encore être exécutés sur la branche |
 | Frontend | Typecheck, tests et bundle S06-B passés sur le run #96 et le run post-fusion #97 |
 | Build Tauri Windows | Passé sur le run #96 ; run post-fusion #97 en cours au dernier relevé |
 | Vérification Markdown et liens | Passée sur le run #96 |
@@ -71,6 +71,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
+- Le prototype S02 sur branche n'est pas intégré à `AppState` ni au schéma SQLCipher applicatif ; aucune commande Tauri, planification cron ou UI de tâches n'est livrée à cette étape.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -89,3 +90,5 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 | 2026-10-13 | 06-A | Parcours natif Trésorerie et copie de coffre isolée | Scénarios observés réussis ; version source de la copie migrée non relevée indépendamment |
 
 | 2026-10-13 | 06-B | Fréquences ponctuelle/mensuelle/trimestrielle/annuelle, générateur idempotent et migration v2→v3 | Fusionné dans main (commit `17966e1`) ; CI PR #96 verte ; validation native migration à faire |
+
+| 2026-10-13 | 02 | Prototype du registre de tâches/exécutions avec idempotence et reprise par bail | Branche `sprint/02-moteur-taches-prototype`, validation automatisée à réaliser avant intégration |
