@@ -849,6 +849,159 @@ mod migration_tests {
         assert_eq!(once, "once");
     }
     #[test]
+    fn lock_unlock_resumes_monthly_worker_without_losing_history_or_duplicating_occurrences() {
+        use chrono::{DateTime, Utc};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use task_engine::{
+            ExecutionStatus, NewTask, TaskHandlerRegistry, TaskRecurrenceFrequency, TaskWorker,
+            TaskWorkerConfig, WorkerOutcome,
+        };
+        use uuid::Uuid;
+
+        struct TemporaryVault(PathBuf);
+        impl Drop for TemporaryVault {
+            fn drop(&mut self) {
+                for path in [
+                    self.0.clone(),
+                    self.0.with_extension("salt"),
+                    self.0.with_extension("db-wal"),
+                    self.0.with_extension("db-shm"),
+                ] {
+                    let _ = fs::remove_file(path);
+                }
+            }
+        }
+
+        let vault = TemporaryVault(std::env::temp_dir().join(format!(
+            "superpower-lock-cycle-{}.db",
+            Uuid::new_v4()
+        )));
+        let state = AppState::new(vault.0.clone());
+        let passphrase = "integration monthly test secret";
+        state.initialize(passphrase).expect("initialize SQLCipher vault");
+
+        let task = {
+            let connection = state.connection().expect("open initialized vault");
+            TaskEngine::create_task(
+                &connection,
+                &NewTask {
+                    idempotency_key: "lock-cycle-monthly-2027".to_string(),
+                    module: "general".to_string(),
+                    task_type: "reminder".to_string(),
+                    title: "Rappel mensuel".to_string(),
+                    payload: serde_json::json!({"message": "Reprise après déverrouillage"}),
+                    scheduled_at: "2027-01-31T10:00:00Z".to_string(),
+                    recurrence_frequency: TaskRecurrenceFrequency::Monthly,
+                    cron_expression: None,
+                    max_attempts: 3,
+                },
+                "2027-01-01T09:00:00Z",
+            )
+            .expect("create monthly reminder")
+        };
+
+        let registry = TaskHandlerRegistry::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let handler_calls = Arc::clone(&calls);
+        registry
+            .register_handler("general", "reminder", move |_task, _execution| {
+                handler_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+            .expect("register reminder handler");
+
+        let at = |value: &str| {
+            DateTime::parse_from_rfc3339(value)
+                .expect("valid simulated timestamp")
+                .with_timezone(&Utc)
+        };
+
+        {
+            let mut connection = state.connection().expect("open vault for January");
+            let outcome = TaskWorker::run_once(
+                &mut connection,
+                &registry,
+                at("2027-01-31T10:01:00Z"),
+                TaskWorkerConfig::default(),
+            )
+            .expect("execute January occurrence");
+            assert!(matches!(outcome, WorkerOutcome::Succeeded { .. }));
+            let executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+            assert_eq!(executions.len(), 1);
+            assert_eq!(
+                executions[0].scheduled_for,
+                "2027-01-31T10:00:00.000Z"
+            );
+        }
+
+        state.lock();
+        assert_eq!(state.status(), DatabaseStatus::Locked);
+        assert!(
+            state.connection().is_err(),
+            "the vault must reject connections while locked"
+        );
+        state
+            .unlock(passphrase)
+            .expect("unlock the same SQLCipher vault");
+
+        {
+            let mut connection = state.connection().expect("reopen unlocked vault");
+            let persisted = TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .expect("monthly task survives lock/unlock");
+            assert_eq!(persisted.scheduled_at, "2027-02-28T10:00:00.000Z");
+
+            let january_history = TaskEngine::list_executions(&connection, &task.id).unwrap();
+            assert_eq!(january_history.len(), 1);
+            assert_eq!(january_history[0].status, ExecutionStatus::Succeeded);
+
+            let outcome = TaskWorker::run_once(
+                &mut connection,
+                &registry,
+                at("2027-02-28T10:01:00Z"),
+                TaskWorkerConfig::default(),
+            )
+            .expect("resume worker for February occurrence");
+            assert!(matches!(outcome, WorkerOutcome::Succeeded { .. }));
+
+            let repeated = TaskWorker::run_once(
+                &mut connection,
+                &registry,
+                at("2027-02-28T10:02:00Z"),
+                TaskWorkerConfig::default(),
+            )
+            .expect("repeat the same February time window");
+            assert_eq!(repeated, WorkerOutcome::Idle);
+
+            let mut executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+            executions.sort_by(|left, right| left.scheduled_for.cmp(&right.scheduled_for));
+            assert_eq!(executions.len(), 2, "no occurrence may be duplicated after unlock");
+            assert_eq!(executions[0].scheduled_for, "2027-01-31T10:00:00.000Z");
+            assert_eq!(executions[1].scheduled_for, "2027-02-28T10:00:00.000Z");
+            assert!(
+                executions
+                    .iter()
+                    .all(|execution| execution.status == ExecutionStatus::Succeeded)
+            );
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+            let next = TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(next.scheduled_at, "2027-03-31T10:00:00.000Z");
+            assert_eq!(
+                next.cron_anchor_at.as_deref(),
+                Some("2027-01-31T10:00:00.000Z"),
+                "unlock must not move the original recurrence anchor"
+            );
+        }
+        state.lock();
+    }
+
+    #[test]
     fn refuses_a_database_from_an_unknown_future_version() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
