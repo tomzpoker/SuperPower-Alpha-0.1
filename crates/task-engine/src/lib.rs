@@ -12,7 +12,7 @@
 use std::io;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, types::Type, Connection, OptionalExtension, Row, TransactionBehavior};
+use rusqlite::{params, types::Type, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -313,9 +313,22 @@ impl TaskEngine {
         status: TaskStatus,
         now: &str,
     ) -> Result<Task, TaskEngineError> {
-        let now = normalize_timestamp(now, "date de modification")?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction =
+            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let task = Self::update_task_status_in_transaction(&transaction, task_id, status, now)?;
+        transaction.commit()?;
+        Ok(task)
+    }
 
+    /// Même mutation, mais laisse à l'appelant la responsabilité du commit afin que
+    /// l'audit applicatif et le changement de statut soient atomiques.
+    pub fn update_task_status_in_transaction(
+        transaction: &Transaction<'_>,
+        task_id: &str,
+        status: TaskStatus,
+        now: &str,
+    ) -> Result<Task, TaskEngineError> {
+        let now = normalize_timestamp(now, "date de modification")?;
         let changed = transaction.execute(
             "UPDATE task_definitions SET status = ?1, updated_at = ?2 WHERE id = ?3",
             params![status.as_db_str(), now, task_id],
@@ -334,10 +347,22 @@ impl TaskEngine {
             )?;
         }
 
-        let task = find_task_by_id(&transaction, task_id)?
-            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))?;
-        transaction.commit()?;
-        Ok(task)
+        find_task_by_id(transaction, task_id)?
+            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))
+    }
+
+    pub fn get_task_by_id(
+        connection: &Connection,
+        task_id: &str,
+    ) -> Result<Option<Task>, TaskEngineError> {
+        Ok(find_task_by_id(connection, task_id)?)
+    }
+
+    pub fn get_task_by_idempotency_key(
+        connection: &Connection,
+        idempotency_key: &str,
+    ) -> Result<Option<Task>, TaskEngineError> {
+        Ok(find_task_by_idempotency_key(connection, idempotency_key)?)
     }
 
     /// Enfile une occurrence. La paire (task_id, idempotency_key) empêche
