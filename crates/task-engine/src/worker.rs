@@ -419,7 +419,6 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         TaskEngine::install_schema(&connection).expect("install schema");
-        TaskEngine::install_cron_schema(&connection).expect("install cron schema");
         let task = create_due_task(&connection, "worker-success", 3);
 
         let registry = TaskHandlerRegistry::new();
@@ -478,7 +477,6 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         TaskEngine::install_schema(&connection).expect("install schema");
-        TaskEngine::install_cron_schema(&connection).expect("install cron schema");
         let task = create_due_task(&connection, "worker-retry", 2);
         let registry = TaskHandlerRegistry::new();
         registry
@@ -524,7 +522,6 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         TaskEngine::install_schema(&connection).expect("install schema");
-        TaskEngine::install_cron_schema(&connection).expect("install cron schema");
         let task = create_due_task(&connection, "worker-missing-handler", 1);
         let registry = TaskHandlerRegistry::new();
 
@@ -561,7 +558,6 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         TaskEngine::install_schema(&connection).expect("install schema");
-        TaskEngine::install_cron_schema(&connection).expect("install cron schema");
 
         let input = NewTask {
             idempotency_key: "worker-cron".to_string(),

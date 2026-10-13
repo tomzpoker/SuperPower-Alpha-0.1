@@ -243,7 +243,7 @@ fn migrate_v3_to_v4(connection: &mut Connection) -> Result<(), String> {
     let transaction = connection
         .transaction()
         .map_err(|error| format!("Démarrage de migration v3 vers v4 impossible : {error}"))?;
-    TaskEngine::install_schema(&transaction)
+    TaskEngine::install_schema_v4(&transaction)
         .map_err(|error| format!("Installation du moteur de tâches impossible : {error}"))?;
     transaction
         .execute_batch("PRAGMA user_version = 4;")
@@ -759,7 +759,7 @@ mod migration_tests {
     #[test]
     fn migrates_v4_to_v5_adds_cron_columns_and_preserves_task_data() {
         let mut connection = Connection::open_in_memory().unwrap();
-        TaskEngine::install_schema(&connection).unwrap();
+        TaskEngine::install_schema_v4(&connection).unwrap();
         connection
             .execute(
                 "INSERT INTO task_definitions (

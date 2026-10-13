@@ -251,9 +251,17 @@ pub struct TaskAttempt {
 pub struct TaskEngine;
 
 impl TaskEngine {
-    /// Ajoute le schéma du prototype à la connexion fournie par l'appelant.
-    /// La version de schéma reste la responsabilité de la migration applicative.
+    /// Installe le schéma courant du moteur, y compris les colonnes de récurrence.
+    /// La version globale du coffre reste la responsabilité des migrations Tauri.
     pub fn install_schema(connection: &Connection) -> Result<(), TaskEngineError> {
+        Self::install_schema_v4(connection)?;
+        Self::install_cron_schema(connection)?;
+        Ok(())
+    }
+
+    /// Installe uniquement le schéma historique v4 pour la migration v3 → v4.
+    /// Cette méthode est réservée à l'enchaînement des migrations applicatives.
+    pub fn install_schema_v4(connection: &Connection) -> Result<(), TaskEngineError> {
         connection.execute_batch(SCHEMA)?;
         Ok(())
     }
@@ -665,7 +673,7 @@ impl TaskEngine {
                      (e.status = 'running' AND e.lease_until IS NOT NULL
                        AND e.lease_until <= ?1 AND e.attempt_count < e.max_attempts)
                    )
-                 ORDER BY e.available_at, e.created_at, e.id
+                 ORDER BY e.available_at, e.scheduled_for, e.created_at, e.id
                  LIMIT 1",
                 [&now],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -1161,8 +1169,7 @@ mod tests {
     }
 
     fn init(connection: &Connection) {
-        TaskEngine::install_schema(connection).expect("install schema");
-        TaskEngine::install_cron_schema(connection).expect("install cron schema");
+        TaskEngine::install_schema(connection).expect("install current task schema");
     }
 
     #[test]
