@@ -817,20 +817,23 @@ mod tests {
                 "2026-01-31T10:01:00Z",
                 "2026-01-31T10:00:00.000Z",
                 "2026-02-28T10:00:00.000Z",
+                "2026-01-31T10:02:00Z",
             ),
             (
                 "2026-02-28T10:01:00Z",
                 "2026-02-28T10:00:00.000Z",
                 "2026-03-31T10:00:00.000Z",
+                "2026-02-28T10:02:00Z",
             ),
             (
                 "2026-03-31T10:01:00Z",
                 "2026-03-31T10:00:00.000Z",
                 "2026-04-30T10:00:00.000Z",
+                "2026-03-31T10:02:00Z",
             ),
         ];
 
-        for (index, (now, expected_occurrence, expected_next)) in
+        for (index, (now, expected_occurrence, expected_next, repeated_at)) in
             occurrences.iter().enumerate()
         {
             let outcome = TaskWorker::run_once(
@@ -864,11 +867,7 @@ mod tests {
             let repeated = TaskWorker::run_once(
                 &mut connection,
                 &registry,
-                at(if now.ends_with("10:01:00Z") {
-                    &now.replace("10:01:00Z", "10:02:00Z")
-                } else {
-                    now
-                }),
+                at(repeated_at),
                 TaskWorkerConfig::default(),
             )
             .expect("repeat the worker pass");
