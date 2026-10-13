@@ -1535,7 +1535,7 @@ fn db_error(error: rusqlite::Error) -> String {
 mod recurrence_input_horizon_tests {
     use super::dates_pour_input;
     use chrono::{Local, Months};
-    use superpower_core::flows::{CategorieFlux, FluxInput, FrequenceFlux, SensFlux};
+    use superpower_core::{CategorieFlux, FluxInput, FrequenceFlux, SensFlux};
 
     #[test]
     fn first_occurrence_is_kept_when_series_starts_outside_the_36_month_window() {
