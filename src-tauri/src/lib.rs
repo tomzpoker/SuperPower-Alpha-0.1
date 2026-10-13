@@ -227,7 +227,11 @@ fn format_amount_cents_fr(cents: i64) -> String {
 mod flux_reminder_tests {
     use super::*;
     use chrono::{DateTime, Utc};
-    use std::{fs, path::PathBuf, sync::{Arc, Mutex}};
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+    };
     use task_engine::{
         ExecutionStatus, NewTask, TaskEngine, TaskRecurrenceFrequency, TaskStatus, TaskWorker,
         TaskWorkerConfig, WorkerOutcome,
@@ -469,7 +473,9 @@ mod flux_reminder_tests {
             max_attempts: 3,
         };
 
-        let mut connection = state.connection().expect("open SQLCipher worker connection");
+        let mut connection = state
+            .connection()
+            .expect("open SQLCipher worker connection");
         let saved = TaskEngine::create_task(&connection, &input, "2027-01-01T00:00:00Z")
             .expect("persist the treasury reminder task");
         let now = DateTime::parse_from_rfc3339("2027-01-05T08:01:00Z")
@@ -504,7 +510,9 @@ mod flux_reminder_tests {
             let events = observed_events.lock().expect("read observed reminder");
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].execution_id, execution_id);
-            assert!(events[0].message.contains("reste 1\u{202f}400,00 € à encaisser."));
+            assert!(events[0]
+                .message
+                .contains("reste 1\u{202f}400,00 € à encaisser."));
             assert!(events[0].message.ends_with("Vérifier le règlement."));
         }
 
