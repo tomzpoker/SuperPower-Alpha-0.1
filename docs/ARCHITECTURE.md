@@ -26,6 +26,7 @@ crates/core/src/
   society.rs     # société, régimes, avertissements
   flows.rs       # flux prévisionnels, réalisations, validation, états
   events.rs      # bus mémoire, pas encore branché
+  ../task-engine/src/lib.rs # prototype isolé de file durable SQLCipher (branche S02, non intégré)
 src-tauri/src/
   database.rs    # AppState, SQLCipher, Argon2id, schéma/migrations
   commands.rs    # IPC Tauri et persistance
@@ -107,4 +108,4 @@ S06-A ne crée pas d'écriture comptable ni de TVA. Une opération réelle peut 
 - Couverture >80 % non démontrée.
 
 ## 10. Évolutions
-S06-A → import bancaire (03) → gestion locative (05) → projection/alertes (06) → règles comptables et fiscalité préparatoire (07). Le moteur de tâches reste un sujet séparé : choisir une solution seulement après tests de persistance, idempotence et reprise.
+S06-A → import bancaire (03) → gestion locative (05) → projection/alertes (06) → règles comptables et fiscalité préparatoire (07). Le Sprint 02 démarre par un prototype interne task-engine utilisant la connexion SQLCipher de l'application, avec persistance, idempotence et reprise par bail. Il reste isolé tant que ses tests/CI ne sont pas validés ; flexiq-core est absent du dépôt et n'est pas ajouté sans évaluation.
