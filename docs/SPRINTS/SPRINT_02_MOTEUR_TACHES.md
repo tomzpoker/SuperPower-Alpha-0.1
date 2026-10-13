@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; fréquences métier ponctuelle/mensuelle/trimestrielle/annuelle ajoutées sans dérive de fin de mois ; migration v5→v6 et CI #162 validées ; essais natifs des fréquences et verrouillage/déverrouillage encore ouverts |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; fréquences métier ponctuelle/mensuelle/trimestrielle/annuelle ; migration v5→v6 et contrôles CI #38438886275 validés ; calculs de dates couverts par tests déterministes ; vérification intégrée du verrouillage/déverrouillage restant |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -81,4 +81,4 @@
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
 - La suppression contrôlée, le test frontend du mode démo, les migrations historiques v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
-- La CI #162 est entièrement verte sur `2c445cb` : contrôles Rust, tests frontend, build Windows/Tauri, tests du workspace et migrations v5→v6. L'essai natif isolé a confirmé la notification et l'historique réussi ; les contrôles manuels restant ouverts sont les fréquences métier puis le verrouillage/déverrouillage du coffre temporaire, avec reprise du worker sans doublon. [Résultats CI #162](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38436681181).
+- La CI #38438886275 est entièrement verte sur `4c10f16` : contrôles Rust, frontend, build Windows/Tauri et tests du workspace, y compris le test du contrôleur du worker (double démarrage ignoré, arrêt et redémarrage). Les calculs de récurrence sont validés par tests automatisés couvrant les fins de mois, le trimestre et les années bissextiles : pas d'attente réelle de plusieurs mois. L'essai natif du rappel est réussi ; seul le cycle intégré verrouillage/déverrouillage sans doublon reste à confirmer. [Résultats CI #38438886275](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38438886275).
