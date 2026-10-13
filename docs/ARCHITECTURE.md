@@ -93,6 +93,9 @@ Aucun fallback vers SQLite non chiffré n'est autorisé.
 | \`cancel_flux\` | \`id\` | vue annulée |
 | \`register_flux_realisation\` | \`fluxId\`, \`input: RealisationFluxInput\` | vue recalculée |
 | \`cancel_flux_realisation\` | \`id\`, \`motifAnnulation\` | vue recalculée |
+| \`list_tasks\` / \`create_task\` | — / \`input: NewTask\` | définitions de tâches |
+| \`update_task_status\` | \`taskId\`, \`status\` | tâche mise à jour, audit atomique |
+| \`list_task_executions\` / \`list_task_attempts\` | \`taskId\` / \`executionId\` | historique d'exécutions et tentatives |
 
 Les champs JSON sont en \`camelCase\), enums en \`snake_case\). Chaque nouvelle commande doit être déclarée dans \`commands.rs\), \`lib.rs\), \`types.ts\` et dans \`api.ts\` pour la démo.
 
