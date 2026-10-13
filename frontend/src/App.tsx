@@ -506,7 +506,7 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
   async function stopForecastRecurrence(flow: FluxView) {
     if (!flow.recurrenceId || !flow.recurrenceActive) return;
     const dateFin = window.prompt(
-      'Dernière échéance à conserver (AAAA-MM-JJ). Les échéances ultérieures seront annulées mais resteront dans l’historique :',
+      'Dernière échéance à conserver (date exacte d’une échéance visible, dans les 36 mois). Les échéances ultérieures seront annulées mais resteront dans l’historique :',
       flow.datePrevue,
     );
     if (dateFin === null || !dateFin.trim()) return;
