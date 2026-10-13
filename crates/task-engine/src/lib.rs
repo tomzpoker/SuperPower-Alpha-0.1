@@ -482,7 +482,8 @@ impl TaskEngine {
                 "Le nombre de tentatives doit être compris entre 1 et 100.".to_string(),
             ));
         }
-        let (scheduled_at, cron_expression, cron_anchor_at, recurrence_frequency) = normalize_schedule(input)?;
+        let (scheduled_at, cron_expression, cron_anchor_at, recurrence_frequency) =
+            normalize_schedule(input)?;
         let now = normalize_timestamp(now, "date de modification")?;
         let payload_json = input.payload.to_string();
 
