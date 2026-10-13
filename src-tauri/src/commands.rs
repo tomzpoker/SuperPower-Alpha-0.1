@@ -2004,9 +2004,8 @@ mod task_command_tests {
             TaskStatus::Cancelled,
             TaskStatus::Scheduled,
         ] {
-            let changed =
-                update_task_status_with_state(created.id.clone(), status, &state)
-                    .expect("apply task status transition");
+            let changed = update_task_status_with_state(created.id.clone(), status, &state)
+                .expect("apply task status transition");
             assert_eq!(changed.status, status);
         }
 
@@ -2024,8 +2023,8 @@ mod task_command_tests {
     fn task_command_logic_preserves_definitions_with_execution_history() {
         let (_vault, state) = test_state();
         let input = task_input("command-history-key", "Tâche historisée");
-        let created = create_task_with_state(input.clone(), &state)
-            .expect("create task before execution");
+        let created =
+            create_task_with_state(input.clone(), &state).expect("create task before execution");
 
         {
             let connection = state.connection().expect("open temporary vault");
@@ -2041,9 +2040,8 @@ mod task_command_tests {
 
         let mut revised_input = input;
         revised_input.title = "Modification interdite".to_string();
-        let update_error =
-            update_task_with_state(created.id.clone(), revised_input, &state)
-                .expect_err("a task with history must not be editable");
+        let update_error = update_task_with_state(created.id.clone(), revised_input, &state)
+            .expect_err("a task with history must not be editable");
         assert!(update_error.contains("ne peut plus être modifiée ou supprimée"));
 
         let delete_error = delete_task_with_state(created.id.clone(), &state)
