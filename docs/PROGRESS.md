@@ -9,8 +9,8 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher et le worker natif ; les tâches ponctuelles, mensuelles, trimestrielles et annuelles sont proposées avec ancre sans dérive de fin de mois ; cron reste avancé. CI #156 était verte avant cette tranche, sa nouvelle CI est à vérifier. Le test natif du rappel est réussi ; verrouillage/déverrouillage restant. |
-| Prochaine action | Vérifier la CI fréquence métier, valider les quatre fréquences sur coffre temporaire, puis tester verrouillage/déverrouillage sans doublon ; ensuite ajouter un handler métier idempotent. |
+| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher et le worker natif ; les tâches ponctuelles, mensuelles, trimestrielles et annuelles sont proposées avec ancre sans dérive de fin de mois ; cron reste avancé. CI #162 entièrement verte sur `2c445cb` (Rust, frontend, build Tauri Windows et tests workspace/migrations). Le test natif du rappel est réussi ; les essais natifs des fréquences et le verrouillage/déverrouillage sans doublon restent à faire. |
+| Prochaine action | Valider dans l'application native les quatre fréquences sur coffre temporaire, tester verrouillage/déverrouillage sans doublon ; ensuite ajouter un handler métier idempotent. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -39,7 +39,8 @@ Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/3832
 | Tests workspace / migrations automatisées | CI #153 verte sur `78ace82`, incluant le workspace et les migrations : [run #153](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38423220628) |
 | Frontend | Typecheck, tests et bundle S06-B passés sur le run #96 et le run post-fusion #97 |
 | Build Tauri Windows | CI #153 verte sur `78ace82` : [run #153](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38423220628) |
-| Vérification Markdown et liens | Passée en CI #153 sur `78ace82`, puis de nouveau en CI #154 sur le commit documentaire `b3afe93` |
+| CI fréquence métier v5→v6 | **Verte** sur `2c445cb` : tests Rust du moteur de tâches, build Windows/Tauri, tests workspace et migrations ; [run #162](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38436681181) |
+| Vérification Markdown et liens | Passée en CI #162 sur `2c445cb`, après les vérifications précédentes #153 et #154 |
 | Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
 | Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
