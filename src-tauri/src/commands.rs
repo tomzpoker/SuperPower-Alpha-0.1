@@ -1564,6 +1564,7 @@ pub fn create_task(input: NewTask, state: State<'_, AppState>) -> Result<Task, S
                 "module": task.module,
                 "taskType": task.task_type,
                 "scheduledAt": task.scheduled_at,
+                "recurrenceFrequency": task.recurrence_frequency,
                 "cronExpression": task.cron_expression,
                 "cronAnchorAt": task.cron_anchor_at
             }),
@@ -1592,6 +1593,7 @@ pub fn delete_task(task_id: String, state: State<'_, AppState>) -> Result<(), St
             "taskType": &deleted.task_type,
             "title": &deleted.title,
             "scheduledAt": &deleted.scheduled_at,
+            "recurrenceFrequency": deleted.recurrence_frequency,
             "cronExpression": &deleted.cron_expression,
             "status": deleted.status
         }),
@@ -1632,6 +1634,7 @@ pub fn update_task(
                 "taskType": &previous.task_type,
                 "title": &previous.title,
                 "scheduledAt": &previous.scheduled_at,
+                "recurrenceFrequency": previous.recurrence_frequency,
                 "cronExpression": &previous.cron_expression,
                 "cronAnchorAt": &previous.cron_anchor_at,
                 "maxAttempts": previous.max_attempts
@@ -1641,6 +1644,7 @@ pub fn update_task(
                 "taskType": &updated.task_type,
                 "title": &updated.title,
                 "scheduledAt": &updated.scheduled_at,
+                "recurrenceFrequency": updated.recurrence_frequency,
                 "cronExpression": &updated.cron_expression,
                 "cronAnchorAt": &updated.cron_anchor_at,
                 "maxAttempts": updated.max_attempts

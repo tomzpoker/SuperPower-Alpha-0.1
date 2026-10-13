@@ -139,7 +139,7 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
     let mut version = connection
         .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .map_err(|error| format!("Lecture de version de base impossible : {error}"))?;
-    if version > 5 {
+    if version > 6 {
         return Err(format!(
             "Cette base est en version {version}, plus récente que celle prise en charge."
         ));
@@ -231,11 +231,8 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
         migrate_v4_to_v5(connection)?;
         version = 5;
     }
-    if version != 5 {
-        return Err(format!(
-            "La version de schéma {version} n'est pas prise en charge."
-        ));
-    }
+    if version == 5 { migrate_v5_to_v6(connection)?; version = 6; }
+    if version != 6 { return Err(format!("La version de schéma {version} n'est pas prise en charge.")); }
     Ok(())
 }
 
@@ -269,6 +266,13 @@ fn migrate_v4_to_v5(connection: &mut Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn migrate_v5_to_v6(connection: &mut Connection) -> Result<(), String> {
+    let transaction = connection.transaction().map_err(|error| format!("Démarrage de migration v5 vers v6 impossible : {error}"))?;
+    TaskEngine::install_recurrence_schema(&transaction).map_err(|error| format!("Ajout des fréquences de récurrence impossible : {error}"))?;
+    transaction.execute_batch("PRAGMA user_version = 6;").map_err(|error| format!("Versionnement du schéma de récurrence impossible : {error}"))?;
+    transaction.commit().map_err(|error| format!("Validation de migration v5 vers v6 impossible : {error}"))?;
+    Ok(())
+}
 fn validate_passphrase(passphrase: &str) -> Result<(), String> {
     if passphrase.chars().count() < 12 {
         return Err("Choisissez une phrase secrète d'au moins 12 caractères.".to_string());
@@ -499,7 +503,7 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         for table in [
             "flux_previsionnels",
             "flux_realisations",
@@ -568,7 +572,7 @@ mod migration_tests {
         let final_version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(final_version, 5);
+        assert_eq!(final_version, 6);
         let final_entry_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM ecritures WHERE id = 'entry-legacy'",
@@ -651,7 +655,7 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
 
         for table in ["task_definitions", "task_executions", "task_attempts"] {
             let count: i64 = connection
@@ -713,7 +717,7 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
 
         let (company_name, flow_label, flow_amount): (String, String, i64) = connection
             .query_row(
@@ -743,7 +747,7 @@ mod migration_tests {
         let final_version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(final_version, 5);
+        assert_eq!(final_version, 6);
         let task_tables_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master
@@ -757,7 +761,7 @@ mod migration_tests {
     }
 
     #[test]
-    fn migrates_v4_to_v5_adds_cron_columns_and_preserves_task_data() {
+    fn migrates_v4_to_v6_adds_recurrence_columns_and_preserves_task_data() {
         let mut connection = Connection::open_in_memory().unwrap();
         TaskEngine::install_schema_v4(&connection).unwrap();
         connection
@@ -782,28 +786,38 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
-        let (key, title, expression, anchor): (String, String, Option<String>, Option<String>) =
-            connection
-                .query_row(
-                    "SELECT idempotency_key, title, cron_expression, cron_anchor_at
-                     FROM task_definitions WHERE id = 'task-v4'",
-                    [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-                )
-                .unwrap();
+        assert_eq!(version, 6);
+        let (key, title, expression, anchor, frequency): (String, String, Option<String>, Option<String>, String) =
+            connection.query_row("SELECT idempotency_key, title, cron_expression, cron_anchor_at, recurrence_frequency FROM task_definitions WHERE id='task-v4'", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).unwrap();
         assert_eq!(key, "key-v4");
         assert_eq!(title, "Tâche existante");
         assert_eq!(expression, None);
         assert_eq!(anchor, None);
+        assert_eq!(frequency, "once");
 
         migrate_schema(&mut connection).unwrap();
         let final_version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(final_version, 5);
+        assert_eq!(final_version, 6);
     }
 
+    #[test]
+    fn migrates_v5_to_v6_preserves_old_cron_and_one_off_tasks() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        TaskEngine::install_schema_v4(&connection).unwrap();
+        TaskEngine::install_cron_schema(&connection).unwrap();
+        connection.execute("INSERT INTO task_definitions (id,idempotency_key,module,task_type,title,payload_json,scheduled_at,status,max_attempts,created_at,updated_at,cron_expression,cron_anchor_at) VALUES ('legacy-cron','legacy-cron-key','general','reminder','Cron historique','{}','2026-10-20T10:00:00.000Z','scheduled',3,'2026-10-13T10:00:00.000Z','2026-10-13T10:00:00.000Z','0 10 * * 1-5','2026-10-20T10:00:00.000Z')", []).unwrap();
+        connection.execute("INSERT INTO task_definitions (id,idempotency_key,module,task_type,title,payload_json,scheduled_at,status,max_attempts,created_at,updated_at) VALUES ('legacy-once','legacy-once-key','general','reminder','Ponctuelle historique','{}','2026-10-20T10:00:00.000Z','scheduled',3,'2026-10-13T10:00:00.000Z','2026-10-13T10:00:00.000Z')", []).unwrap();
+        connection.execute_batch("PRAGMA user_version = 5;").unwrap();
+        migrate_schema(&mut connection).unwrap();
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, 6);
+        let cron: String = connection.query_row("SELECT recurrence_frequency FROM task_definitions WHERE id='legacy-cron'", [], |row| row.get(0)).unwrap();
+        let once: String = connection.query_row("SELECT recurrence_frequency FROM task_definitions WHERE id='legacy-once'", [], |row| row.get(0)).unwrap();
+        assert_eq!(cron, "custom_cron");
+        assert_eq!(once, "once");
+    }
     #[test]
     fn refuses_a_database_from_an_unknown_future_version() {
         let mut connection = Connection::open_in_memory().unwrap();
