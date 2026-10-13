@@ -501,7 +501,10 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
     if (ok) { setRealisingId(null); setLocalError(''); }
   }
   async function cancelForecast(flow: FluxView) {
-    if (window.confirm('Annuler la prévision « ' + flow.libelle + ' » ? Les réalisations et l’historique seront conservés.')) await onCancel(flow.id);
+    const message = flow.recurrenceId
+      ? `Annuler uniquement l’échéance du ${formatDate(flow.datePrevue)} pour « ${flow.libelle} » ? Les autres échéances resteront actives. Pour arrêter toute la série, utilisez « Arrêter la récurrence ».`
+      : `Annuler la prévision « ${flow.libelle} » ? Les réalisations et l’historique seront conservés.`;
+    if (window.confirm(message)) await onCancel(flow.id);
   }
   async function stopForecastRecurrence(flow: FluxView) {
     if (!flow.recurrenceId || !flow.recurrenceActive) return;
