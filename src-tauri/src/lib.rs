@@ -226,8 +226,12 @@ fn format_amount_cents_fr(cents: i64) -> String {
 #[cfg(test)]
 mod flux_reminder_tests {
     use super::*;
-    use std::{fs, path::PathBuf};
-    use task_engine::{ExecutionStatus, TaskRecurrenceFrequency, TaskStatus};
+    use chrono::{DateTime, Utc};
+    use std::{fs, path::PathBuf, sync::{Arc, Mutex}};
+    use task_engine::{
+        ExecutionStatus, NewTask, TaskEngine, TaskRecurrenceFrequency, TaskStatus, TaskWorker,
+        TaskWorkerConfig, WorkerOutcome,
+    };
     use uuid::Uuid;
 
     const TEST_PASSPHRASE: &str = "flux reminder temporary vault passphrase";
@@ -422,6 +426,107 @@ mod flux_reminder_tests {
             build_flux_reminder_event(&settled_state, &task("flux-settled"), &execution())
                 .expect("settled flows should be harmless")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn registered_worker_runs_treasury_reminder_once_and_persists_success() {
+        let (_vault, raw_state) = test_state();
+        seed_flux(&raw_state, "flux-worker", "encaissement", "actif", 150_000);
+        seed_realisation(&raw_state, "real-worker", "flux-worker", 10_000, false);
+
+        let state = Arc::new(raw_state);
+        let observed_events = Arc::new(Mutex::new(Vec::<TaskReminderEvent>::new()));
+        let registry = TaskHandlerRegistry::new();
+        let handler_state = Arc::clone(&state);
+        let handler_events = Arc::clone(&observed_events);
+        registry
+            .register_handler("tresorerie", "rappel_flux", move |task, execution| {
+                if let Some(event) =
+                    build_flux_reminder_event(handler_state.as_ref(), task, execution)?
+                {
+                    handler_events
+                        .lock()
+                        .map_err(|_| "Le stockage de test du rappel est indisponible.".to_string())?
+                        .push(event);
+                }
+                Ok(())
+            })
+            .expect("register the real treasury reminder handler");
+
+        let input = NewTask {
+            idempotency_key: "flux-worker-integration-key".to_string(),
+            module: "tresorerie".to_string(),
+            task_type: "rappel_flux".to_string(),
+            title: "Rappel de trésorerie — loyer".to_string(),
+            payload: serde_json::json!({
+                "fluxId": "flux-worker",
+                "message": "Vérifier le règlement."
+            }),
+            scheduled_at: "2027-01-05T08:00:00.000Z".to_string(),
+            recurrence_frequency: TaskRecurrenceFrequency::Once,
+            cron_expression: None,
+            max_attempts: 3,
+        };
+
+        let mut connection = state.connection().expect("open SQLCipher worker connection");
+        let saved = TaskEngine::create_task(&connection, &input, "2027-01-01T00:00:00Z")
+            .expect("persist the treasury reminder task");
+        let now = DateTime::parse_from_rfc3339("2027-01-05T08:01:00Z")
+            .expect("parse deterministic worker time")
+            .with_timezone(&Utc);
+
+        let first = TaskWorker::run_once_for_registered_handlers(
+            &mut connection,
+            &registry,
+            now,
+            TaskWorkerConfig::default(),
+        )
+        .expect("run the registered treasury handler through the real worker");
+        let execution_id = match first {
+            WorkerOutcome::Succeeded {
+                execution_id,
+                attempt_number,
+            } => {
+                assert_eq!(attempt_number, 1);
+                execution_id
+            }
+            other => panic!("Expected a successful treasury reminder, got {other:?}"),
+        };
+
+        let history = TaskEngine::list_executions(&connection, &saved.id)
+            .expect("read persisted worker history");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].id, execution_id);
+        assert_eq!(history[0].status, ExecutionStatus::Succeeded);
+
+        {
+            let events = observed_events.lock().expect("read observed reminder");
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].execution_id, execution_id);
+            assert!(events[0].message.contains("reste 1\u{202f}400,00 € à encaisser."));
+            assert!(events[0].message.ends_with("Vérifier le règlement."));
+        }
+
+        let second = TaskWorker::run_once_for_registered_handlers(
+            &mut connection,
+            &registry,
+            now,
+            TaskWorkerConfig::default(),
+        )
+        .expect("repeat a worker pass with the same simulated time");
+        assert_eq!(second, WorkerOutcome::Idle);
+        assert_eq!(
+            TaskEngine::list_executions(&connection, &saved.id)
+                .expect("re-read persisted history")
+                .len(),
+            1,
+            "a repeated pass must not create a duplicate execution"
+        );
+        assert_eq!(
+            observed_events.lock().expect("read event count").len(),
+            1,
+            "a repeated pass must not invoke the reminder handler twice"
         );
     }
 
