@@ -51,6 +51,7 @@ pub fn run() {
             commands::create_ecriture,
             commands::list_ecritures,
             commands::list_tasks,
+            commands::preview_cron_schedule,
             commands::create_task,
             commands::update_task,
             commands::update_task_status,

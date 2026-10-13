@@ -10,7 +10,7 @@ use superpower_core::{
     recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux},
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
-use task_engine::{NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus};
+use task_engine::{CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus};
 use tauri::State;
 use uuid::Uuid;
 
@@ -1470,6 +1470,34 @@ pub fn list_ecritures(
     Ok(entries)
 }
 
+fn build_cron_preview(expression: &str, after: &str, count: u8) -> Result<Vec<String>, String> {
+    if !(1..=10).contains(&count) {
+        return Err("Le nombre d'occurrences doit être compris entre 1 et 10.".to_string());
+    }
+
+    let schedule = CronSchedule::parse(expression.trim())
+        .map_err(|error| format!("Expression cron invalide : {error}"))?;
+    let mut cursor = chrono::DateTime::parse_from_rfc3339(after)
+        .map_err(|_| "La date de départ doit être un instant ISO 8601 avec fuseau horaire.".to_string())?
+        .with_timezone(&Utc);
+    let mut occurrences = Vec::with_capacity(usize::from(count));
+
+    for _ in 0..count {
+        let next = schedule.next_after(&cursor).ok_or_else(|| {
+            "Aucune occurrence suivante trouvée dans la fenêtre de recherche de cinq ans.".to_string()
+        })?;
+        occurrences.push(next.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        cursor = next;
+    }
+
+    Ok(occurrences)
+}
+
+#[tauri::command]
+pub fn preview_cron_schedule(expression: String, after: String, count: u8) -> Result<Vec<String>, String> {
+    build_cron_preview(&expression, &after, count)
+}
+
 #[tauri::command]
 pub fn list_tasks(state: State<'_, AppState>) -> Result<Vec<Task>, String> {
     let connection = state.connection()?;
@@ -1727,5 +1755,31 @@ mod flux_realisation_guard_tests {
     #[test]
     fn unknown_forecast_status_is_rejected_safely() {
         assert!(ensure_flux_realisation_allowed("inconnu").is_err());
+    }
+}
+#[cfg(test)]
+mod cron_preview_tests {
+    use super::build_cron_preview;
+
+    #[test]
+    fn previews_weekday_occurrences_in_utc_after_the_selected_anchor() {
+        assert_eq!(
+            build_cron_preview("0 10 * * 1-5", "2026-10-13T09:59:00Z", 3).unwrap(),
+            vec![
+                "2026-10-13T10:00:00.000Z",
+                "2026-10-14T10:00:00.000Z",
+                "2026-10-15T10:00:00.000Z",
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_expression_date_and_occurrence_count() {
+        assert!(build_cron_preview("60 10 * * *", "2026-10-13T09:59:00Z", 3)
+            .unwrap_err()
+            .contains("Expression cron invalide"));
+        assert!(build_cron_preview("0 10 * * *", "not-a-date", 3).is_err());
+        assert!(build_cron_preview("0 10 * * *", "2026-10-13T09:59:00Z", 0).is_err());
+        assert!(build_cron_preview("0 10 * * *", "2026-10-13T09:59:00Z", 11).is_err());
     }
 }

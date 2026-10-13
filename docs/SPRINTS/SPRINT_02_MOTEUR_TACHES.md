@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — tâches ponctuelles et récurrentes persistées, parseur cron UTC et matérialisation idempotente dans le worker one-shot ; runtime de fond et handlers métier restent à faire |
+| **Statut** | IN_PROGRESS — tâches ponctuelles/récurrentes persistées, parseur et aperçu cron UTC, matérialisation idempotente one-shot ; runtime de fond et handlers métier restent à faire |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -47,15 +47,17 @@
 - La page dispose maintenant d'un calendrier mensuel en grille, avec navigation entre mois et affichage des échéances par statut ; la liste reste l'endroit prévu pour modifier une tâche et consulter son historique.
 - Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
-- Les tâches peuvent conserver une expression cron numérique à cinq champs et son ancre d'origine ; la migration v4→v5 ajoute les colonnes sans perdre les définitions existantes. Le worker one-shot matérialise les occurrences échues avec une clé idempotente par occurrence, avance l'échéance dans la même transaction et borne le rattrapage à 1 000 occurrences par appel et par tâche.
+- Les tâches conservent une expression cron numérique à cinq champs et son ancre d'origine ; la migration v4→v5 ajoute les colonnes sans perdre les définitions existantes. Le worker one-shot matérialise les occurrences échues avec une clé idempotente par occurrence, avance l'échéance dans la même transaction et borne le rattrapage à 1 000 occurrences par appel et par tâche.
+- Le formulaire natif peut prévisualiser cinq échéances suivant l'ancre via le parseur Rust partagé. L'aperçu refuse les expressions invalides et borne le nombre demandé ; le mode navigateur indique clairement que le calcul nécessite la fenêtre Tauri.
 - Le démarrage automatique du worker dans Tauri et les handlers métier réels restent à faire. Les expressions cron sont évaluées en UTC (pas encore de fuseau local configurable) et le worker n'est invoqué que par appel explicite ; aucune exécution automatique en arrière-plan n'est activée.
 
 ### Contrôles avant clôture
 
-- [ ] Confirmer `cargo fmt --all -- --check` sur le commit de migration cron.
-- [ ] Confirmer `cargo test -p task-engine` et `cargo test --workspace` sur le commit de migration cron.
-- [ ] Confirmer le build Tauri Windows et vérifier les migrations v3 → v5, la préservation du schéma S06, l'ajout des colonnes cron et le refus des versions futures.
-- [ ] Vérifier les tests sur fichiers SQLCipher réouverts : idempotence, reprise sur expiration de bail et historique des erreurs.
+- [x] `cargo fmt --all -- --check` confirmé par le contrôle Rust de la CI #139 sur le commit `8a1528d`.
+- [x] `cargo test -p task-engine` et `cargo test --workspace` confirmés par le build/tests Windows de la CI #139.
+- [x] Build Tauri Windows et tests de migration/schéma confirmés par la CI #139.
+- [x] Tests SQLCipher, idempotence, reprise de bail et historique des erreurs inclus dans les tests du workspace passés par la CI #139.
+- [ ] Valider l'aperçu cron natif et ses nouveaux tests dans la prochaine CI.
 - [x] Exposer les opérations de consultation/création/statut/historique via IPC (CI verte sur le commit précédent).
 - [x] Ajouter une première API de registre de handlers et un worker one-shot ; la CI associée au commit actuel doit confirmer le build et les tests workspace.
 - [x] Persister l'expression et l'ancre cron dans la migration v4→v5, puis matérialiser idempotemment les occurrences échues dans le worker one-shot.
@@ -64,6 +66,6 @@
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
 
-### Résultats locaux (première version, avant migration v3→v4)
+### Validation CI la plus récente
 
-L'utilisateur a confirmé `cargo fmt --all -- --check` sans erreur, 3/3 tests `task-engine` réussis et 29/29 tests du workspace réussis. Ces résultats concernent le commit avant le câblage de la migration ; ils ne valident pas le tout dernier commit. Un avertissement d'import inutilisé a été corrigé ensuite.
+Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations. L'aperçu cron natif et ses nouveaux tests sont ajoutés dans la tranche suivante ; ils restent à valider par la CI qui sera déclenchée par ce commit.

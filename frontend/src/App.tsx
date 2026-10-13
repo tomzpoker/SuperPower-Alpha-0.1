@@ -39,6 +39,16 @@ const defaultCompanyForm: CreateSocieteInput = {
   finExercice: `${new Date().getFullYear()}-12-31`,
 };
 
+function formatUtcDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('fr-FR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
 function App() {
   const [theme, setTheme] = useState<ThemeKey>(() => {
     const saved = localStorage.getItem('superpower-theme');
@@ -585,6 +595,8 @@ function TasksPage() {
   const [taskType, setTaskType] = useState('manual');
   const [scheduledAt, setScheduledAt] = useState(() => defaultTaskDateTime());
   const [cronExpression, setCronExpression] = useState('');
+  const [cronPreview, setCronPreview] = useState<{ anchor: string; expression: string; occurrences: string[] } | null>(null);
+  const [cronPreviewLoading, setCronPreviewLoading] = useState(false);
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [payloadJson, setPayloadJson] = useState('{}');
   const [historyTaskId, setHistoryTaskId] = useState<string | null>(null);
@@ -618,9 +630,38 @@ function TasksPage() {
     setTaskType('manual');
     setScheduledAt(defaultTaskDateTime());
     setCronExpression('');
+    setCronPreview(null);
     setMaxAttempts(3);
     setPayloadJson('{}');
     setShowForm(true);
+  }
+
+  async function previewCronSchedule() {
+    setError('');
+    const expression = cronExpression.trim();
+    if (!expression) {
+      setError('Saisissez une expression cron avant de demander un aperçu.');
+      return;
+    }
+    const anchor = new Date(scheduledAt);
+    if (Number.isNaN(anchor.getTime())) {
+      setError('Choisissez une date de départ valide.');
+      return;
+    }
+    setCronPreviewLoading(true);
+    setCronPreview(null);
+    try {
+      const occurrences = await api<string[]>('preview_cron_schedule', {
+        expression,
+        after: anchor.toISOString(),
+        count: 5,
+      });
+      setCronPreview({ anchor: anchor.toISOString(), expression, occurrences });
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setCronPreviewLoading(false);
+    }
   }
 
   async function startEditingTask(task: Task) {
@@ -637,6 +678,7 @@ function TasksPage() {
         return;
       }
       setEditingTaskId(task.id);
+      setCronPreview(null);
       setTitle(task.title);
       setModuleName(task.module);
       setTaskType(task.taskType);
@@ -690,6 +732,7 @@ function TasksPage() {
       setTaskType('manual');
       setScheduledAt(defaultTaskDateTime());
       setCronExpression('');
+      setCronPreview(null);
       setMaxAttempts(3);
       setPayloadJson('{}');
       setEditingTaskId(null);
@@ -765,10 +808,15 @@ function TasksPage() {
         <Field label="Titre"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required placeholder="Ex. Vérifier les pièces de novembre" /></Field>
         <Field label="Module"><select value={moduleName} onChange={(event) => setModuleName(event.target.value)}><option value="general">Général</option><option value="documents">Documents</option><option value="import_bancaire">Import bancaire</option><option value="locatif">Gestion locative</option><option value="fiscalite">Fiscalité</option></select></Field>
         <Field label="Type technique"><input value={taskType} onChange={(event) => setTaskType(event.target.value)} maxLength={100} required placeholder="Ex. verifier_piece" /></Field>
-        <Field label={cronExpression.trim() ? 'Date de départ de la récurrence' : 'Date et heure prévues'}><input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} required /></Field>
-        <Field label="Expression cron (facultative, UTC)"><input value={cronExpression} onChange={(event) => setCronExpression(event.target.value)} maxLength={200} placeholder="*/15 9-17 * * 1-5" /></Field>
+        <Field label={cronExpression.trim() ? 'Date de départ de la récurrence' : 'Date et heure prévues'}><input type="datetime-local" value={scheduledAt} onChange={(event) => { setScheduledAt(event.target.value); setCronPreview(null); }} required /></Field>
+        <Field label="Expression cron (facultative, UTC)"><input value={cronExpression} onChange={(event) => { setCronExpression(event.target.value); setCronPreview(null); }} maxLength={200} placeholder="*/15 9-17 * * 1-5" /><div className="cron-preview-actions"><button type="button" className="button secondary small" onClick={() => void previewCronSchedule()} disabled={!isDesktopRuntime() || cronPreviewLoading || !cronExpression.trim() || !scheduledAt}>{cronPreviewLoading ? 'Calcul des occurrences…' : 'Prévisualiser les prochaines échéances'}</button>{!isDesktopRuntime() && <span>Disponible dans l’application de bureau.</span>}</div></Field>
         <Field label="Nombre maximal de tentatives"><input type="number" value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} min={1} max={100} required /></Field>
       </div>
+      {cronPreview && <div className="cron-preview-results" aria-live="polite">
+        <p><strong>Départ initial :</strong> {formatUtcDateTime(cronPreview.anchor)} UTC.</p>
+        <p><strong>Occurrences calculées ensuite</strong> pour <code>{cronPreview.expression}</code> :</p>
+        <ol>{cronPreview.occurrences.map((occurrence) => <li key={occurrence}>{formatUtcDateTime(occurrence)} UTC</li>)}</ol>
+      </div>}
       <Field label="Données de la tâche (JSON)"><textarea value={payloadJson} onChange={(event) => setPayloadJson(event.target.value)} rows={3} spellCheck={false} required /></Field>
       <div className="tasks-form-actions"><button type="button" className="button secondary" onClick={() => { setShowForm(false); setEditingTaskId(null); }}>Annuler</button><button className="button primary" type="submit" disabled={submitting || !title.trim() || !taskType.trim() || maxAttempts < 1 || maxAttempts > 100}>{submitting ? 'Enregistrement…' : editingTaskId ? 'Enregistrer les modifications' : 'Enregistrer la tâche'} <ArrowRight size={16} /></button></div>
     </form>}
