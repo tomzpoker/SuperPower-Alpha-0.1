@@ -1150,7 +1150,7 @@ mod tests {
             claimed.attempt_count,
             "2026-10-13T10:00:30Z",
         )
-                .unwrap();
+        .unwrap();
         assert_eq!(completed.status, ExecutionStatus::Succeeded);
         assert!(TaskEngine::claim_next_due(
             &mut connection,
