@@ -6,7 +6,7 @@
 |---|---|
 | Lot parent | Sprint 06 — Trésorerie |
 | Prérequis | S06-A fusionné dans main |
-| Statut | SPÉCIFIÉ — à développer ; aucune récurrence n'est encore implémentée |
+| Statut | IMPLÉMENTATION EN COURS — PR #5 ouverte ; CI complète et test natif de migration v2→v3 à confirmer |
 | Issue | [#2 — Configurer les flux récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/issues/2) |
 
 ## Objectif
@@ -14,6 +14,12 @@
 À la création ou à la modification d'une prévision, l'utilisateur choisit **Ponctuel**, **Mensuel**, **Trimestriel** ou **Annuel**. Il ne doit pas ressaisir manuellement les loyers, assurances et autres opérations qui reviennent à date fixe.
 
 Ce lot étend le suivi prévu/réalisé de S06-A. Il ne produit toujours aucune écriture comptable et ne calcule pas automatiquement la TVA.
+
+## État de l'implémentation (2026-10-13)
+
+Le formulaire, les commandes Rust, le générateur de calendrier, la génération idempotente des occurrences et la migration SQLCipher v2→v3 sont implémentés sur la [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). Le mode démo navigateur et ses tests couvrent aussi les principales règles de fréquence et d'arrêt. Cette fonctionnalité n'est pas encore livrée dans `main` tant que la PR n'est pas fusionnée.
+
+Dernier état CI vérifié : les contrôles frontend et Rust sont verts sur le commit `14e755b` ([run #88](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38331494863)); la compilation Tauri Windows et les tests workspace étaient encore en cours au dernier relevé. L'essai natif SQLCipher v2→v3 reste à effectuer sur une copie isolée, sans toucher au coffre habituel.
 
 ## User stories et critères d'acceptation
 
@@ -62,6 +68,12 @@ Ajouter une table de séries de récurrence en migration v2 → v3. Elle stocke 
 Chaque échéance reste une ligne indépendante dans flux_previsionnels et garde son propre historique dans flux_realisations. Ajouter un lien nullable entre une échéance et sa série ; NULL désigne une prévision ponctuelle existante ou nouvelle. Garantir l'unicité d'une occurrence par série et date. Les noms définitifs des colonnes seront validés lors de l'implémentation.
 
 La génération doit être déterministe, bornée à 36 mois glissants au-delà de la date courante pour les séries sans fin, et sûre à répéter au démarrage ou à la consultation. Une interruption en cours de génération ne doit laisser ni doublon ni série partiellement corrompue.
+
+## Vérifications restantes avant clôture
+
+- [ ] CI complète verte sur le dernier commit de la PR #5, notamment build Tauri Windows et tests workspace.
+- [ ] Essai natif sur une copie SQLCipher connue en v2 : confirmer `PRAGMA user_version = 3`, la table `flux_recurrences`, la colonne `recurrence_id` et la conservation des flux/réalisations.
+- [ ] Vérifier en interface native les quatre fréquences, l'annulation d'une occurrence sans affecter ses voisines et l'arrêt de la série avec conservation de l'historique.
 
 ## Couverture de tests requise
 
