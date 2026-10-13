@@ -9,8 +9,8 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. Sur la branche S02, la crate `task-engine` est intégrée au workspace et la migration applicative transactionnelle v3→v4 est câblée ; les commandes Tauri, handlers, cron et l'UI restent à faire. La validation du dernier changement de migration est en cours. |
-| Prochaine action | Repasser `cargo fmt`, les tests workspace et le build Windows avec la migration v3→v4 ; ensuite exposer les tâches via IPC et les rendre visibles dans l'interface. |
+| Statut | S06-B est dans `main`. Sur la branche S02, la crate `task-engine`, la migration v3→v4, les commandes Tauri de base et une première page UI Tâches sont codées. Validation du dernier commit en cours ; worker/handlers, cron, édition complète et calendrier restent à faire. |
+| Prochaine action | Valider migration, commandes et UI sur le dernier commit avec Rust, frontend et build Windows ; ensuite ajouter worker d'exécution et planification cron avec handlers métier. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Crate persistante et migration v3→v4 câblée sur la branche dédiée ; IPC, handlers, cron et UI manquants |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Persistance/migration v3→v4, commandes de base et page Tâches codées ; validation en cours, handlers/cron/calendrier manquants |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
@@ -71,7 +71,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Le schéma des tâches et la migration v3→v4 sont câblés sur la branche S02, mais restent à valider après le dernier changement. Le moteur n'est pas encore exposé aux commandes Tauri ni à l'UI ; aucun handler ou ordonnanceur cron n'est livré.
+- Le schéma des tâches et la migration v3→v4 sont câblés sur la branche S02 ; des commandes IPC et une page UI de base sont ajoutées, mais restent à valider après le dernier changement. Le worker, les handlers métier, l'ordonnanceur cron, le calendrier et l'édition complète ne sont pas livrés.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -94,3 +94,5 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 | 2026-10-13 | 02 | Prototype du registre de tâches/exécutions avec idempotence et reprise par bail | Branche `sprint/02-moteur-taches-prototype`, validation automatisée à réaliser avant intégration |
 
 | 2026-10-13 | 02 | Câblage de la migration transactionnelle v3→v4 pour `task-engine` et test de conservation d'un flux v3 | Branche non fusionnée ; tests et build Windows du commit de migration en attente |
+
+| 2026-10-13 | 02 | Ajout des commandes Tauri de création/liste/statut/historique et d'une page UI Tâches | Branche non fusionnée ; CI du dernier commit à confirmer |
