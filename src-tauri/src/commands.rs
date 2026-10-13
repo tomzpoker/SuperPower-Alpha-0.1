@@ -1479,5 +1479,6 @@ mod recurrence_materialization_tests {
             .unwrap();
         assert_eq!(distinct_ids, first_count);
         assert_eq!(distinct_dates, first_count);
-\n    }
+
+    }
 }
