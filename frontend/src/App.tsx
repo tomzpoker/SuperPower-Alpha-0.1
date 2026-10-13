@@ -11,7 +11,7 @@ import { formatDate, formatMoney, parseAmountToCents } from './lib/money';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DashboardSummary, DatabaseStatus,
   EntryView, ExigibiliteTva, FluxInput, FluxRealisationView, FluxView, FormeJuridique,
-  CategorieFlux, PeriodiciteTva, RealisationFluxInput, RegimeFiscal, RegimeTva, SensFlux, Societe,
+  CategorieFlux, FrequenceFlux, PeriodiciteTva, RealisationFluxInput, RegimeFiscal, RegimeTva, SensFlux, Societe,
 } from './lib/types';
 
 type PageKey = 'dashboard' | 'societes' | 'ecritures' | 'documents' | 'tresorerie' | 'locatif' | 'fiscalite' | 'parametres';
@@ -253,6 +253,15 @@ function App() {
     try { await api<FluxView>('cancel_flux_realisation', { id, motifAnnulation }); await refreshFlows(); setToast('Réalisation annulée et motif conservé.'); return true; }
     catch (reason) { setError(errorMessage(reason)); return false; }
   }
+  async function stopRecurrence(recurrenceId: string, dateFin: string): Promise<boolean> {
+    setError('');
+    try {
+      await api<void>('arreter_flux_recurrence', { recurrenceId, dateFin });
+      await refreshFlows();
+      setToast('Récurrence arrêtée ; les échéances postérieures sont conservées dans l’historique et annulées.');
+      return true;
+    } catch (reason) { setError(errorMessage(reason)); return false; }
+  }
 
   if (status === 'loading') {
     return <div className="boot-screen"><div className="brand-mark large">S<span>+</span></div><p>Ouverture de SuperPower…</p></div>;
@@ -321,7 +330,7 @@ function App() {
         {page === 'dashboard' && <Dashboard summary={summary} societes={societes} entries={entries} flux={flux} onNavigate={setPage} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onNewFlow={() => setPage('tresorerie')} />}
         {page === 'societes' && <CompaniesPage onNew={() => { setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} editingSocieteId={editingSocieteId} onEdit={handleEditCompany} onDelete={handleDeleteCompany} societes={societes} showForm={showCompanyForm} setShowForm={setShowCompanyForm} form={companyForm} setForm={setCompanyForm} onSubmit={handleCreateCompany} />}
         {page === 'ecritures' && <EntriesPage entries={entries.filter((entry) => !selectedSocieteId || entry.societeId === selectedSocieteId)} societes={societes} accounts={accounts} activeCompany={activeCompany} setSelectedSocieteId={setSelectedSocieteId} showForm={showEntryForm} setShowForm={setShowEntryForm} onSubmit={handleCreateEntry} entryDate={entryDate} setEntryDate={setEntryDate} entryLabel={entryLabel} setEntryLabel={setEntryLabel} entryReference={entryReference} setEntryReference={setEntryReference} debitAccount={debitAccount} setDebitAccount={setDebitAccount} creditAccount={creditAccount} setCreditAccount={setCreditAccount} entryAmount={entryAmount} setEntryAmount={setEntryAmount} busy={entryBusy} onRefresh={refreshEntries} />}
-        {page === 'tresorerie' && <CashflowPage societes={societes} selectedSocieteId={selectedSocieteId} flux={flux.filter(flow => !selectedSocieteId || flow.societeId === selectedSocieteId)} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onCreate={createFlow} onUpdate={updateFlow} onRealise={realiseFlow} onCancel={cancelFlow} onCancelRealisation={cancelRealisation} />}
+        {page === 'tresorerie' && <CashflowPage societes={societes} selectedSocieteId={selectedSocieteId} flux={flux.filter(flow => !selectedSocieteId || flow.societeId === selectedSocieteId)} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onCreate={createFlow} onUpdate={updateFlow} onRealise={realiseFlow} onCancel={cancelFlow} onCancelRealisation={cancelRealisation} onStopRecurrence={stopRecurrence} />}
         {page !== 'dashboard' && page !== 'societes' && page !== 'ecritures' && page !== 'tresorerie' && <PlannedPage page={page} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} />}
         <footer className="page-footer"><span>SuperPower Alpha 0.1</span><span><span className="footer-dot" /> Coffre local {isDesktopRuntime() ? 'chiffré' : 'démo volatile'}</span><span>Conçu pour garder le contrôle.</span></footer>
       </div>
@@ -406,6 +415,7 @@ function EntriesPage({ entries, societes, accounts, activeCompany, setSelectedSo
 type FluxFormState = {
   societeId: string; libelle: string; sens: SensFlux; categorie: CategorieFlux;
   datePrevue: string; montantPrevu: string; tiers: string; reference: string;
+  frequenceRecurrence: FrequenceFlux; dateFinRecurrence: string;
 };
 function localDateInput(): string {
   const now = new Date();
@@ -413,10 +423,17 @@ function localDateInput(): string {
 }
 function euroInput(cents: number): string { return (cents / 100).toFixed(2).replace('.', ','); }
 function newFluxForm(societeId: string): FluxFormState {
-  return { societeId, libelle: '', sens: 'encaissement', categorie: 'loyer', datePrevue: localDateInput(), montantPrevu: '', tiers: '', reference: '' };
+  return {
+    societeId, libelle: '', sens: 'encaissement', categorie: 'loyer',
+    datePrevue: localDateInput(), montantPrevu: '', tiers: '', reference: '',
+    frequenceRecurrence: 'ponctuel', dateFinRecurrence: '',
+  };
 }
 function fluxCategoryLabel(value: CategorieFlux): string {
   return ({ loyer: 'Loyer', charge_courante: 'Charge courante', travaux: 'Travaux', impot_taxe: 'Impôt ou taxe', emprunt: 'Emprunt', apport_associe: 'Apport d’associé', autre: 'Autre' })[value];
+}
+function frequenceFluxLabel(value: FrequenceFlux): string {
+  return ({ ponctuel: 'Ponctuel', mensuel: 'Mensuel', trimestriel: 'Trimestriel', annuel: 'Annuel' })[value];
 }
 function fluxStateLabel(value: FluxView['etat']): string {
   return ({ a_prevoir: 'À prévoir', en_retard: 'En retard', partiellement_realise: 'Partiellement réalisé', realise: 'Réalisé', depasse: 'Réalisé au-delà du prévu', annule: 'Prévision annulée' })[value];
@@ -446,7 +463,12 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
   }
   function openEdit(flow: FluxView) {
     setEditingId(flow.id);
-    setForm({ societeId: flow.societeId, libelle: flow.libelle, sens: flow.sens, categorie: flow.categorie, datePrevue: flow.datePrevue, montantPrevu: euroInput(flow.montantPrevuCents), tiers: flow.tiers ?? '', reference: flow.reference ?? '' });
+    setForm({
+      societeId: flow.societeId, libelle: flow.libelle, sens: flow.sens, categorie: flow.categorie,
+      datePrevue: flow.datePrevue, montantPrevu: euroInput(flow.montantPrevuCents),
+      tiers: flow.tiers ?? '', reference: flow.reference ?? '',
+      frequenceRecurrence: flow.frequenceRecurrence, dateFinRecurrence: flow.dateFinRecurrence ?? '',
+    });
     setLocalError(''); setShowForm(true); setRealisingId(null);
   }
   async function submitFlow(event: FormEvent) {
@@ -455,7 +477,12 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
     if (!form.societeId) { setLocalError('Choisissez une société.'); return; }
     if (!form.libelle.trim()) { setLocalError('Décrivez simplement l’opération.'); return; }
     if (cents === null) { setLocalError('Le montant prévu doit être positif avec au maximum deux décimales.'); return; }
-    const input: FluxInput = { societeId: form.societeId, libelle: form.libelle.trim(), sens: form.sens, categorie: form.categorie, datePrevue: form.datePrevue, montantPrevuCents: cents, tiers: form.tiers.trim() || null, reference: form.reference.trim() || null };
+    const input: FluxInput = {
+      societeId: form.societeId, libelle: form.libelle.trim(), sens: form.sens, categorie: form.categorie,
+      datePrevue: form.datePrevue, montantPrevuCents: cents, tiers: form.tiers.trim() || null,
+      reference: form.reference.trim() || null, frequenceRecurrence: form.frequenceRecurrence,
+      dateFinRecurrence: form.dateFinRecurrence || null,
+    };
     const ok = editingId ? await onUpdate(editingId, input) : await onCreate(input);
     if (ok) { setShowForm(false); setEditingId(null); setLocalError(''); }
   }
