@@ -305,7 +305,6 @@ impl TaskWorker {
                     scheduled_for = next_scheduled_for;
                 }
                 continue;
-            }                continue;
             }
 
             // Tâche ponctuelle : matérialisation idempotente unique.
