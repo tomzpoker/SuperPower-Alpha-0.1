@@ -20,7 +20,7 @@ La première tranche comprend :
 - succès, échec, limite de tentatives et nouvelle disponibilité après échec ;
 - tests sur un fichier temporaire chiffré, fermé puis rouvert avec la même clé.
 
-Cette crate n'installe que ses tables ; elle ne modifie pas `PRAGMA user_version`. L'intégration au coffre sera orchestrée par `src-tauri/src/database.rs` au moyen d'une migration transactionnelle v3→v4. Aucun appel de production ni aucune migration du coffre principal n'est fait par le prototype.
+La crate fournit l'installation des tables sans modifier elle-même `PRAGMA user_version`. Sur la branche S02, `src-tauri/src/database.rs` appelle cette installation dans une migration transactionnelle v3→v4 et versionne le schéma applicatif. Cette modification est à valider sur le dernier commit par les tests de migration et le build Windows ; elle n'est pas fusionnée dans `main`.
 
 ## Points explicitement différés
 
@@ -36,7 +36,7 @@ Le statut de prototype ne signifie donc pas que les user stories du Sprint 02 so
 
 1. `cargo fmt --all -- --check`, `cargo test -p task-engine`, `cargo test --workspace` et CI Tauri Windows verts.
 2. Tests de persistance/idempotence/reprise réussis sur fichiers SQLCipher réouverts.
-3. Migration applicative v3→v4 atomique ; schéma S06 conservé ; rejet d'une version future préservé.
+3. Migration applicative v3→v4 atomique ; schéma S06 conservé ; rejet d'une version future préservé. La migration et un test de conservation sont maintenant codés sur la branche, mais ne sont pas encore confirmés par les contrôles exécutés après ce changement.
 4. Les handlers sont exécutés hors transaction de réservation ; une panne ne supprime ni l'exécution ni l'historique.
 5. Un parseur cron maintenu, ses fuseaux et changements d'heure sont évalués avant de prendre en charge la planification récurrente.
 6. Les commandes et l'interface affichent les erreurs en français ; toutes les mutations persistantes ont un audit adapté.
