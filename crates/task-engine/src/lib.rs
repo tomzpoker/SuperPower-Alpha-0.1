@@ -236,8 +236,6 @@ impl TaskRecurrenceFrequency {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NewTask {#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct NewTask {
     pub idempotency_key: String,
     pub module: String,
