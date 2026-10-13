@@ -375,14 +375,20 @@ pub fn list_flux(
 pub fn create_flux(input: FluxInput, state: State<'_, AppState>) -> Result<FluxView, String> {
     validate_flux_input(&input).map_err(|error| error.to_string())?;
     let libelle = input.libelle.trim().to_string();
-    let tiers = clean_optional(input.tiers);
-    let reference = clean_optional(input.reference);
+    let tiers = clean_optional(input.tiers.clone());
+    let reference = clean_optional(input.reference.clone());
     let date_prevue = NaiveDate::parse_from_str(&input.date_prevue, "%Y-%m-%d")
         .map_err(|_| "La date prévue doit être au format AAAA-MM-JJ.".to_string())?;
     let sens = enum_name(input.sens)?;
     let categorie = enum_name(input.categorie)?;
     let id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
+    let recurrence_id = if input.frequence_recurrence == FrequenceFlux::Ponctuel {
+        None
+    } else {
+        Some(Uuid::new_v4().to_string())
+    };
+    let dates = dates_pour_input(&input, date_prevue)?;
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
     let company_exists: bool = transaction
@@ -395,23 +401,60 @@ pub fn create_flux(input: FluxInput, state: State<'_, AppState>) -> Result<FluxV
     if !company_exists {
         return Err("La société sélectionnée n'existe pas pour ce flux.".to_string());
     }
-    transaction.execute(
-        "INSERT INTO flux_previsionnels(id, societe_id, libelle, sens, categorie, date_prevue, montant_prevu_cents, tiers, reference, statut, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'actif', ?10, ?10)",
-        params![id, input.societe_id, libelle, sens, categorie, date_prevue.to_string(), input.montant_prevu_cents, tiers, reference, now],
-    ).map_err(db_error)?;
-    audit_tx(
-        &transaction,
-        "create",
-        "flux_previsionnel",
-        &id,
-        serde_json::json!({
-            "societeId": input.societe_id, "libelle": input.libelle.trim(), "sens": sens,
-            "categorie": categorie, "datePrevue": date_prevue.to_string(),
-            "montantPrevuCents": input.montant_prevu_cents,
-        }),
-    )
-    .map_err(db_error)?;
+    if let Some(series_id) = recurrence_id.as_deref() {
+        inserer_serie_recurrence_tx(&transaction, series_id, &input, date_prevue, &now)?;
+        audit_tx(
+            &transaction,
+            "create",
+            "flux_recurrence",
+            series_id,
+            serde_json::json!({
+                "societeId": input.societe_id,
+                "frequence": input.frequence_recurrence,
+                "dateDebut": date_prevue.to_string(),
+                "dateFin": input.date_fin_recurrence,
+                "occurrencesInitiales": dates.len(),
+            }),
+        )
+        .map_err(db_error)?;
+    }
+    for date in &dates {
+        let occurrence_id = if *date == date_prevue {
+            id.clone()
+        } else {
+            Uuid::new_v4().to_string()
+        };
+        inserer_occurrence_flux_tx(
+            &transaction,
+            &occurrence_id,
+            recurrence_id.as_deref(),
+            &input.societe_id,
+            &libelle,
+            &sens,
+            &categorie,
+            date,
+            input.montant_prevu_cents,
+            tiers.as_deref(),
+            reference.as_deref(),
+            &now,
+        )?;
+        audit_tx(
+            &transaction,
+            "create",
+            "flux_previsionnel",
+            &occurrence_id,
+            serde_json::json!({
+                "societeId": input.societe_id,
+                "libelle": libelle,
+                "sens": sens,
+                "categorie": categorie,
+                "datePrevue": date.to_string(),
+                "montantPrevuCents": input.montant_prevu_cents,
+                "recurrenceId": recurrence_id,
+            }),
+        )
+        .map_err(db_error)?;
+    }
     transaction.commit().map_err(db_error)?;
     build_flux_view(&connection, read_flux_record(&connection, &id)?)
 }
