@@ -962,14 +962,8 @@ fn materialiser_recurrences(connection: &mut rusqlite::Connection) -> Result<(),
             })
             .transpose()?;
         let frequence: FrequenceFlux = from_enum(&serie.frequence)?;
-        let dates = generer_echeances(
-            frequence,
-            debut,
-            fin,
-            horizon_recurrence(debut),
-            1_200,
-        )
-        .map_err(|error| format!("Génération d'une série récurrente impossible : {error}"))?;
+        let dates = generer_echeances(frequence, debut, fin, horizon_recurrence(debut), 1_200)
+            .map_err(|error| format!("Génération d'une série récurrente impossible : {error}"))?;
 
         for date in dates {
             let existe: bool = transaction
@@ -1027,36 +1021,39 @@ fn materialiser_recurrences(connection: &mut rusqlite::Connection) -> Result<(),
 }
 
 fn read_flux_record(connection: &rusqlite::Connection, id: &str) -> Result<FluxRecord, String> {
-    connection.query_row(
-        "SELECT f.id, f.societe_id, f.libelle, f.sens, f.categorie, f.date_prevue,
-                f.montant_prevu_cents, f.tiers, f.reference, f.statut, f.created_at, f.updated_at,
-                f.recurrence_id, r.frequence, r.date_fin, r.actif
-         FROM flux_previsionnels f
-         LEFT JOIN flux_recurrences r ON r.id = f.recurrence_id
-         WHERE f.id = ?1",
-        [id],
-        |row| Ok(FluxRecord {
-            id: row.get(0)?,
-            societe_id: row.get(1)?,
-            libelle: row.get(2)?,
-            sens: row.get(3)?,
-            categorie: row.get(4)?,
-            date_prevue: row.get(5)?,
-            montant_prevu_cents: row.get(6)?,
-            tiers: row.get(7)?,
-            reference: row.get(8)?,
-            statut: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
-            recurrence_id: row.get(12)?,
-            frequence_recurrence: row.get(13)?,
-            date_fin_recurrence: row.get(14)?,
-            recurrence_active: row.get(15)?,
-        })
-    )
-    .optional()
-    .map_err(db_error)?
-    .ok_or_else(|| "Ce flux n'existe plus.".to_string())
+    connection
+        .query_row(
+            "SELECT f.id, f.societe_id, f.libelle, f.sens, f.categorie, f.date_prevue,
+                    f.montant_prevu_cents, f.tiers, f.reference, f.statut, f.created_at, f.updated_at,
+                    f.recurrence_id, r.frequence, r.date_fin, r.actif
+             FROM flux_previsionnels f
+             LEFT JOIN flux_recurrences r ON r.id = f.recurrence_id
+             WHERE f.id = ?1",
+            [id],
+            |row| {
+                Ok(FluxRecord {
+                    id: row.get(0)?,
+                    societe_id: row.get(1)?,
+                    libelle: row.get(2)?,
+                    sens: row.get(3)?,
+                    categorie: row.get(4)?,
+                    date_prevue: row.get(5)?,
+                    montant_prevu_cents: row.get(6)?,
+                    tiers: row.get(7)?,
+                    reference: row.get(8)?,
+                    statut: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                    recurrence_id: row.get(12)?,
+                    frequence_recurrence: row.get(13)?,
+                    date_fin_recurrence: row.get(14)?,
+                    recurrence_active: row.get(15)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Ce flux n'existe plus.".to_string())
 }
 
 fn build_flux_view(
