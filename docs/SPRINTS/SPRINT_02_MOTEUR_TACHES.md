@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; récurrences ancrées, calendrier accessible, filtres et historique avec durées ; CI #38457756360 verte sur `f3a3ef1` : frontend, formatage/tests Rust, build Windows/Tauri et tests workspace/migrations. Les tests de déverrouillage couvrent l’ouverture correcte, le refus d’une mauvaise phrase secrète et le reverrouillage si le worker échoue. Le parcours visuel/IPC natif reste ouvert |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handlers `general/reminder` et `tresorerie/rappel_flux` ; récurrences ancrées, calendrier accessible, filtres et historique avec durées ; CI #38458723431 verte sur `d1b619f`. Le nouveau handler de trésorerie calcule le solde dû dans SQLCipher et est couvert par tests locaux automatisés ; sa CI est en cours. Le parcours visuel/IPC natif reste ouvert |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -92,3 +92,4 @@
 - La CI #38457756360 est verte sur `f3a3ef1` : formatage/tests Rust, frontend, build Windows/Tauri et workspace/migrations. Les tests couvrent création idempotente et audit, mise à jour, transitions de cycle de vie, refus d’altération après historisation, verrouillage, déverrouillage correct, mauvaise phrase secrète et reverrouillage si le worker échoue. Les tests n’exécutent pas le runtime graphique ni l’IPC réel.
 - La CI #38449610042 est verte sur `50f289e` : le test frontend du calendrier interactif, les six tests de recherche/filtres, les tests Rust, le build Tauri Windows et les tests workspace/migrations sont tous réussis.
 - La CI #38445019655 est verte sur `2c13cc8` : formatage/tests Rust, frontend, build Tauri Windows et tests workspace/migrations. Le test SQLCipher AppState verrouille/déverrouille le coffre temporaire, conserve l’historique de janvier/février et vérifie la reprise sans doublon ainsi que la prochaine occurrence au 31 mars. La CI #38438886275 valide séparément start/stop/restart du contrôleur. Le test natif du rappel simple est réussi ; la vérification manuelle des commandes de verrouillage/déverrouillage reste ouverte. [Résultats CI #38445019655](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38445019655).
+- [ ] Valider par CI le handler `tresorerie/rappel_flux` : solde réel après réalisations actives, réalisations annulées exclues, encaissement/décaissement, flux annulé/soldé ignoré, payload invalide refusé.
