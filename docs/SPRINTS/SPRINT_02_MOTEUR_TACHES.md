@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — tâches persistées, cron UTC, worker natif supervisé, premier handler local `general/reminder` ; handlers métiers supplémentaires, fuseau local et essai natif restant à livrer |
+| **Statut** | IN_PROGRESS — tâches persistées, cron UTC, worker natif supervisé et premier handler local `general/reminder` ; toast et historique validés sur coffre de test, verrouillage/déverrouillage, handlers métier supplémentaires et fuseau local restant |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -66,7 +66,8 @@
 - [x] Intégration du worker natif stoppable et du handler `general/reminder` validée en CI #151.
 - [x] Durcissements worker/coffre et file des rappels UI validés par CI #152.
 - [x] Champ de message de rappel dédié et tests de synchronisation du payload validés en CI #153 sur `78ace82`.
-- [ ] Essai natif sur coffre temporaire : rappel à échéance, toast visible, historique réussi, puis verrouillage/déverrouillage.
+- [x] Essai natif sur coffre temporaire : rappel `general/reminder` à échéance, notification visible, exécution `Terminée`, tentative `#1 · Réussie` et historique confirmé par l'utilisateur.
+- [ ] Verrouiller puis déverrouiller le même coffre temporaire et confirmer que le worker reprend sans doublon.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
@@ -76,4 +77,4 @@
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
 - La suppression contrôlée, le test frontend du mode démo, les migrations v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
-- La CI #153 est entièrement verte sur `78ace82`, avec contrôles Rust, tests frontend, build Windows/Tauri et tests du workspace/migrations. Le prochain contrôle est un essai natif isolé du rappel sur coffre temporaire ; la CI ne remplace pas ce parcours.
+- La CI #153 est entièrement verte sur `78ace82`, avec contrôles Rust, tests frontend, build Windows/Tauri et tests du workspace/migrations. La CI #154 est également entièrement verte sur le commit documentaire `b3afe93`. L'essai natif isolé a confirmé la notification et l'historique réussi ; le prochain contrôle est le verrouillage/déverrouillage du coffre temporaire, avec reprise du worker sans doublon.
