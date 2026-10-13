@@ -467,8 +467,8 @@ pub fn update_flux(
 ) -> Result<FluxView, String> {
     validate_flux_input(&input).map_err(|error| error.to_string())?;
     let libelle = input.libelle.trim().to_string();
-    let tiers = clean_optional(input.tiers);
-    let reference = clean_optional(input.reference);
+    let tiers = clean_optional(input.tiers.clone());
+    let reference = clean_optional(input.reference.clone());
     let date_prevue = NaiveDate::parse_from_str(&input.date_prevue, "%Y-%m-%d")
         .map_err(|_| "La date prévue doit être au format AAAA-MM-JJ.".to_string())?;
     let sens = enum_name(input.sens)?;
@@ -476,15 +476,15 @@ pub fn update_flux(
     let now = chrono::Utc::now().to_rfc3339();
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
-    let existing: Option<(String, String)> = transaction
+    let existing: Option<(String, String, Option<String>, String)> = transaction
         .query_row(
-            "SELECT societe_id, statut FROM flux_previsionnels WHERE id = ?1",
+            "SELECT societe_id, statut, recurrence_id, date_prevue FROM flux_previsionnels WHERE id = ?1",
             [&id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(db_error)?;
-    let Some((societe_id, statut)) = existing else {
+    let Some((societe_id, statut, existing_recurrence_id, existing_date_prevue)) = existing else {
         return Err("Ce flux n'existe plus.".to_string());
     };
     if statut != "actif" {
@@ -496,18 +496,88 @@ pub fn update_flux(
     if societe_id != input.societe_id {
         return Err("La société d'un flux existant ne peut pas être changée. Annulez-le puis créez le flux dans la bonne société.".to_string());
     }
+
+    let recurrence_id = if let Some(series_id) = existing_recurrence_id {
+        let series: Option<(String, Option<String>)> = transaction
+            .query_row(
+                "SELECT frequence, date_fin FROM flux_recurrences WHERE id = ?1",
+                [&series_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db_error)?;
+        let Some((stored_frequency, stored_end)) = series else {
+            return Err("La série de récurrence de cette échéance est introuvable ; aucune modification n'a été enregistrée.".to_string());
+        };
+        let stored_frequency: FrequenceFlux = from_enum(&stored_frequency)?;
+        if stored_frequency != input.frequence_recurrence
+            || stored_end != input.date_fin_recurrence
+        {
+            return Err("La fréquence d'une série existante ne se modifie pas depuis une occurrence. Arrêtez la série puis créez une nouvelle prévision récurrente.".to_string());
+        }
+        if input.date_prevue != existing_date_prevue {
+            return Err("La date d'une échéance récurrente est liée au calendrier de sa série ; elle ne peut pas être déplacée individuellement.".to_string());
+        }
+        Some(series_id)
+    } else if input.frequence_recurrence != FrequenceFlux::Ponctuel {
+        let series_id = Uuid::new_v4().to_string();
+        inserer_serie_recurrence_tx(&transaction, &series_id, &input, date_prevue, &now)?;
+        transaction
+            .execute(
+                "UPDATE flux_previsionnels SET recurrence_id = ?1 WHERE id = ?2",
+                params![series_id, id],
+            )
+            .map_err(db_error)?;
+        audit_tx(
+            &transaction,
+            "create",
+            "flux_recurrence",
+            &series_id,
+            serde_json::json!({
+                "societeId": input.societe_id,
+                "frequence": input.frequence_recurrence,
+                "dateDebut": date_prevue.to_string(),
+                "dateFin": input.date_fin_recurrence,
+            }),
+        )
+        .map_err(db_error)?;
+        Some(series_id)
+    } else {
+        None
+    };
+
     transaction.execute(
-        "UPDATE flux_previsionnels SET libelle = ?1, sens = ?2, categorie = ?3, date_prevue = ?4, montant_prevu_cents = ?5, tiers = ?6, reference = ?7, updated_at = ?8 WHERE id = ?9 AND statut = 'actif'",
-        params![libelle, sens, categorie, date_prevue.to_string(), input.montant_prevu_cents, tiers, reference, now, id],
-    ).map_err(db_error)?;
+        "UPDATE flux_previsionnels
+         SET libelle = ?1, sens = ?2, categorie = ?3, date_prevue = ?4,
+             montant_prevu_cents = ?5, tiers = ?6, reference = ?7,
+             recurrence_id = ?8, updated_at = ?9
+         WHERE id = ?10 AND statut = 'actif'",
+        params![
+            libelle,
+            sens,
+            categorie,
+            date_prevue.to_string(),
+            input.montant_prevu_cents,
+            tiers,
+            reference,
+            recurrence_id,
+            now,
+            id
+        ],
+    )
+    .map_err(db_error)?;
     audit_tx(
         &transaction,
         "update",
         "flux_previsionnel",
         &id,
         serde_json::json!({
-            "libelle": input.libelle.trim(), "datePrevue": date_prevue.to_string(),
-            "montantPrevuCents": input.montant_prevu_cents, "sens": sens, "categorie": categorie,
+            "libelle": input.libelle.trim(),
+            "datePrevue": date_prevue.to_string(),
+            "montantPrevuCents": input.montant_prevu_cents,
+            "sens": sens,
+            "categorie": categorie,
+            "recurrenceId": recurrence_id,
         }),
     )
     .map_err(db_error)?;
