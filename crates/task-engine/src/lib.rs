@@ -1375,11 +1375,9 @@ mod tests {
         assert_eq!(deleted.id, task.id);
         transaction.commit().unwrap();
 
-        assert!(
-            TaskEngine::get_task_by_id(&connection, &task.id)
-                .unwrap()
-                .is_none()
-        );
+        assert!(TaskEngine::get_task_by_id(&connection, &task.id)
+            .unwrap()
+            .is_none());
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .unwrap();
@@ -1414,11 +1412,9 @@ mod tests {
         assert!(matches!(result, Err(TaskEngineError::TaskHasExecutions)));
         drop(transaction);
 
-        assert!(
-            TaskEngine::get_task_by_id(&connection, &task.id)
-                .unwrap()
-                .is_some()
-        );
+        assert!(TaskEngine::get_task_by_id(&connection, &task.id)
+            .unwrap()
+            .is_some());
         let executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
         assert_eq!(executions.len(), 1);
     }
