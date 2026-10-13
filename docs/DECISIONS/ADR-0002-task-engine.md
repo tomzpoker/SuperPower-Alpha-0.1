@@ -27,7 +27,9 @@ La crate fournit l'installation des tables sans modifier elle-même `PRAGMA user
 - validation et calcul des expressions cron ;
 - registre des handlers métier et exécution des jobs par le runtime ;
 - politique de backoff configurable, arrêt propre et supervision ;
-- commandes Tauri, UI liste/calendrier, historique consultable et adaptation du widget historique ;
+- worker d'exécution et handlers métier ;
+- planification cron et calendrier ;
+- édition complète des tâches et adaptation du widget historique ;
 - intégration des tâches documents, import bancaire et rappels locatifs.
 
 Le statut de prototype ne signifie donc pas que les user stories du Sprint 02 sont livrées.
@@ -44,4 +46,4 @@ Le statut de prototype ne signifie donc pas que les user stories du Sprint 02 so
 
 ## État à la création de l'ADR
 
-La première tranche se trouve sur `sprint/02-moteur-taches-prototype` et n'est pas encore fusionnée dans `main`. Elle est à valider par la CI et les tests locaux. Ne pas annoncer le moteur de tâches comme utilisable dans l'application tant que l'intégration, les handlers, cron et l'interface ne sont pas livrés.
+La première tranche se trouve sur `sprint/02-moteur-taches-prototype` et n'est pas encore fusionnée dans `main`. Elle est à valider par la CI et les tests locaux. La page UI initiale permet désormais de créer/lister les tâches, d'en modifier le statut et de consulter l'historique disponible. Ne pas présenter l'exécution automatique comme livrée : worker, handlers métier, cron, calendrier et validation native restent à faire.
