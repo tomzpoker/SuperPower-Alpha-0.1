@@ -660,7 +660,10 @@ pub fn arreter_flux_recurrence(
         );
     }
     if fin > horizon_recurrence(debut) {
-        return Err("Choisissez une dernière échéance dans l'horizon prévisionnel visible de 36 mois.".to_string());
+        return Err(
+            "Choisissez une dernière échéance dans l'horizon prévisionnel visible de 36 mois."
+                .to_string(),
+        );
     }
     let fin_est_echeance: bool = transaction
         .query_row(
@@ -673,7 +676,9 @@ pub fn arreter_flux_recurrence(
         )
         .map_err(db_error)?;
     if !fin_est_echeance {
-        return Err("La date d'arrêt doit correspondre à une échéance réelle de cette série.".to_string());
+        return Err(
+            "La date d'arrêt doit correspondre à une échéance réelle de cette série.".to_string(),
+        );
     }
     let realisation_apres_fin: bool = transaction
         .query_row(
