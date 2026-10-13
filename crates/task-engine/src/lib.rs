@@ -15,7 +15,7 @@ use std::io;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{
-    params, types::Type, Connection, OptionalExtension, Row, Transaction, TransactionBehavior,
+    params, types::{Type, Value as SqlValue}, Connection, OptionalExtension, Row, Transaction, TransactionBehavior,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -635,13 +635,34 @@ impl TaskEngine {
         Ok(execution)
     }
 
-    /// Réserve atomiquement la prochaine exécution arrivée à échéance.
-    /// Une exécution "running" dont le bail a expiré est reprise après inscription
-    /// de l'interruption dans l'historique ; une tentative épuisée devient "failed".
+    /// Réserve la prochaine exécution échue, tous handlers confondus. Réservé aux
+    /// appels explicites de diagnostic ; la boucle de fond doit filtrer ses handlers.
     pub fn claim_next_due(
         connection: &mut Connection,
         now: &str,
         lease_until: &str,
+    ) -> Result<Option<TaskExecution>, TaskEngineError> {
+        Self::claim_next_due_internal(connection, now, lease_until, None)
+    }
+
+    /// Réserve uniquement une tâche dont le handler est connu par l'appelant.
+    pub fn claim_next_due_for_task_ids(
+        connection: &mut Connection,
+        now: &str,
+        lease_until: &str,
+        eligible_task_ids: &[String],
+    ) -> Result<Option<TaskExecution>, TaskEngineError> {
+        if eligible_task_ids.is_empty() {
+            return Ok(None);
+        }
+        Self::claim_next_due_internal(connection, now, lease_until, Some(eligible_task_ids))
+    }
+
+    fn claim_next_due_internal(
+        connection: &mut Connection,
+        now: &str,
+        lease_until: &str,
+        eligible_task_ids: Option<&[String]>,
     ) -> Result<Option<TaskExecution>, TaskEngineError> {
         let now = normalize_timestamp(now, "date de réservation")?;
         let lease_until = normalize_timestamp(lease_until, "expiration du bail")?;
@@ -656,15 +677,21 @@ impl TaskEngine {
             "Exécution interrompue ; reprise après expiration du bail.".to_string();
 
         let exhausted: Vec<(String, i64)> = {
-            let mut statement = transaction.prepare(
-                "SELECT id, attempt_count
-                 FROM task_executions
-                 WHERE status = 'running'
-                   AND lease_until IS NOT NULL
-                   AND lease_until <= ?1
-                   AND attempt_count >= max_attempts",
-            )?;
-            let rows = statement.query_map([&now], |row| {
+            let (filter, filter_values) = task_id_filter("t", eligible_task_ids);
+            let query = format!(
+                "SELECT e.id, e.attempt_count
+                 FROM task_executions e
+                 JOIN task_definitions t ON t.id = e.task_id
+                 WHERE e.status = 'running'
+                   AND e.lease_until IS NOT NULL
+                   AND e.lease_until <= ?1
+                   AND e.attempt_count >= e.max_attempts
+                   {filter}"
+            );
+            let mut values = vec![SqlValue::Text(now.clone())];
+            values.extend(filter_values);
+            let mut statement = transaction.prepare(&query)?;
+            let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
             })?;
             rows.collect::<Result<Vec<_>, _>>()?
@@ -687,8 +714,9 @@ impl TaskEngine {
             )?;
         }
 
-        let candidate: Option<(String, String, i64)> = transaction
-            .query_row(
+        let candidate: Option<(String, String, i64)> = {
+            let (filter, filter_values) = task_id_filter("t", eligible_task_ids);
+            let query = format!(
                 "SELECT e.id, e.status, e.attempt_count
                  FROM task_executions e
                  JOIN task_definitions t ON t.id = e.task_id
@@ -699,12 +727,18 @@ impl TaskEngine {
                      (e.status = 'running' AND e.lease_until IS NOT NULL
                        AND e.lease_until <= ?1 AND e.attempt_count < e.max_attempts)
                    )
+                   {filter}
                  ORDER BY e.available_at, e.scheduled_for, e.created_at, e.id
-                 LIMIT 1",
-                [&now],
+                 LIMIT 1"
+            );
+            let mut values = vec![SqlValue::Text(now.clone())];
+            values.extend(filter_values);
+            transaction.query_row(
+                &query,
+                rusqlite::params_from_iter(values.iter()),
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()?;
+            ).optional()?
+        };
 
         let Some((execution_id, previous_status, previous_attempt_count)) = candidate else {
             transaction.commit()?;
@@ -1073,6 +1107,25 @@ fn find_task_by_idempotency_key(
             task_from_row,
         )
         .optional()
+}
+
+fn task_id_filter(
+    alias: &str,
+    eligible_task_ids: Option<&[String]>,
+) -> (String, Vec<SqlValue>) {
+    let Some(task_ids) = eligible_task_ids else {
+        return (String::new(), Vec::new());
+    };
+    if task_ids.is_empty() {
+        return (" AND 1 = 0".to_string(), Vec::new());
+    }
+    let placeholders = (2..=task_ids.len() + 1)
+        .map(|index| format!("?{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let filter = format!(" AND {alias}.id IN ({placeholders})");
+    let values = task_ids.iter().cloned().map(SqlValue::Text).collect();
+    (filter, values)
 }
 
 fn find_task_by_id(

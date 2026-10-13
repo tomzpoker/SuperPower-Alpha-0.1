@@ -69,6 +69,18 @@ impl TaskHandlerRegistry {
         Ok(())
     }
 
+    /// Indique si le couple module/type dispose d'un handler enregistré.
+    pub fn has_handler(
+        &self,
+        module: &str,
+        task_type: &str,
+    ) -> Result<bool, HandlerRegistryError> {
+        let module = normalize_key(module).ok_or(HandlerRegistryError::InvalidModule)?;
+        let task_type = normalize_key(task_type).ok_or(HandlerRegistryError::InvalidTaskType)?;
+        let handlers = self.handlers.read().map_err(|_| HandlerRegistryError::Poisoned)?;
+        Ok(handlers.contains_key(&(module, task_type)))
+    }
+
     fn invoke(&self, task: &Task, execution: &TaskExecution) -> Result<(), String> {
         let key = (task.module.clone(), task.task_type.clone());
         let handler = self
@@ -158,22 +170,46 @@ pub enum TaskWorkerError {
     InvalidConfig(&'static str),
     #[error(transparent)]
     Engine(#[from] TaskEngineError),
+    #[error(transparent)]
+    Registry(#[from] HandlerRegistryError),
 }
 
 /// Exécuteur d'une seule tâche. L'appelant choisit quand appeler run_once.
 pub struct TaskWorker;
 
 impl TaskWorker {
-    /// Matérialise les tâches ponctuelles arrivées à échéance, réserve au plus une
-    /// exécution, appelle son handler hors transaction puis persiste son résultat.
+    /// Mode explicite : un handler absent est enregistré comme échec. À réserver aux
+    /// diagnostics et appels manuels ; pas pour une boucle de fond.
     pub fn run_once(
         connection: &mut Connection,
         registry: &TaskHandlerRegistry,
         now: DateTime<Utc>,
         config: TaskWorkerConfig,
     ) -> Result<WorkerOutcome, TaskWorkerError> {
+        Self::run_once_internal(connection, registry, now, config, false)
+    }
+
+    /// Mode sûr pour un futur worker de fond : seules les tâches dont le handler est
+    /// enregistré sont matérialisées et réservées ; les autres restent intactes.
+    pub fn run_once_for_registered_handlers(
+        connection: &mut Connection,
+        registry: &TaskHandlerRegistry,
+        now: DateTime<Utc>,
+        config: TaskWorkerConfig,
+    ) -> Result<WorkerOutcome, TaskWorkerError> {
+        Self::run_once_internal(connection, registry, now, config, true)
+    }
+
+    fn run_once_internal(
+        connection: &mut Connection,
+        registry: &TaskHandlerRegistry,
+        now: DateTime<Utc>,
+        config: TaskWorkerConfig,
+        registered_handlers_only: bool,
+    ) -> Result<WorkerOutcome, TaskWorkerError> {
         config.validate()?;
         let now_text = timestamp(&now);
+        let mut eligible_task_ids = Vec::new();
         let lease_until = timestamp(&(now.clone() + config.lease_duration));
 
         // Les occurrences cron utilisent une clé stable liée à l'instant prévu.
@@ -182,6 +218,13 @@ impl TaskWorker {
         for task in TaskEngine::list_tasks(connection)? {
             if task.status != TaskStatus::Scheduled {
                 continue;
+            }
+
+            if registered_handlers_only && !registry.has_handler(&task.module, &task.task_type)? {
+                continue;
+            }
+            if registered_handlers_only {
+                eligible_task_ids.push(task.id.clone());
             }
 
             if let Some(expression) = task.cron_expression.as_deref() {
@@ -272,8 +315,17 @@ impl TaskWorker {
             }
         }
 
-        let Some(execution) = TaskEngine::claim_next_due(connection, &now_text, &lease_until)?
-        else {
+        let claimed = if registered_handlers_only {
+            TaskEngine::claim_next_due_for_task_ids(
+                connection,
+                &now_text,
+                &lease_until,
+                &eligible_task_ids,
+            )?
+        } else {
+            TaskEngine::claim_next_due(connection, &now_text, &lease_until)?
+        };
+        let Some(execution) = claimed else {
             return Ok(WorkerOutcome::Idle);
         };
         let task = TaskEngine::get_task_by_id(connection, &execution.task_id)?
@@ -566,6 +618,104 @@ mod tests {
             attempts[0].error_message.as_deref(),
             Some("Le gestionnaire a paniqué pendant l'exécution.")
         );
+    }
+
+    #[test]
+    fn safe_worker_leaves_due_tasks_untouched_without_a_registered_handler() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        TaskEngine::install_schema(&connection).expect("install schema");
+        let task = create_due_task(&connection, "safe-worker-no-handler", 2);
+        let registry = TaskHandlerRegistry::new();
+
+        let outcome = TaskWorker::run_once_for_registered_handlers(
+            &mut connection,
+            &registry,
+            at("2026-10-13T10:01:00Z"),
+            TaskWorkerConfig::default(),
+        )
+        .expect("missing handler should defer the task safely");
+
+        assert_eq!(outcome, WorkerOutcome::Idle);
+        assert!(TaskEngine::list_executions(&connection, &task.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn safe_worker_skips_unhandled_tasks_without_starving_registered_tasks() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        TaskEngine::install_schema(&connection).expect("install schema");
+        let unhandled = create_due_task(&connection, "safe-worker-unhandled-first", 2);
+        let handled = TaskEngine::create_task(
+            &connection,
+            &NewTask {
+                idempotency_key: "safe-worker-handled-second".to_string(),
+                module: "documents".to_string(),
+                task_type: "registered_type".to_string(),
+                title: "Tâche avec handler".to_string(),
+                payload: serde_json::json!({}),
+                scheduled_at: DUE.to_string(),
+                cron_expression: None,
+                max_attempts: 2,
+            },
+            BEFORE_DUE,
+        )
+        .expect("create registered task");
+        let registry = TaskHandlerRegistry::new();
+        registry
+            .register_handler("documents", "registered_type", |_task, _execution| Ok(()))
+            .unwrap();
+
+        let outcome = TaskWorker::run_once_for_registered_handlers(
+            &mut connection,
+            &registry,
+            at("2026-10-13T10:01:00Z"),
+            TaskWorkerConfig::default(),
+        )
+        .expect("process only a registered handler");
+
+        assert!(matches!(outcome, WorkerOutcome::Succeeded { .. }));
+        assert!(TaskEngine::list_executions(&connection, &unhandled.id).unwrap().is_empty());
+        let executions = TaskEngine::list_executions(&connection, &handled.id).unwrap();
+        assert_eq!(executions.len(), 1);
+        assert_eq!(executions[0].status, ExecutionStatus::Succeeded);
+    }
+
+    #[test]
+    fn safe_worker_does_not_materialize_cron_for_unhandled_task() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        TaskEngine::install_schema(&connection).expect("install schema");
+        let task = TaskEngine::create_task(
+            &connection,
+            &NewTask {
+                idempotency_key: "safe-worker-unhandled-cron".to_string(),
+                module: "documents".to_string(),
+                task_type: "future_handler".to_string(),
+                title: "Cron sans handler".to_string(),
+                payload: serde_json::json!({}),
+                scheduled_at: DUE.to_string(),
+                cron_expression: Some("*/5 * * * *".to_string()),
+                max_attempts: 2,
+            },
+            BEFORE_DUE,
+        )
+        .expect("create cron task");
+        let original_scheduled_at = task.scheduled_at.clone();
+        let registry = TaskHandlerRegistry::new();
+
+        let outcome = TaskWorker::run_once_for_registered_handlers(
+            &mut connection,
+            &registry,
+            at("2026-10-13T10:01:00Z"),
+            TaskWorkerConfig::default(),
+        )
+        .expect("defer cron task without a handler");
+
+        assert_eq!(outcome, WorkerOutcome::Idle);
+        assert!(TaskEngine::list_executions(&connection, &task.id).unwrap().is_empty());
+        let unchanged = TaskEngine::get_task_by_id(&connection, &task.id).unwrap().unwrap();
+        assert_eq!(unchanged.scheduled_at, original_scheduled_at);
     }
 
     #[test]
