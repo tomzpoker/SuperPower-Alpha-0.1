@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; récurrences ancrées, calendrier accessible, filtres et historique avec durées ; CI #38454692391 verte sur `5e39f35` : frontend, formatage/tests Rust, build Windows/Tauri et tests workspace/migrations. Un nouveau lot ajoute trois tests de déverrouillage (démarrage après ouverture, reverrouillage si le worker échoue, mauvaise phrase secrète) ; validation CI en cours. Le parcours visuel natif reste ouvert |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; récurrences ancrées, calendrier accessible, filtres et historique avec durées ; CI #38457756360 verte sur `f3a3ef1` : frontend, formatage/tests Rust, build Windows/Tauri et tests workspace/migrations. Les tests de déverrouillage couvrent l’ouverture correcte, le refus d’une mauvaise phrase secrète et le reverrouillage si le worker échoue. Le parcours visuel/IPC natif reste ouvert |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -78,7 +78,7 @@
 - [x] Test automatisé SQLCipher AppState : verrouillage/déverrouillage, accès refusé pendant le verrouillage, historique conservé et reprise du worker sans double exécution (CI #38445019655).
 - [ ] Vérifier manuellement dans l’application native les commandes Tauri de verrouillage/déverrouillage et la reprise du worker sur un coffre temporaire.
 - [x] Valider les tests SQLCipher des fonctions partagées avec les commandes : idempotence, audit, cycle de vie, garde-fous d’historique et verrouillage (CI #38454692391 sur `5e39f35`). Ces tests ne lancent pas le runtime graphique Tauri.
-- [ ] Valider par CI les tests du déverrouillage : phrase secrète correcte, démarrage du worker après déverrouillage, reverrouillage si le worker ne démarre pas et refus avec mauvaise phrase secrète.
+- [x] Valider les tests du déverrouillage par CI #38457756360 (`f3a3ef1`) : phrase secrète correcte, démarrage du worker uniquement après ouverture, reverrouillage si le worker ne démarre pas et refus avec mauvaise phrase secrète. Le parcours visuel/IPC natif reste à vérifier séparément.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [x] Rendre les occurrences du calendrier sélectionnables au clavier et à la souris, avec bascule vers la tâche correspondante et mise en évidence de la date choisie.
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.
@@ -89,6 +89,6 @@
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
 - La suppression contrôlée, le test frontend du mode démo, les migrations historiques v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
-- La CI #38454692391 est verte sur `5e39f35` : formatage/tests Rust, frontend, build Windows/Tauri et workspace/migrations. Les tests des fonctions partagées avec les commandes couvrent création idempotente et audit, mise à jour, transitions de cycle de vie, refus d’altération après historisation et verrouillage du coffre temporaire sans lancer le runtime mock.
+- La CI #38457756360 est verte sur `f3a3ef1` : formatage/tests Rust, frontend, build Windows/Tauri et workspace/migrations. Les tests couvrent création idempotente et audit, mise à jour, transitions de cycle de vie, refus d’altération après historisation, verrouillage, déverrouillage correct, mauvaise phrase secrète et reverrouillage si le worker échoue. Les tests n’exécutent pas le runtime graphique ni l’IPC réel.
 - La CI #38449610042 est verte sur `50f289e` : le test frontend du calendrier interactif, les six tests de recherche/filtres, les tests Rust, le build Tauri Windows et les tests workspace/migrations sont tous réussis.
 - La CI #38445019655 est verte sur `2c13cc8` : formatage/tests Rust, frontend, build Tauri Windows et tests workspace/migrations. Le test SQLCipher AppState verrouille/déverrouille le coffre temporaire, conserve l’historique de janvier/février et vérifie la reprise sans doublon ainsi que la prochaine occurrence au 31 mars. La CI #38438886275 valide séparément start/stop/restart du contrôleur. Le test natif du rappel simple est réussi ; la vérification manuelle des commandes de verrouillage/déverrouillage reste ouverte. [Résultats CI #38445019655](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38445019655).

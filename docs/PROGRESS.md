@@ -9,7 +9,7 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 inclut calendrier accessible, recherche/filtres, historique enrichi, worker et tests SQLCipher des fonctions partagées avec les commandes Tauri. CI #38454692391 est entièrement verte sur `5e39f35`. Trois nouveaux tests couvrent le déverrouillage et l’échec de démarrage worker, en attente de CI. Le parcours visuel natif reste non vérifié. |
+| Statut | S06-B est dans `main`. La branche S02 couvre calendrier accessible, recherche/filtres, historique avec durées et cycle SQLCipher via les fonctions partagées avec les commandes. CI #38457756360 est entièrement verte sur `f3a3ef1`, incluant ouverture, mauvaise phrase secrète et échec du worker. Reste la vérification visuelle/IPC native et la clôture formelle du sprint. |
 | Prochaine action | Vérifier le parcours natif des commandes Tauri de verrouillage/déverrouillage sur coffre temporaire, puis choisir le prochain handler métier à partir d’un cas d’usage existant. Les tests de récurrence et de persistance utilisent des dates déterministes. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Recherche/filtres, calendrier récurrent accessible, historique avec durées, cycle de vie SQLCipher couvert par CI #38454692391 ; vérification native de verrouillage/déverrouillage encore ouverte |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Moteur, calendrier, filtres et historique validés ; CI #38457756360 verte sur `f3a3ef1` pour les scénarios SQLCipher lock/unlock ; test visuel/IPC natif encore ouvert |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
@@ -103,3 +103,4 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 
 | 2026-10-13 | 02 | Commandes Tauri et page Tâches | Branche non fusionnée ; worker et UI du rappel validés par CI #153 |
 | 2026-10-13 | 02 | Tests de logique de commandes avec AppState SQLCipher temporaire | CI #38454692391 verte sur `5e39f35` : création/idempotence/audit, transitions, garde-fous d’historique et verrouillage ; interaction UI native encore ouverte |
+| 2026-10-13 | 02 | Couverture automatisée du déverrouillage | CI #38457756360 verte sur `f3a3ef1` : ouverture correcte, mauvaise phrase secrète, rollback si le worker échoue ; UI/IPC natif reste ouvert |
