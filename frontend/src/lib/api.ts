@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DatabaseStatus,
-  EntryLine, EntryView, FluxInput, FluxRealisationView, FluxView, FrequenceFlux, RealisationFluxInput, Societe,
+  EntryLine, EntryView, FluxInput, FluxRealisationView, FluxView, FrequenceFlux,
+  NewTask, RealisationFluxInput, Societe, Task, TaskAttempt, TaskExecution, TaskStatus,
 } from './types';
 
 // In the browser, only an in-memory preview is provided. Real data belongs in the
@@ -11,6 +12,9 @@ let demoReady = false;
 let demoSocietes: Societe[] = [];
 let demoEntries: EntryView[] = [];
 let demoFlux: FluxView[] = [];
+let demoTasks: Task[] = [];
+let demoTaskExecutions: TaskExecution[] = [];
+let demoTaskAttempts: TaskAttempt[] = [];
 const demoAccounts: Account[] = [
   ['101', 'Capital', 1], ['164', 'Emprunts auprès des établissements de crédit', 1],
   ['213', 'Constructions', 2], ['2813', 'Amortissements des constructions', 2],
@@ -324,6 +328,69 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       const updated = summarizeFlux({ ...owner, updatedAt: new Date().toISOString(), realisations: owner.realisations.map(item => item.id === id ? { ...item, annuleeAt: new Date().toISOString(), motifAnnulation: motif } : item) });
       demoFlux = demoFlux.map(flow => flow.id === owner.id ? updated : flow);
       return updated as T;
+    }
+    case 'list_tasks': return [...demoTasks] as T;
+    case 'create_task': {
+      const input = args.input as NewTask;
+      const idempotencyKey = input.idempotencyKey?.trim();
+      if (!idempotencyKey || idempotencyKey.length > 200) throw new Error('La clé d’idempotence doit comporter de 1 à 200 caractères.');
+      if (!input.module?.trim() || input.module.trim().length > 100) throw new Error('Le module doit comporter de 1 à 100 caractères.');
+      if (!input.taskType?.trim() || input.taskType.trim().length > 100) throw new Error('Le type de tâche doit comporter de 1 à 100 caractères.');
+      if (!input.title?.trim() || input.title.trim().length > 200) throw new Error('Le titre doit comporter de 1 à 200 caractères.');
+      if (!Number.isInteger(input.maxAttempts) || input.maxAttempts < 1 || input.maxAttempts > 100) throw new Error('Le nombre de tentatives doit être compris entre 1 et 100.');
+      const scheduledDate = new Date(input.scheduledAt);
+      if (Number.isNaN(scheduledDate.getTime())) throw new Error('La date de planification est invalide.');
+      const existing = demoTasks.find(task => task.idempotencyKey === idempotencyKey);
+      if (existing) {
+        const same = existing.module === input.module.trim()
+          && existing.taskType === input.taskType.trim()
+          && existing.title === input.title.trim()
+          && JSON.stringify(existing.payload) === JSON.stringify(input.payload)
+          && existing.scheduledAt === scheduledDate.toISOString()
+          && existing.maxAttempts === input.maxAttempts;
+        if (!same) throw new Error('Cette clé d’idempotence est déjà utilisée pour une demande différente.');
+        return existing as T;
+      }
+      const now = new Date().toISOString();
+      const task: Task = {
+        ...input,
+        id: crypto.randomUUID(),
+        idempotencyKey,
+        module: input.module.trim(),
+        taskType: input.taskType.trim(),
+        title: input.title.trim(),
+        scheduledAt: scheduledDate.toISOString(),
+        status: 'scheduled',
+        createdAt: now,
+        updatedAt: now,
+      };
+      demoTasks = [task, ...demoTasks];
+      return task as T;
+    }
+    case 'update_task_status': {
+      const taskId = String(args.taskId ?? '');
+      const status = args.status as TaskStatus;
+      if (!['scheduled', 'paused', 'cancelled'].includes(status)) throw new Error('Le statut de tâche est invalide.');
+      const task = demoTasks.find(item => item.id === taskId);
+      if (!task) throw new Error('Cette tâche n’existe plus.');
+      const now = new Date().toISOString();
+      demoTasks = demoTasks.map(item => item.id === taskId ? { ...item, status, updatedAt: now } : item);
+      if (status === 'cancelled') {
+        demoTaskExecutions = demoTaskExecutions.map(item =>
+          item.taskId === taskId && item.status === 'queued'
+            ? { ...item, status: 'cancelled', finishedAt: now, leaseUntil: null, updatedAt: now }
+            : item,
+        );
+      }
+      return demoTasks.find(item => item.id === taskId)! as T;
+    }
+    case 'list_task_executions': {
+      const taskId = String(args.taskId ?? '');
+      return demoTaskExecutions.filter(item => item.taskId === taskId) as T;
+    }
+    case 'list_task_attempts': {
+      const executionId = String(args.executionId ?? '');
+      return demoTaskAttempts.filter(item => item.executionId === executionId) as T;
     }
     case 'list_comptes': return demoAccounts as T;
     case 'list_ecritures': {
