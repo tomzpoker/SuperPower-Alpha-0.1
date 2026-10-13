@@ -9,8 +9,8 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le moteur persistant, cron UTC, worker natif stoppable et handler local `general/reminder`. La CI #152 est verte sur `8ac4417`. Le lot courant ajoute un champ de message accessible pour les rappels, avec conservation des autres données JSON ; CI à repasser. |
-| Prochaine action | Valider le champ de message et ses tests, puis effectuer un essai natif isolé : rappel à échéance, historique réussi, verrouillage/déverrouillage. Ensuite, traiter un handler métier idempotent pour documents ou échéances locatives. |
+| Statut | S06-B est dans `main`. La branche S02 contient le moteur persistant SQLCipher, cron UTC, worker natif stoppable, handler `general/reminder` et champ de message dédié. CI #153 est entièrement verte sur `78ace82`, dont le build Windows/Tauri et les tests des migrations. L'essai natif isolé reste à réaliser. |
+| Prochaine action | Faire un essai natif isolé sur coffre temporaire : rappel à échéance, toast, historique réussi, verrouillage/déverrouillage. Ensuite, implémenter un handler idempotent sur un vrai besoin métier (documents ou échéances locatives). |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Migrations v3→v5, page liste/calendrier, cron persisté et worker one-shot ; worker de fond et handlers métier non livrés |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Migrations v3→v5, liste/calendrier, cron UTC, worker natif et handler local `general/reminder` ; handlers métier des autres modules restant à faire |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
@@ -36,10 +36,10 @@ Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/3832
 |---|---|
 | `cargo fmt --all -- --check` | S06-B passé sur le run #96 |
 | Tests Rust du domaine | S06-B passé sur le run #96 et le run post-fusion #97 |
-| Tests workspace / migrations automatisées | CI #146 verte sur le commit `881fcd5`, incluant le workspace et les migrations ; une nouvelle CI est requise pour le test de panique ajouté au lot de reprise |
+| Tests workspace / migrations automatisées | CI #153 verte sur `78ace82`, incluant le workspace et les migrations : [run #153](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38423220628) |
 | Frontend | Typecheck, tests et bundle S06-B passés sur le run #96 et le run post-fusion #97 |
-| Build Tauri Windows | CI #146 verte sur le commit `881fcd5` ; revalidation complète requise après le nouveau test de panique |
-| Vérification Markdown et liens | Passée en CI #146 sur le commit `881fcd5` ; documentation de reprise mise à jour dans le lot courant |
+| Build Tauri Windows | CI #153 verte sur `78ace82` : [run #153](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38423220628) |
+| Vérification Markdown et liens | Passée en CI #153 sur `78ace82`; cette mise à jour documentaire déclenche une nouvelle validation des liens |
 | Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
 | Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
@@ -71,7 +71,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Sur la branche S02, la CI #152 valide le worker local `general/reminder` sur `8ac4417`, ainsi que Rust, frontend, build Windows et migrations. Le champ de message accessible et ses tests sont dans le lot courant ; nouvelle validation requise. Les handlers documents/import bancaire/locatif, le fuseau cron configurable, l'adaptation du widget et l'essai natif restent à faire.
+- Sur la branche S02, la CI #153 valide le worker natif `general/reminder`, le champ de message dédié, les contrôles Rust/frontend, le build Windows/Tauri et les migrations sur `78ace82`. Les handlers documents/import bancaire/locatif, le fuseau cron configurable, l'adaptation du widget et l'essai natif sur coffre temporaire restent à faire.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -97,6 +97,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 | 2026-10-13 | 02 | Worker natif stoppable et handler local `general/reminder` | CI #151 entièrement verte sur `8b8c0b5` |
 
 | 2026-10-13 | 02 | Durcissement des erreurs worker/coffre et mise en file des rappels UI | CI #152 entièrement verte sur `8ac4417` |
-| 2026-10-13 | 02 | Champ de message dédié pour les rappels et tests de transformation du payload | Commit courant : CI requise |
+| 2026-10-13 | 02 | Champ de message dédié pour les rappels et tests de transformation du payload | CI #153 entièrement verte sur `78ace82` |
+| 2026-10-13 | 02 | Essai natif du rappel automatisé sur coffre temporaire | À faire ; ne jamais utiliser le coffre habituel comme cible de migration |
 
-| 2026-10-13 | 02 | Ajout des commandes Tauri de création/liste/statut/historique et d'une page UI Tâches | Branche non fusionnée ; CI du dernier commit à confirmer |
+| 2026-10-13 | 02 | Commandes Tauri et page Tâches | Branche non fusionnée ; worker et UI du rappel validés par CI #153 |

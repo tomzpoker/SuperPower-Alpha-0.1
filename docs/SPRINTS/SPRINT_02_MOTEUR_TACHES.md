@@ -49,7 +49,7 @@
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
 - Les tâches conservent une expression cron numérique à cinq champs et son ancre d'origine ; la migration v4→v5 ajoute les colonnes sans perdre les définitions existantes. Le worker one-shot matérialise les occurrences échues avec une clé idempotente par occurrence, avance l'échéance dans la même transaction et borne le rattrapage à 1 000 occurrences par appel et par tâche.
 - Le formulaire natif peut prévisualiser cinq échéances suivant l'ancre via le parseur Rust partagé. L'aperçu refuse les expressions invalides et borne le nombre demandé ; le mode navigateur indique clairement que le calcul nécessite la fenêtre Tauri.
-- La CI #152 est entièrement verte sur `8ac4417`. Le lot courant expose un champ de message du rappel, synchronisé au payload JSON et préservant les propriétés existantes ; ses tests et son build doivent repasser la CI.
+- La CI #153 est entièrement verte sur `78ace82` : le champ « Message du rappel » est synchronisé avec `payload.message`, les autres propriétés JSON sont conservées et le build Windows/Tauri plus les tests workspace/migrations sont passés.
 
 ### Contrôles avant clôture
 
@@ -65,7 +65,8 @@
 - [x] Ajouter un mode de worker limité aux handlers enregistrés, avec tests anti-consommation, anti-famine et sans matérialisation cron si le handler manque.
 - [x] Intégration du worker natif stoppable et du handler `general/reminder` validée en CI #151.
 - [x] Durcissements worker/coffre et file des rappels UI validés par CI #152.
-- [ ] Valider le champ dédié du message de rappel et ses tests dans la nouvelle CI ; faire un essai natif sur coffre temporaire.
+- [x] Champ de message de rappel dédié et tests de synchronisation du payload validés en CI #153 sur `78ace82`.
+- [ ] Essai natif sur coffre temporaire : rappel à échéance, toast visible, historique réussi, puis verrouillage/déverrouillage.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
@@ -75,4 +76,4 @@
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
 - La suppression contrôlée, le test frontend du mode démo, les migrations v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
-- La CI #152 est entièrement verte sur `8ac4417`, avec tests du moteur, frontend, build Windows/Tauri et workspace/migrations. Le champ de message dédié et ses tests de transformation du payload doivent être confirmés par la nouvelle CI.
+- La CI #153 est entièrement verte sur `78ace82`, avec contrôles Rust, tests frontend, build Windows/Tauri et tests du workspace/migrations. Le prochain contrôle est un essai natif isolé du rappel sur coffre temporaire ; la CI ne remplace pas ce parcours.

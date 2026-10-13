@@ -24,7 +24,7 @@ La crate fournit l'installation des tables sans modifier elle-même `PRAGMA user
 
 ## Seconde tranche — registre et exécuteur piloté
 
-La branche ajoute un registre de handlers indexé par module/type, un worker one-shot persistant et un mode sûr qui ignore les tâches sans handler. La CI #152 est entièrement verte sur `8ac4417`, y compris le worker natif, le handler local `general/reminder`, le build Windows et les tests workspace. Le lot courant ajoute un champ de message dédié pour les rappels et des tests unitaires de transformation du payload, en conservant les autres propriétés JSON. Nouvelle validation CI requise.
+La branche ajoute un registre de handlers indexé par module/type, un worker one-shot persistant et un mode sûr qui ignore les tâches sans handler. La CI #153 est entièrement verte sur `78ace82`, y compris le champ de message dédié, les contrôles Rust/frontend, le build Windows/Tauri et les tests workspace/migrations. Le parcours applicatif natif du rappel sur coffre temporaire reste à confirmer avant de considérer l'intégration validée par l'utilisateur.
 
 ## Points explicitement différés
 
@@ -48,4 +48,4 @@ Le statut de prototype ne signifie donc pas que les user stories du Sprint 02 so
 
 ## État à la création de l'ADR
 
-La tranche se trouve toujours sur `sprint/02-moteur-taches-prototype` et n'est pas fusionnée dans `main`. La CI #151 est entièrement verte sur `8b8c0b5` pour le moteur, le frontend, le build Windows/Tauri et les migrations. Le lot courant durcit le verrouillage worker et met en file les toasts de rappel ; cette nouvelle tranche doit être validée par CI. Les rappels se déclenchent uniquement avec l'application ouverte et le coffre déverrouillé. Les autres handlers métier, le fuseau configurable et l'adaptation du widget historique restent à faire.
+La tranche se trouve toujours sur `sprint/02-moteur-taches-prototype` et n'est pas fusionnée dans `main`. La CI #153 est entièrement verte sur `78ace82`, y compris les migrations, le build Windows/Tauri et les tests. Les rappels se déclenchent uniquement avec l'application ouverte et le coffre déverrouillé. Le contrôle encore ouvert est un essai natif sur coffre temporaire ; les autres handlers métier, le fuseau configurable et l'adaptation du widget historique restent à faire.
