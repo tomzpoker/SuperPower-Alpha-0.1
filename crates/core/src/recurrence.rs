@@ -16,6 +16,12 @@ pub enum FrequenceFlux {
     Annuel,
 }
 
+impl Default for FrequenceFlux {
+    fn default() -> Self {
+        Self::Ponctuel
+    }
+}
+
 impl FrequenceFlux {
     fn intervalle_mois(self) -> Option<u32> {
         match self {
