@@ -19,10 +19,9 @@ Résultats manuels signalés le 2026-10-13 :
 - Copie de `superpower.db` et `superpower.salt` dans un dossier temporaire : l'application s'est déverrouillée, les données existantes ont été signalées présentes et la réouverture de cette même copie a fonctionné.
 - Aucun test n'a utilisé le coffre habituel comme cible de migration ; il a servi uniquement de source pour copier les fichiers.
 
-Ne pas fusionner ou déclarer S06-A entièrement terminé avant :
-1. CI verte sur le commit documentaire le plus récent.
-2. Confirmation indépendante que la copie source de migration était bien au `user_version = 1`, puis vérification que la copie migrée est au `user_version = 2` et possède les tables `flux_previsionnels` et `flux_realisations`.
-3. Compléter les vérifications restantes : vérifier le refus métier (pas seulement les boutons masqués) d'ajouter une réalisation à une prévision annulée ; confirmer les tables et la version du schéma sur la copie migrée.
+S06-A est fusionné ; cette fusion ne prouve pas à elle seule une migration native complète. Deux contrôles restent ouverts :
+1. Relever la version de schéma d'une copie de test avant ouverture, puis vérifier après migration `PRAGMA user_version = 2` et les tables `flux_previsionnels` / `flux_realisations`.
+2. Le refus métier d'une nouvelle réalisation sur une prévision annulée est maintenant couvert par un test unitaire de la fonction appelée par la commande, dans la PR [#4](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/4). La CI doit confirmer cette couverture.
 
 Ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ». L'application de développement reconnaît `SUPERPOWER_TEST_DATA_DIR` uniquement si elle pointe vers un chemin absolu distinct du coffre habituel ; cette variable est ignorée dans les builds release. Le test décrit plus bas doit être lancé avec cette variable définie afin que la copie, et non le coffre habituel, soit ouverte.
 
