@@ -9,7 +9,7 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 inclut calendrier accessible, recherche/filtres, historique enrichi, worker et tests SQLCipher des fonctions partagées avec les commandes Tauri. CI #38454692391 est entièrement verte sur `5e39f35` (frontend, Rust, build Windows/Tauri, workspace/migrations). Reste le parcours visuel natif de verrouillage/déverrouillage et la clôture formelle du sprint. |
+| Statut | S06-B est dans `main`. La branche S02 inclut calendrier accessible, recherche/filtres, historique enrichi, worker et tests SQLCipher des fonctions partagées avec les commandes Tauri. CI #38454692391 est entièrement verte sur `5e39f35`. Trois nouveaux tests couvrent le déverrouillage et l’échec de démarrage worker, en attente de CI. Le parcours visuel natif reste non vérifié. |
 | Prochaine action | Vérifier le parcours natif des commandes Tauri de verrouillage/déverrouillage sur coffre temporaire, puis choisir le prochain handler métier à partir d’un cas d’usage existant. Les tests de récurrence et de persistance utilisent des dates déterministes. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |

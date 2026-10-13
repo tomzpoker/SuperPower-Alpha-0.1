@@ -134,6 +134,22 @@ pub fn initialize_database(
     Ok(())
 }
 
+fn unlock_database_with_state<F>(
+    passphrase: &str,
+    state: &AppState,
+    start_worker: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    state.unlock(passphrase)?;
+    if let Err(error) = start_worker() {
+        state.lock();
+        return Err(error);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn unlock_database(
     passphrase: String,
@@ -141,12 +157,7 @@ pub fn unlock_database(
     app: AppHandle,
     worker: State<'_, TaskWorkerController>,
 ) -> Result<(), String> {
-    state.unlock(&passphrase)?;
-    if let Err(error) = worker.start(app) {
-        state.lock();
-        return Err(error);
-    }
-    Ok(())
+    unlock_database_with_state(&passphrase, state.inner(), move || worker.start(app))
 }
 
 fn lock_database_with_state(state: &AppState, worker: &TaskWorkerController) -> Result<(), String> {
@@ -2076,6 +2087,66 @@ mod task_command_tests {
         assert!(state
             .connection()
             .expect_err("new connection must be refused while locked")
+            .contains("verrouillée"));
+    }
+
+    #[test]
+    fn unlock_database_logic_opens_the_vault_before_starting_worker() {
+        use std::cell::Cell;
+
+        let (_vault, state) = test_state();
+        state.lock();
+        let worker_start_called = Cell::new(false);
+
+        unlock_database_with_state(TEST_PASSPHRASE, &state, || {
+            assert_eq!(state.status(), DatabaseStatus::Ready);
+            worker_start_called.set(true);
+            Ok(())
+        })
+        .expect("unlock the temporary SQLCipher vault");
+
+        assert!(worker_start_called.get());
+        assert!(state.connection().is_ok());
+    }
+
+    #[test]
+    fn unlock_database_logic_relocks_the_vault_if_worker_start_fails() {
+        let (_vault, state) = test_state();
+        state.lock();
+
+        let error = unlock_database_with_state(TEST_PASSPHRASE, &state, || {
+            Err("simulated worker start failure".to_string())
+        })
+        .expect_err("worker failure must make unlock fail closed");
+
+        assert!(error.contains("simulated worker start failure"));
+        assert_eq!(state.status(), DatabaseStatus::Locked);
+        assert!(state
+            .connection()
+            .expect_err("failed worker start must relock the vault")
+            .contains("verrouillée"));
+    }
+
+    #[test]
+    fn unlock_database_logic_does_not_start_worker_for_wrong_passphrase() {
+        use std::cell::Cell;
+
+        let (_vault, state) = test_state();
+        state.lock();
+        let worker_start_called = Cell::new(false);
+
+        let error = unlock_database_with_state("wrong passphrase", &state, || {
+            worker_start_called.set(true);
+            Ok(())
+        })
+        .expect_err("wrong passphrase must not unlock the vault");
+
+        assert!(!worker_start_called.get());
+        assert!(!error.is_empty());
+        assert_eq!(state.status(), DatabaseStatus::Locked);
+        assert!(state
+            .connection()
+            .expect_err("wrong passphrase must leave the vault locked")
             .contains("verrouillée"));
     }
 }
