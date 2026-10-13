@@ -50,6 +50,11 @@ pub fn run() {
             commands::list_comptes,
             commands::create_ecriture,
             commands::list_ecritures,
+            commands::list_tasks,
+            commands::create_task,
+            commands::update_task_status,
+            commands::list_task_executions,
+            commands::list_task_attempts,
             commands::dashboard_summary,
         ])
         .run(tauri::generate_context!())
