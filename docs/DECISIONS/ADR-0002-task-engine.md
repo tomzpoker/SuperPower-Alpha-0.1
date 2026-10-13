@@ -20,7 +20,7 @@ La première tranche comprend :
 - succès, échec, limite de tentatives et nouvelle disponibilité après échec ;
 - tests sur un fichier temporaire chiffré, fermé puis rouvert avec la même clé.
 
-La crate fournit l'installation des tables sans modifier elle-même `PRAGMA user_version`. Sur la branche S02, `src-tauri/src/database.rs` orchestre les migrations transactionnelles v3→v5 et versionne le schéma applicatif. La CI #146 a validé les migrations et le build Windows sur le commit `881fcd5` ; la branche n'est pas fusionnée dans `main`.
+La crate fournit l'installation des tables sans modifier elle-même `PRAGMA user_version`. Sur la branche S02, `src-tauri/src/database.rs` orchestre les migrations transactionnelles v3→v6 et versionne le schéma applicatif. La CI #146 a validé les migrations et le build Windows sur le commit `881fcd5` ; la branche n'est pas fusionnée dans `main`.
 
 ## Seconde tranche — registre et exécuteur piloté
 
@@ -33,13 +33,15 @@ La branche ajoute un registre de handlers indexé par module/type, un worker one
 - édition complète des tâches et adaptation du widget historique ;
 - intégration des tâches documents, import bancaire et rappels locatifs.
 
+Les fréquences métier sont distinctes du cron avancé : `once`, `monthly`, `quarterly`, `yearly`, ou `custom_cron`. Les occurrences métier repartent de l'ancre d'origine pour éviter une dérive de fin de mois. La CI de cette tranche reste à confirmer.
+
 Le statut de prototype ne signifie donc pas que les user stories du Sprint 02 sont livrées.
 
 ## Critères pour confirmer ou rejeter cette approche
 
 1. `cargo fmt --all -- --check`, `cargo test -p task-engine`, `cargo test --workspace` et CI Tauri Windows verts.
 2. Tests de persistance/idempotence/reprise réussis sur fichiers SQLCipher réouverts.
-3. Migration applicative v3→v5 atomique ; schéma S06 conservé ; rejet d'une version future préservé. Les migrations et leurs tests de workspace sont passés dans la CI #153. Les essais manuels du coffre de test vérifient maintenant le worker de rappel ; le cycle verrouillage/déverrouillage reste ouvert.
+3. Migration applicative v3→v6 atomique ; schéma S06 conservé ; rejet d'une version future préservé. Les migrations et leurs tests de workspace sont passés dans la CI #153. Les essais manuels du coffre de test vérifient maintenant le worker de rappel ; le cycle verrouillage/déverrouillage reste ouvert.
 4. Les handlers sont exécutés hors transaction de réservation ; une panne ne supprime ni l'exécution ni l'historique.
 5. Le parseur cron numérique à cinq champs et le calcul UTC sont présents avec tests et aperçu natif ; avant d'offrir un fuseau local, évaluer les changements d'heure et expliciter les règles de saut ou de répétition d'horaires.
 6. Les commandes et l'interface affichent les erreurs en français ; toutes les mutations persistantes ont un audit adapté.
