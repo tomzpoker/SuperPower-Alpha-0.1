@@ -96,6 +96,8 @@ pub enum TaskEngineError {
     ExecutionNotFound(String),
     #[error("Transition impossible : l'exécution n'est pas en cours.")]
     InvalidExecutionState,
+    #[error("Cette tentative a expiré ou a été remplacée par une tentative plus récente.")]
+    StaleAttempt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -549,6 +551,7 @@ impl TaskEngine {
     pub fn complete_execution(
         connection: &mut Connection,
         execution_id: &str,
+        expected_attempt_number: u32,
         now: &str,
     ) -> Result<TaskExecution, TaskEngineError> {
         let now = normalize_timestamp(now, "date de fin")?;
@@ -565,6 +568,9 @@ impl TaskEngine {
         };
         if status != "running" {
             return Err(TaskEngineError::InvalidExecutionState);
+        }
+        if attempt_count != i64::from(expected_attempt_number) {
+            return Err(TaskEngineError::StaleAttempt);
         }
 
         let changed = transaction.execute(
@@ -595,6 +601,7 @@ impl TaskEngine {
     pub fn fail_execution(
         connection: &mut Connection,
         execution_id: &str,
+        expected_attempt_number: u32,
         now: &str,
         retry_at: &str,
         error_message: &str,
@@ -616,6 +623,9 @@ impl TaskEngine {
         };
         if status != "running" {
             return Err(TaskEngineError::InvalidExecutionState);
+        }
+        if attempt_count != i64::from(expected_attempt_number) {
+            return Err(TaskEngineError::StaleAttempt);
         }
 
         let attempt_changed = transaction.execute(
@@ -1025,9 +1035,31 @@ mod tests {
             .is_some_and(|message| message.contains("expiration du bail")));
         assert_eq!(attempts[1].status, AttemptStatus::Running);
 
+        assert!(matches!(
+            TaskEngine::complete_execution(
+                &mut connection,
+                &execution_id,
+                1,
+                "2026-10-13T10:02:10Z",
+            ),
+            Err(TaskEngineError::StaleAttempt)
+        ));
+        assert!(matches!(
+            TaskEngine::fail_execution(
+                &mut connection,
+                &execution_id,
+                1,
+                "2026-10-13T10:02:11Z",
+                "2026-10-13T10:03:00Z",
+                "Erreur périmée",
+            ),
+            Err(TaskEngineError::StaleAttempt)
+        ));
+
         let failed = TaskEngine::fail_execution(
             &mut connection,
             &execution_id,
+            recovered.attempt_count,
             "2026-10-13T10:02:30Z",
             "2026-10-13T10:03:00Z",
             "Erreur de test",
@@ -1112,8 +1144,12 @@ mod tests {
         let claimed = TaskEngine::claim_next_due(&mut connection, DUE, "2026-10-13T10:01:00Z")
             .unwrap()
             .unwrap();
-        let completed =
-            TaskEngine::complete_execution(&mut connection, &execution.id, "2026-10-13T10:00:30Z")
+        let completed = TaskEngine::complete_execution(
+            &mut connection,
+            &execution.id,
+            claimed.attempt_count,
+            "2026-10-13T10:00:30Z",
+        )
                 .unwrap();
         assert_eq!(completed.status, ExecutionStatus::Succeeded);
         assert!(TaskEngine::claim_next_due(
