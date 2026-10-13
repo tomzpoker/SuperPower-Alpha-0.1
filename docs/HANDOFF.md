@@ -6,7 +6,7 @@
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
 - `main` de référence : `17966e1009daca10b8daa53cc6c937fdc22073d3`.
 - S06-A et S06-B sont fusionnés dans `main`; la PR [#5 — S06-B, flux prévisionnels récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5) a été fusionnée le 13 octobre 2026.
-- Le Sprint 02 se poursuit sur `sprint/02-moteur-taches-prototype` (PR #8, brouillon, non fusionnée) : moteur SQLCipher, migrations v3→v6, calendrier et worker natif. Les fréquences métier ponctuelle/mensuelle/trimestrielle/annuelle sont ajoutées avec ancre sans dérive ; cron reste avancé. CI #156 était verte avant cette évolution, nouvelle CI à vérifier. Le test du rappel sur coffre temporaire est réussi. Verrouillage/déverrouillage sans doublon reste à confirmer ; ne jamais migrer le coffre habituel.
+- Le Sprint 02 se poursuit sur `sprint/02-moteur-taches-prototype` (PR #8, brouillon, non fusionnée) : moteur SQLCipher, migrations v3→v6, calendrier et worker natif. Les fréquences métier ponctuelle/mensuelle/trimestrielle/annuelle sont ajoutées avec ancre sans dérive ; cron reste avancé. La CI #162 est entièrement verte sur le commit `2c445cb` (Rust, frontend, build Tauri Windows et tests workspace/migrations) : [résultats CI #162](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38436681181). Le test du rappel sur coffre temporaire est réussi. Verrouillage/déverrouillage sans doublon reste à confirmer ; ne jamais migrer le coffre habituel.
 - Le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb`, y compris build Tauri Windows et tests workspace. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est terminé avec succès sur `17966e1`.
 - S06-B conserve les prévisions ponctuelles au-delà de trois ans ; pour les récurrences, l'horizon glissant de 36 mois part d'aujourd'hui.
 
@@ -14,7 +14,7 @@ Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une 
 
 ## 2. État de validation et contrôles encore ouverts
 
-État de validation au 2026-10-13 : CI #153, #154 et #156 sont vertes sur leurs commits historiques respectifs. La tranche fréquence métier et migration v5→v6 doit être validée par sa propre CI.
+État de validation au 2026-10-13 : la tranche fréquence métier et la migration v5→v6 sont validées par la CI #162 sur `2c445cb` : formatage/tests Rust, contrôles frontend, build Tauri Windows et tests workspace/migrations tous réussis. Cela ne remplace pas l'essai natif de verrouillage/déverrouillage, toujours à confirmer.
 
 Résultats manuels signalés le 2026-10-13 :
 - Test natif Sprint 02 sur un nouveau coffre de test : la tâche « RAPPEL TEST » (module `general`, type `reminder`) a déclenché une notification visible. L'historique montre l'exécution `Terminée`, `1/3 tentative(s)` et la tentative `#1 · Réussie` à l'heure programmée. La notification, le traitement par le worker et l'historisation sont donc confirmés par le retour utilisateur ; le test de verrouillage/déverrouillage n'est pas encore confirmé.
