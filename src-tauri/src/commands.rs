@@ -10,8 +10,8 @@ use superpower_core::{
     recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux},
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
-use tauri::State;
 use task_engine::{NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus};
+use tauri::State;
 use uuid::Uuid;
 
 use crate::database::{AppState, DatabaseStatus};
