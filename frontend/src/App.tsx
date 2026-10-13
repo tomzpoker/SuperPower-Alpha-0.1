@@ -10,6 +10,7 @@ import {
 import { api, isDesktopRuntime } from './lib/api';
 import { formatDate, formatMoney, parseAmountToCents } from './lib/money';
 import { readReminderMessage, withReminderMessage } from './lib/task-payload';
+import { taskCalendarOccurrenceDates } from './lib/task-calendar';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DashboardSummary, DatabaseStatus,
   EntryView, ExigibiliteTva, FluxInput, FluxRealisationView, FluxView, FormeJuridique,
@@ -1042,20 +1043,31 @@ function TaskCalendar({
     (_, index) => new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + index),
   );
   const tasksByDay = useMemo(() => {
-    const grouped = new Map<string, Task[]>();
+    const grouped = new Map<string, Array<{ task: Task; scheduledAt: string }>>();
+    const rangeStart = days[0];
+    const lastDay = days[days.length - 1];
+    const rangeEndExclusive = new Date(
+      lastDay.getFullYear(),
+      lastDay.getMonth(),
+      lastDay.getDate() + 1,
+    );
+
     for (const task of tasks) {
-      const date = new Date(task.scheduledAt);
-      if (Number.isNaN(date.getTime())) continue;
-      const key = localDateKey(date);
-      const dayTasks = grouped.get(key) ?? [];
-      dayTasks.push(task);
-      grouped.set(key, dayTasks);
+      for (const scheduledAt of taskCalendarOccurrenceDates(task, rangeStart, rangeEndExclusive)) {
+        const date = new Date(scheduledAt);
+        if (Number.isNaN(date.getTime())) continue;
+        const key = localDateKey(date);
+        const dayTasks = grouped.get(key) ?? [];
+        dayTasks.push({ task, scheduledAt });
+        grouped.set(key, dayTasks);
+      }
     }
+
     for (const dayTasks of grouped.values()) {
       dayTasks.sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
     }
     return grouped;
-  }, [tasks]);
+  }, [tasks, month]);
   const todayKey = localDateKey(new Date());
 
   return <div className="panel tasks-calendar-panel">
@@ -1084,11 +1096,11 @@ function TaskCalendar({
           return <div className={className} key={key} aria-label={date.toLocaleDateString('fr-FR')}>
             <span className="tasks-calendar-day-number">{date.getDate()}</span>
             <div className="tasks-calendar-events">
-              {dayTasks.slice(0, 3).map((task) =>
+              {dayTasks.slice(0, 3).map(({ task, scheduledAt }) =>
                 <div
                   className={'tasks-calendar-event task-status-' + task.status}
-                  key={task.id}
-                  title={task.title + ' · ' + taskStatusLabel(task.status)}
+                  key={task.id + '-' + scheduledAt}
+                  title={task.title + ' · ' + new Date(scheduledAt).toLocaleString('fr-FR') + ' · ' + taskStatusLabel(task.status)}
                 >
                   {task.title}
                 </div>
@@ -1099,7 +1111,7 @@ function TaskCalendar({
         })}
       </div>
     </div>
-    <p className="tasks-calendar-footnote">Les dates sont affichées dans le fuseau horaire local de cet ordinateur. Sélectionnez « Liste » pour modifier une tâche ou ouvrir son historique.</p>
+    <p className="tasks-calendar-footnote">Les tâches ponctuelles et les récurrences mensuelles, trimestrielles et annuelles s’affichent aux dates prévues dans la grille. Le mode cron personnalisé affiche seulement son échéance courante ; son aperçu détaillé est disponible dans l’édition. Les dates sont affichées dans le fuseau horaire local de cet ordinateur. Sélectionnez « Liste » pour modifier une tâche ou ouvrir son historique.</p>
   </div>;
 }
 
