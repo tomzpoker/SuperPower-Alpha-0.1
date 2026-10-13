@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — tâches persistées, cron UTC, worker natif supervisé et premier handler local `general/reminder` ; toast et historique validés sur coffre de test, verrouillage/déverrouillage, handlers métier supplémentaires et fuseau local restant |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; fréquences métier ponctuelle/mensuelle/trimestrielle/annuelle ajoutées sans dérive de fin de mois ; migration v5→v6 et CI de cette tranche à confirmer |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -23,7 +23,7 @@
 ## User Stories
 - US-02-01 : Visualiser les tâches (liste, calendrier).
 - US-02-02 : Créer/modifier/supprimer une tâche manuellement.
-- US-02-03 : Planifier une tâche récurrente (cron).
+- US-02-03 : Planifier une tâche ponctuelle ou récurrente (mensuelle, trimestrielle, annuelle) ; garder cron comme mode avancé.
 - US-02-04 : Voir l'historique d'exécution et les erreurs.
 
 ## Tâches techniques
@@ -47,7 +47,8 @@
 - La page dispose maintenant d'un calendrier mensuel en grille, avec navigation entre mois et affichage des échéances par statut ; la liste reste l'endroit prévu pour modifier une tâche et consulter son historique.
 - Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
-- Les tâches conservent une expression cron numérique à cinq champs et son ancre d'origine ; la migration v4→v5 ajoute les colonnes sans perdre les définitions existantes. Le worker one-shot matérialise les occurrences échues avec une clé idempotente par occurrence, avance l'échéance dans la même transaction et borne le rattrapage à 1 000 occurrences par appel et par tâche.
+- Les tâches conservent une fréquence métier (ponctuelle, mensuelle, trimestrielle, annuelle) ou une expression cron avancée avec ancre d'origine. La migration v5→v6 ajoute la fréquence sans perdre les tâches existantes et reconnaît les anciennes tâches cron.
+- Le calcul repart de l'ancre originale : 31 janvier → 28 février → 31 mars ; le cas de l'année bissextile est testé. Le worker conserve une matérialisation idempotente par occurrence.
 - Le formulaire natif peut prévisualiser cinq échéances suivant l'ancre via le parseur Rust partagé. L'aperçu refuse les expressions invalides et borne le nombre demandé ; le mode navigateur indique clairement que le calcul nécessite la fenêtre Tauri.
 - La CI #153 est entièrement verte sur `78ace82` : le champ « Message du rappel » est synchronisé avec `payload.message`, les autres propriétés JSON sont conservées et le build Windows/Tauri plus les tests workspace/migrations sont passés.
 
@@ -66,6 +67,9 @@
 - [x] Intégration du worker natif stoppable et du handler `general/reminder` validée en CI #151.
 - [x] Durcissements worker/coffre et file des rappels UI validés par CI #152.
 - [x] Champ de message de rappel dédié et tests de synchronisation du payload validés en CI #153 sur `78ace82`.
+- [x] Sélecteur de fréquence métier ajouté, cron conservé comme mode avancé.
+- [x] Migration v5→v6 additive et conservation des tâches existantes testée.
+- [ ] Confirmer par CI le calcul ancré, le frontend et la migration v5→v6.
 - [x] Essai natif sur coffre temporaire : rappel `general/reminder` à échéance, notification visible, exécution `Terminée`, tentative `#1 · Réussie` et historique confirmé par l'utilisateur.
 - [ ] Verrouiller puis déverrouiller le même coffre temporaire et confirmer que le worker reprend sans doublon.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
@@ -76,5 +80,5 @@
 
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
-- La suppression contrôlée, le test frontend du mode démo, les migrations v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
+- La suppression contrôlée, le test frontend du mode démo, les migrations historiques v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
 - La CI #153 est entièrement verte sur `78ace82`, avec contrôles Rust, tests frontend, build Windows/Tauri et tests du workspace/migrations. La CI #154 est également entièrement verte sur le commit documentaire `b3afe93`. L'essai natif isolé a confirmé la notification et l'historique réussi ; le prochain contrôle est le verrouillage/déverrouillage du coffre temporaire, avec reprise du worker sans doublon.
