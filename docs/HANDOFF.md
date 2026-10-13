@@ -91,10 +91,10 @@ $env:SUPERPOWER_TEST_DATA_DIR=$testDir; npm run tauri:dev
 
 1. Déverrouiller la copie avec sa phrase secrète. Seul le dossier temporaire peut être modifié par ce test.
 2. Vérifier que l'application s'ouvre et que la société et les données v2 préexistantes (prévisions et réalisations) sont conservées.
-3. Avec un outil compatible SQLCipher, vérifier après migration `PRAGMA user_version = 3), la table `flux_recurrences` et la colonne nullable `flux_previsionnels.recurrence_id`.
+3. Avec un outil compatible SQLCipher, vérifier après migration `PRAGMA user_version = 3`, la table `flux_recurrences` et la colonne nullable `flux_previsionnels.recurrence_id`.
 4. Vérifier que chaque flux v2 existant reste ponctuel : `recurrence_id IS NULL`, montant/libellé/date prévus préservés et réalisations intactes.
 5. Créer un flux récurrent mensuel de test et vérifier que les échéances futures s'affichent, que les dates de fin de mois ne dérivent pas et que chaque occurrence a son propre historique.
-6. Fermer puis rouvrir l'application en gardant le même `SUPERPOWER_TEST_DATA_DIR). Vérifier la persistance et l'absence de doublons après le rechargement.
+6. Fermer puis rouvrir l'application en gardant le même `SUPERPOWER_TEST_DATA_DIR`. Vérifier la persistance et l'absence de doublons après le rechargement.
 7. En cas d'échec, arrêter les essais, garder la copie et les journaux pour diagnostic. Ne jamais remplacer la base habituelle avec cette copie.
 
 Pour revenir au fonctionnement normal dans cette fenêtre PowerShell : `Remove-Item Env:SUPERPOWER_TEST_DATA_DIR`.
