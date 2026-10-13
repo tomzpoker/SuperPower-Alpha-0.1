@@ -411,8 +411,7 @@ impl TaskEngine {
             ));
         }
 
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let interrupted_message =
             "Exécution interrompue ; reprise après expiration du bail.".to_string();
 
@@ -527,8 +526,7 @@ impl TaskEngine {
         now: &str,
     ) -> Result<TaskExecution, TaskEngineError> {
         let now = normalize_timestamp(now, "date de fin")?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let state: Option<(String, i64)> = transaction
             .query_row(
                 "SELECT status, attempt_count FROM task_executions WHERE id = ?1",
@@ -578,8 +576,7 @@ impl TaskEngine {
         let now = normalize_timestamp(now, "date d'échec")?;
         let retry_at = normalize_timestamp(retry_at, "date de nouvelle tentative")?;
         let error_message = required_text(error_message, "erreur d'exécution", 4_000)?;
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let state: Option<(String, i64, i64)> = transaction
             .query_row(
                 "SELECT status, attempt_count, max_attempts
@@ -1041,12 +1038,9 @@ mod tests {
         let claimed = TaskEngine::claim_next_due(&mut connection, DUE, "2026-10-13T10:01:00Z")
             .unwrap()
             .unwrap();
-        let completed = TaskEngine::complete_execution(
-            &mut connection,
-            &execution.id,
-            "2026-10-13T10:00:30Z",
-        )
-        .unwrap();
+        let completed =
+            TaskEngine::complete_execution(&mut connection, &execution.id, "2026-10-13T10:00:30Z")
+                .unwrap();
         assert_eq!(completed.status, ExecutionStatus::Succeeded);
         assert!(TaskEngine::claim_next_due(
             &mut connection,
