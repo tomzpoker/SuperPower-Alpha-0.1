@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — persistance, IPC/UI et worker one-shot présents sur la branche ; runtime de fond et cron restent à faire |
+| **Statut** | IN_PROGRESS — persistance, IPC/UI, calendrier, worker one-shot et parseur cron UTC présents ; persistance des récurrences et runtime de fond restent à faire |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -47,7 +47,8 @@
 - La page dispose maintenant d'un calendrier mensuel en grille, avec navigation entre mois et affichage des échéances par statut ; la liste reste l'endroit prévu pour modifier une tâche et consulter son historique.
 - Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
-- Le démarrage automatique du worker dans Tauri, les handlers métier réels, cron, calendrier, édition complète et reprise du widget historique restent à faire.
+- Le parseur cron numérique à cinq champs est ajouté : listes, plages, pas, validation stricte, alias dimanche 0/7, sémantique jour du mois/jour de semaine et recherche de prochaine occurrence UTC bornée. Il n'est pas encore branché à la définition persistée d'une tâche.
+- Le démarrage automatique du worker dans Tauri, les handlers métier réels, la persistance des expressions cron, l'édition complète du cycle de vie et la reprise du widget historique restent à faire.
 
 ### Contrôles avant clôture
 
@@ -57,7 +58,8 @@
 - [ ] Vérifier les tests sur fichiers SQLCipher réouverts : idempotence, reprise sur expiration de bail et historique des erreurs.
 - [x] Exposer les opérations de consultation/création/statut/historique via IPC (CI verte sur le commit précédent).
 - [x] Ajouter une première API de registre de handlers et un worker one-shot ; le nouveau commit doit être validé par la CI.
-- [ ] Intégrer le démarrage/arrêt du worker à Tauri, des handlers métier réels et le calcul/validation cron.
+- [x] Ajouter un parseur cron à cinq champs avec validation stricte et tests unitaires ; il reste à le brancher aux tâches récurrentes persistées.
+- [ ] Intégrer le démarrage/arrêt du worker à Tauri avec arrêt propre et handlers métier explicites.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
 

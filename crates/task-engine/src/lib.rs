@@ -22,7 +22,9 @@ use serde_json::Value;
 use thiserror::Error;
 use uuid::Uuid;
 
+mod cron;
 mod worker;
+pub use cron::{CronError, CronSchedule};
 pub use worker::{
     HandlerRegistryError, TaskHandlerRegistry, TaskWorker, TaskWorkerConfig, TaskWorkerError,
     WorkerOutcome,

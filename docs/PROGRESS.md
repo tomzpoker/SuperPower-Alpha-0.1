@@ -71,7 +71,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Le schéma des tâches et la migration v3→v4 sont câblés sur la branche S02 ; des commandes IPC et une page UI de base sont ajoutées, mais restent à valider après le dernier changement. Le worker one-shot et le registre de handlers sont désormais codés sur la branche ; le démarrage en arrière-plan, les handlers métier, l'ordonnanceur cron, le calendrier et l'édition complète ne sont pas livrés.
+- Le schéma des tâches et la migration v3→v4 sont câblés sur la branche S02 ; des commandes IPC et une page UI de base sont ajoutées, mais restent à valider après le dernier changement. Le worker one-shot, le registre de handlers et le parseur cron à cinq champs sont codés sur la branche ; le démarrage en arrière-plan, les handlers métier, la persistance des récurrences, le raccordement cron et l'édition complète ne sont pas livrés.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
