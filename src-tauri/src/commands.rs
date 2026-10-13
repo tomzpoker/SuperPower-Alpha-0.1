@@ -7,9 +7,9 @@ use superpower_core::{
         compute_flux_state, validate_flux_input, validate_realisation_input, CategorieFlux,
         FluxInput, FluxRealisationView, FluxView, RealisationFluxInput, SensFlux, StatutFlux,
     },
+    recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux},
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
-use superpower_core::recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux};
 use tauri::State;
 use uuid::Uuid;
 
@@ -508,8 +508,7 @@ pub fn update_flux(
             return Err("La série de récurrence de cette échéance est introuvable ; aucune modification n'a été enregistrée.".to_string());
         };
         let stored_frequency: FrequenceFlux = from_enum(&stored_frequency)?;
-        if stored_frequency != input.frequence_recurrence
-            || stored_end != input.date_fin_recurrence
+        if stored_frequency != input.frequence_recurrence || stored_end != input.date_fin_recurrence
         {
             return Err("La fréquence d'une série existante ne se modifie pas depuis une occurrence. Arrêtez la série puis créez une nouvelle prévision récurrente.".to_string());
         }
@@ -544,26 +543,27 @@ pub fn update_flux(
         None
     };
 
-    transaction.execute(
-        "UPDATE flux_previsionnels
+    transaction
+        .execute(
+            "UPDATE flux_previsionnels
          SET libelle = ?1, sens = ?2, categorie = ?3, date_prevue = ?4,
              montant_prevu_cents = ?5, tiers = ?6, reference = ?7,
              recurrence_id = ?8, updated_at = ?9
          WHERE id = ?10 AND statut = 'actif'",
-        params![
-            libelle,
-            sens,
-            categorie,
-            date_prevue.to_string(),
-            input.montant_prevu_cents,
-            tiers,
-            reference,
-            recurrence_id,
-            now,
-            id
-        ],
-    )
-    .map_err(db_error)?;
+            params![
+                libelle,
+                sens,
+                categorie,
+                date_prevue.to_string(),
+                input.montant_prevu_cents,
+                tiers,
+                reference,
+                recurrence_id,
+                now,
+                id
+            ],
+        )
+        .map_err(db_error)?;
     audit_tx(
         &transaction,
         "update",
@@ -655,7 +655,9 @@ pub fn arreter_flux_recurrence(
         .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
         .is_some_and(|existing| fin > existing)
     {
-        return Err("La date d'arrêt ne peut pas prolonger une récurrence déjà limitée.".to_string());
+        return Err(
+            "La date d'arrêt ne peut pas prolonger une récurrence déjà limitée.".to_string(),
+        );
     }
 
     transaction
@@ -815,9 +817,7 @@ fn horizon_recurrence(debut: NaiveDate) -> NaiveDate {
     let horizon_courant = aujourd_hui
         .checked_add_months(Months::new(36))
         .unwrap_or(aujourd_hui);
-    let horizon_debut = debut
-        .checked_add_months(Months::new(36))
-        .unwrap_or(debut);
+    let horizon_debut = debut.checked_add_months(Months::new(36)).unwrap_or(debut);
     horizon_courant.max(horizon_debut)
 }
 
@@ -826,8 +826,9 @@ fn dates_pour_input(input: &FluxInput, debut: NaiveDate) -> Result<Vec<NaiveDate
         .date_fin_recurrence
         .as_deref()
         .map(|value| {
-            NaiveDate::parse_from_str(value, "%Y-%m-%d")
-                .map_err(|_| "La date de fin de récurrence doit être au format AAAA-MM-JJ.".to_string())
+            NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+                "La date de fin de récurrence doit être au format AAAA-MM-JJ.".to_string()
+            })
         })
         .transpose()?;
     generer_echeances(
@@ -853,28 +854,29 @@ fn inserer_serie_recurrence_tx(
     let frequence = enum_name(input.frequence_recurrence)?;
     let sens = enum_name(input.sens)?;
     let categorie = enum_name(input.categorie)?;
-    transaction.execute(
-        "INSERT INTO flux_recurrences(
+    transaction
+        .execute(
+            "INSERT INTO flux_recurrences(
             id, societe_id, frequence, date_debut, date_fin, actif,
             libelle, sens, categorie, montant_prevu_cents, tiers, reference,
             created_at, updated_at
          ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
-        params![
-            id,
-            input.societe_id,
-            frequence,
-            debut.to_string(),
-            input.date_fin_recurrence,
-            input.libelle.trim(),
-            sens,
-            categorie,
-            input.montant_prevu_cents,
-            clean_optional(input.tiers.clone()),
-            clean_optional(input.reference.clone()),
-            now
-        ],
-    )
-    .map_err(db_error)?;
+            params![
+                id,
+                input.societe_id,
+                frequence,
+                debut.to_string(),
+                input.date_fin_recurrence,
+                input.libelle.trim(),
+                sens,
+                categorie,
+                input.montant_prevu_cents,
+                clean_optional(input.tiers.clone()),
+                clean_optional(input.reference.clone()),
+                now
+            ],
+        )
+        .map_err(db_error)?;
     Ok(())
 }
 
@@ -893,26 +895,27 @@ fn inserer_occurrence_flux_tx(
     reference: Option<&str>,
     now: &str,
 ) -> Result<(), String> {
-    transaction.execute(
-        "INSERT INTO flux_previsionnels(
+    transaction
+        .execute(
+            "INSERT INTO flux_previsionnels(
             id, societe_id, libelle, sens, categorie, date_prevue,
             montant_prevu_cents, tiers, reference, statut, created_at, updated_at, recurrence_id
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'actif', ?10, ?10, ?11)",
-        params![
-            id,
-            societe_id,
-            libelle,
-            sens,
-            categorie,
-            date_prevue.to_string(),
-            montant_prevu_cents,
-            tiers,
-            reference,
-            now,
-            recurrence_id
-        ],
-    )
-    .map_err(db_error)?;
+            params![
+                id,
+                societe_id,
+                libelle,
+                sens,
+                categorie,
+                date_prevue.to_string(),
+                montant_prevu_cents,
+                tiers,
+                reference,
+                now,
+                recurrence_id
+            ],
+        )
+        .map_err(db_error)?;
     Ok(())
 }
 
