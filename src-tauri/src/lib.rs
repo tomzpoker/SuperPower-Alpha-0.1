@@ -159,7 +159,9 @@ fn build_flux_reminder_event(
         .map_err(|error| format!("Lecture du flux de trésorerie impossible : {error}"))?;
 
     let Some((label, due_date, planned_cents, sens, status, realized_cents)) = flux else {
-        return Err(format!("Le flux de trésorerie « {flux_id} » est introuvable."));
+        return Err(format!(
+            "Le flux de trésorerie « {flux_id} » est introuvable."
+        ));
     };
     if status == "annule" {
         return Ok(None);
@@ -370,8 +372,12 @@ mod flux_reminder_tests {
         assert_eq!(event.execution_id, "execution-flux-reminder");
         assert_eq!(event.title, "Rappeler le flux");
         assert_eq!(event.scheduled_for, "2027-01-05T08:00:00.000Z");
-        assert!(event.message.contains("Échéance « Loyer du local » prévue le 2027-01-05"));
-        assert!(event.message.contains("reste 1\u{202f}400,00 € à encaisser."));
+        assert!(event
+            .message
+            .contains("Échéance « Loyer du local » prévue le 2027-01-05"));
+        assert!(event
+            .message
+            .contains("reste 1\u{202f}400,00 € à encaisser."));
         assert!(event.message.ends_with("Vérifier le règlement."));
     }
 
@@ -390,28 +396,32 @@ mod flux_reminder_tests {
     #[test]
     fn flux_reminder_skips_cancelled_or_fully_settled_flows() {
         let (_vault, cancelled_state) = test_state();
-        seed_flux(&cancelled_state, "flux-cancelled", "encaissement", "annule", 150_000);
+        seed_flux(
+            &cancelled_state,
+            "flux-cancelled",
+            "encaissement",
+            "annule",
+            150_000,
+        );
         assert!(
-            build_flux_reminder_event(
-                &cancelled_state,
-                &task("flux-cancelled"),
-                &execution()
-            )
-            .expect("cancelled flows should be harmless")
-            .is_none()
+            build_flux_reminder_event(&cancelled_state, &task("flux-cancelled"), &execution())
+                .expect("cancelled flows should be harmless")
+                .is_none()
         );
 
         let (_vault, settled_state) = test_state();
-        seed_flux(&settled_state, "flux-settled", "encaissement", "actif", 150_000);
+        seed_flux(
+            &settled_state,
+            "flux-settled",
+            "encaissement",
+            "actif",
+            150_000,
+        );
         seed_realisation(&settled_state, "real-full", "flux-settled", 150_000, false);
         assert!(
-            build_flux_reminder_event(
-                &settled_state,
-                &task("flux-settled"),
-                &execution()
-            )
-            .expect("settled flows should be harmless")
-            .is_none()
+            build_flux_reminder_event(&settled_state, &task("flux-settled"), &execution())
+                .expect("settled flows should be harmless")
+                .is_none()
         );
     }
 
@@ -420,11 +430,9 @@ mod flux_reminder_tests {
         let (_vault, state) = test_state();
         let mut missing = task("flux-ignored");
         missing.payload = serde_json::json!({"message": "missing id"});
-        assert!(
-            build_flux_reminder_event(&state, &missing, &execution())
-                .expect_err("fluxId is required")
-                .contains("fluxId")
-        );
+        assert!(build_flux_reminder_event(&state, &missing, &execution())
+            .expect_err("fluxId is required")
+            .contains("fluxId"));
         assert!(
             build_flux_reminder_event(&state, &task("does-not-exist"), &execution())
                 .expect_err("unknown flux must not silently succeed")
