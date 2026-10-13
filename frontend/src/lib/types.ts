@@ -70,6 +70,54 @@ export interface CreateEntryInput {
   lines: EntryLine[];
 }
 
+export type TaskStatus = 'scheduled' | 'paused' | 'cancelled';
+export type TaskExecutionStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type TaskAttemptStatus = 'running' | 'succeeded' | 'failed';
+
+export interface NewTask {
+  idempotencyKey: string;
+  module: string;
+  taskType: string;
+  title: string;
+  payload: unknown;
+  scheduledAt: string;
+  maxAttempts: number;
+}
+
+export interface Task extends NewTask {
+  id: string;
+  status: TaskStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskExecution {
+  id: string;
+  taskId: string;
+  idempotencyKey: string;
+  scheduledFor: string;
+  availableAt: string;
+  status: TaskExecutionStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  leaseUntil: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface TaskAttempt {
+  id: string;
+  executionId: string;
+  attemptNumber: number;
+  status: TaskAttemptStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  errorMessage: string | null;
+}
+
 
 export type SensFlux = 'encaissement' | 'decaissement';
 export type CategorieFlux = 'loyer' | 'charge_courante' | 'travaux' | 'impot_taxe' | 'emprunt' | 'apport_associe' | 'autre';
