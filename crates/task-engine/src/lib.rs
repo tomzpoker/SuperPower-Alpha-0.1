@@ -9,7 +9,7 @@
 //! la file persistante, l'historique des tentatives et la reprise après expiration d'un
 //! bail. Le calcul cron, les handlers métier et les commandes/UI Tauri viennent ensuite.
 
-use std::{io, path::PathBuf};
+use std::io;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, types::Type, Connection, OptionalExtension, Row, TransactionBehavior};
@@ -840,6 +840,7 @@ fn find_execution_by_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use rusqlite::OpenFlags;
 
     const KEY_HEX: &str = "2727272727272727272727272727272727272727272727272727272727272727";
