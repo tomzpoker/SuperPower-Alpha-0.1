@@ -1349,3 +1349,137 @@ fn from_enum<T: for<'de> Deserialize<'de>>(value: &str) -> Result<T, String> {
 fn db_error(error: rusqlite::Error) -> String {
     format!("Erreur de base de données : {error}")
 }
+
+#[cfg(test)]
+mod recurrence_materialization_tests {
+    use super::materialiser_recurrences;
+    use chrono::Local;
+    use rusqlite::{params, Connection};
+
+    #[test]
+    fn materialization_is_idempotent_and_keeps_each_occurrence_independent() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE societes (id TEXT PRIMARY KEY NOT NULL);
+                 CREATE TABLE flux_recurrences (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    societe_id TEXT NOT NULL REFERENCES societes(id) ON DELETE RESTRICT,
+                    frequence TEXT NOT NULL,
+                    date_debut TEXT NOT NULL,
+                    date_fin TEXT NULL,
+                    actif INTEGER NOT NULL,
+                    libelle TEXT NOT NULL,
+                    sens TEXT NOT NULL,
+                    categorie TEXT NOT NULL,
+                    montant_prevu_cents INTEGER NOT NULL,
+                    tiers TEXT NULL,
+                    reference TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                 );
+                 CREATE TABLE flux_previsionnels (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    societe_id TEXT NOT NULL REFERENCES societes(id) ON DELETE RESTRICT,
+                    libelle TEXT NOT NULL,
+                    sens TEXT NOT NULL,
+                    categorie TEXT NOT NULL,
+                    date_prevue TEXT NOT NULL,
+                    montant_prevu_cents INTEGER NOT NULL,
+                    tiers TEXT NULL,
+                    reference TEXT NULL,
+                    statut TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    recurrence_id TEXT NULL REFERENCES flux_recurrences(id) ON DELETE RESTRICT
+                 );
+                 CREATE UNIQUE INDEX idx_test_recurrence_date
+                    ON flux_previsionnels(recurrence_id, date_prevue)
+                    WHERE recurrence_id IS NOT NULL;
+                 CREATE TABLE journal_audit (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    action TEXT NOT NULL,
+                    type_entite TEXT NOT NULL,
+                    entite_id TEXT NOT NULL,
+                    horodatage TEXT NOT NULL,
+                    details_json TEXT NOT NULL
+                 );",
+            )
+            .unwrap();
+
+        let today = Local::now().date_naive();
+        let date_debut = today.format("%Y-%m-%d").to_string();
+        let expected_horizon = today
+            .checked_add_months(Months::new(36))
+            .unwrap()
+            .format("%Y-%m-%d")
+            .to_string();
+
+        connection
+            .execute("INSERT INTO societes(id) VALUES ('soc-test')", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flux_recurrences(
+                    id, societe_id, frequence, date_debut, date_fin, actif,
+                    libelle, sens, categorie, montant_prevu_cents, tiers, reference,
+                    created_at, updated_at
+                 ) VALUES (
+                    'series-test', 'soc-test', 'mensuel', ?1, NULL, 1,
+                    'Loyer mensuel', 'encaissement', 'loyer', 140000, 'Locataire test',
+                    NULL, '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z'
+                 )",
+                [date_debut.clone()],
+            )
+            .unwrap();
+
+        materialiser_recurrences(&mut connection).unwrap();
+        let (first_count, first_date, last_date): (i64, String, String) = connection
+            .query_row(
+                "SELECT COUNT(*), MIN(date_prevue), MAX(date_prevue)
+                 FROM flux_previsionnels WHERE recurrence_id = 'series-test'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(first_count, 37);
+        assert_eq!(first_date, date_debut);
+        assert_eq!(last_date, expected_horizon);
+
+        let first_audit_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM journal_audit WHERE type_entite = 'flux_previsionnel'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(first_audit_count, first_count);
+
+        materialiser_recurrences(&mut connection).unwrap();
+        let (second_count, second_audit_count): (i64, i64) = connection
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM flux_previsionnels WHERE recurrence_id = 'series-test'),
+                    (SELECT COUNT(*) FROM journal_audit WHERE type_entite = 'flux_previsionnel')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(second_count, first_count, "aucune échéance ne doit être dupliquée");
+        assert_eq!(second_audit_count, first_audit_count, "la matérialisation répétée ne doit pas produire de faux événements d'audit");
+
+        let (distinct_ids, distinct_dates): (i64, i64) = connection
+            .query_row(
+                "SELECT COUNT(DISTINCT id), COUNT(DISTINCT date_prevue)
+                 FROM flux_previsionnels WHERE recurrence_id = 'series-test'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(distinct_ids, first_count);
+        assert_eq!(distinct_dates, first_count);
+
+        let _ = params!["smoke"];
+    }
+}
