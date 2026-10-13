@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; fréquences métier ponctuelle/mensuelle/trimestrielle/annuelle ; migration v5→v6 et intégration worker mensuel validées par la CI #38442503451 ; vérification intégrée du verrouillage/déverrouillage restant |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; fréquences métier ancrées ; CI #38445019655 verte sur `2c13cc8`, incluant le test SQLCipher AppState lock/unlock, l’historique et la reprise du worker sans doublon ; validation manuelle des commandes Tauri encore ouverte |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -42,7 +42,7 @@
 - Le prototype persiste les définitions de tâches ponctuelles, les exécutions et chaque tentative ; les clés d'idempotence préviennent les doublons.
 - Les exécutions en cours portent un bail. Après interruption, un bail expiré est inscrit comme tentative échouée puis peut être repris ; les tentatives épuisées deviennent terminales.
 - flexiq-core est absent du dépôt et n'est pas ajouté sans prototype ni vérification de compatibilité.
-- La migration transactionnelle v3→v4 est maintenant câblée dans `src-tauri/src/database.rs` et ajoute les tables `task_definitions`, `task_executions` et `task_attempts`. Elle conserve les tables existantes, versionne le schéma et possède un test de conservation d'un flux v3 ; le dernier changement doit encore passer les contrôles.
+- La migration transactionnelle v3→v4 est câblée dans `src-tauri/src/database.rs` et ajoute les tables `task_definitions`, `task_executions` et `task_attempts`. Elle conserve les tables existantes, versionne le schéma et possède un test de conservation d'un flux v3 ; les migrations v3→v6 sont validées en CI #38445019655.
 - Les commandes Tauri (liste/création/modification/suppression contrôlée/statut/historique) et la page UI Tâches sont ajoutées. Une tâche ne peut être modifiée ou supprimée qu'avant sa première exécution ; suppression et audit sont atomiques, et une tâche avec historique doit être annulée pour préserver ses résultats.
 - La page dispose maintenant d'un calendrier mensuel en grille, avec navigation entre mois et affichage des échéances par statut ; la liste reste l'endroit prévu pour modifier une tâche et consulter son historique.
 - Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
@@ -72,7 +72,8 @@
 - [x] Confirmer par CI le calcul ancré, le frontend et la migration v5→v6 (CI #38442503451, commit `fa33766`).
 - [x] Tester l’intégration des occurrences mensuelles dans le worker : 31 janvier → 28 février → 31 mars, ancre d’origine conservée et répétition sans doublon (CI #38442503451).
 - [x] Essai natif sur coffre temporaire : rappel `general/reminder` à échéance, notification visible, exécution `Terminée`, tentative `#1 · Réussie` et historique confirmé par l'utilisateur.
-- [ ] Verrouiller puis déverrouiller le même coffre temporaire et confirmer que le worker reprend sans doublon.
+- [x] Test automatisé SQLCipher AppState : verrouillage/déverrouillage, accès refusé pendant le verrouillage, historique conservé et reprise du worker sans double exécution (CI #38445019655).
+- [ ] Vérifier manuellement dans l’application native les commandes Tauri verrouillage/déverrouillage et la reprise du worker sur un coffre temporaire.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
@@ -82,4 +83,4 @@
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
 - La suppression contrôlée, le test frontend du mode démo, les migrations historiques v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
-- La CI #38442503451 est entièrement verte sur `fa33766` : formatage/tests Rust, test d’intégration du worker mensuel (31 janvier → 28 février → 31 mars et passes répétées sans doublon), frontend, build Tauri Windows et tests workspace/migrations. La CI #38438886275 valide aussi le contrôleur du worker : double démarrage ignoré, arrêt et redémarrage. L’essai natif du rappel simple est réussi ; seul le cycle intégré verrouillage/déverrouillage sans doublon reste à confirmer. [Résultats CI #38442503451](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38442503451).
+- La CI #38445019655 est verte sur `2c13cc8` : formatage/tests Rust, frontend, build Tauri Windows et tests workspace/migrations. Le test SQLCipher AppState verrouille/déverrouille le coffre temporaire, conserve l’historique de janvier/février et vérifie la reprise sans doublon ainsi que la prochaine occurrence au 31 mars. La CI #38438886275 valide séparément start/stop/restart du contrôleur. Le test natif du rappel simple est réussi ; la vérification manuelle des commandes de verrouillage/déverrouillage reste ouverte. [Résultats CI #38445019655](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38445019655).

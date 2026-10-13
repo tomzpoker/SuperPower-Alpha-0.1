@@ -9,8 +9,8 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher et le worker natif ; les tâches ponctuelles, mensuelles, trimestrielles et annuelles sont proposées avec ancre sans dérive de fin de mois ; cron reste avancé. CI #38442503451 entièrement verte sur `fa33766` (Rust, frontend, build Tauri Windows et tests workspace). Le test du worker mensuel passe de janvier à février puis mars avec l’ancre du 31 conservée et sans doublon après répétition. Le test natif du rappel simple est réussi ; seul le cycle intégré verrouillage/déverrouillage sans doublon reste à confirmer. |
-| Prochaine action | Confirmer le cycle intégré verrouillage/déverrouillage du coffre temporaire sans double exécution ; ensuite ajouter un handler métier idempotent. Les dates récurrentes ont déjà des tests automatisés déterministes. |
+| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher, le worker natif et les fréquences métier ancrées. CI #38445019655 verte sur `2c13cc8` (formatage/tests Rust, frontend, build Tauri Windows, workspace/migrations). Le test mensuel simule janvier → février → mars sans dérive ni doublon. Le test SQLCipher couvre le verrouillage/déverrouillage AppState, l’historique conservé et la reprise du worker sans double exécution. Le test manuel natif des commandes Tauri reste ouvert. |
+| Prochaine action | Vérifier le parcours natif des commandes Tauri de verrouillage/déverrouillage sur coffre temporaire, puis choisir le prochain handler métier à partir d’un cas d’usage existant. Les tests de récurrence et de persistance utilisent des dates déterministes. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -72,7 +72,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Sur la branche S02, la CI #38442503451 valide le code courant `fa33766` : formatage, tests du domaine et du moteur (incluant l’intégration mensuelle 31 janvier → 28 février → 31 mars et les passes répétées sans doublon), frontend, build Windows/Tauri et tests du workspace/migrations. La régression du contrôleur (double démarrage ignoré, arrêt et redémarrage) est également verte en CI #38438886275. L'essai natif du rappel simple confirme la notification visible et l'historique réussi. Seul le cycle intégré de verrouillage/déverrouillage reste à confirmer ; handlers métier des documents/import bancaire/locatif et fuseau cron configurable restent à faire.
+- Sur la branche S02, la CI #38445019655 valide le commit `2c13cc8` : formatage, tests Rust, frontend, build Windows/Tauri et workspace/migrations. Le test SQLCipher AppState couvre verrouillage/déverrouillage, conservation de l’historique et reprise du worker sans doublon ; le contrôleur a ses tests start/stop/restart dans une CI verte distincte (#38438886275). L'essai natif du rappel confirme notification et historique. Les commandes Tauri avec l’interface native restent à valider manuellement ; les handlers métier des documents/import bancaire/locatif et le fuseau cron configurable restent à faire.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -99,6 +99,6 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 
 | 2026-10-13 | 02 | Durcissement des erreurs worker/coffre et mise en file des rappels UI | CI #152 entièrement verte sur `8ac4417` |
 | 2026-10-13 | 02 | Champ de message dédié pour les rappels et tests de transformation du payload | CI #153 entièrement verte sur `78ace82` |
-| 2026-10-13 | 02 | Essai natif du rappel automatisé sur coffre temporaire | Notification visible, exécution `Terminée` et tentative `#1 · Réussie` confirmées ; verrouillage/déverrouillage restant |
+| 2026-10-13 | 02 | Test automatisé du cycle coffre/worker | CI #38445019655 verte sur `2c13cc8` : lock/unlock AppState SQLCipher, historique conservé et absence de doublons après reprise |
 
 | 2026-10-13 | 02 | Commandes Tauri et page Tâches | Branche non fusionnée ; worker et UI du rappel validés par CI #153 |
