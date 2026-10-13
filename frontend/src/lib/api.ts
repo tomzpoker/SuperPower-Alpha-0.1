@@ -367,6 +367,36 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       demoTasks = [task, ...demoTasks];
       return task as T;
     }
+    case 'update_task': {
+      const taskId = String(args.taskId ?? '');
+      const input = args.input as NewTask;
+      const current = demoTasks.find(item => item.id === taskId);
+      if (!current) throw new Error('Cette tâche n’existe plus.');
+      if (current.status === 'cancelled') throw new Error('Réactivez la tâche avant de la modifier.');
+      if (demoTaskExecutions.some(item => item.taskId === taskId)) {
+        throw new Error('Une exécution existe déjà : les paramètres de cette tâche sont verrouillés pour préserver l’historique.');
+      }
+      if (input.idempotencyKey?.trim() !== current.idempotencyKey) {
+        throw new Error('La clé d’idempotence de cette tâche ne peut pas être modifiée.');
+      }
+      if (!input.module?.trim() || input.module.trim().length > 100) throw new Error('Le module doit comporter de 1 à 100 caractères.');
+      if (!input.taskType?.trim() || input.taskType.trim().length > 100) throw new Error('Le type de tâche doit comporter de 1 à 100 caractères.');
+      if (!input.title?.trim() || input.title.trim().length > 200) throw new Error('Le titre doit comporter de 1 à 200 caractères.');
+      if (!Number.isInteger(input.maxAttempts) || input.maxAttempts < 1 || input.maxAttempts > 100) throw new Error('Le nombre de tentatives doit être compris entre 1 et 100.');
+      const scheduledDate = new Date(input.scheduledAt);
+      if (Number.isNaN(scheduledDate.getTime())) throw new Error('La date de planification est invalide.');
+      const updated: Task = {
+        ...current,
+        ...input,
+        module: input.module.trim(),
+        taskType: input.taskType.trim(),
+        title: input.title.trim(),
+        scheduledAt: scheduledDate.toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      demoTasks = demoTasks.map(item => item.id === taskId ? updated : item);
+      return updated as T;
+    }
     case 'update_task_status': {
       const taskId = String(args.taskId ?? '');
       const status = args.status as TaskStatus;

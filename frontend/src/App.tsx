@@ -573,6 +573,7 @@ function TasksPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [title, setTitle] = useState('');
   const [moduleName, setModuleName] = useState('general');
@@ -604,17 +605,66 @@ function TasksPage() {
     void refresh(true);
   }, [refresh]);
 
-  async function createTask(event: FormEvent) {
+  function startNewTask() {
+    setEditingTaskId(null);
+    setTitle('');
+    setModuleName('general');
+    setTaskType('manual');
+    setScheduledAt(defaultTaskDateTime());
+    setMaxAttempts(3);
+    setPayloadJson('{}');
+    setShowForm(true);
+  }
+
+  async function startEditingTask(task: Task) {
+    setError('');
+    setNotice('');
+    if (task.status === 'cancelled') {
+      setError('Réactivez la tâche avant de la modifier.');
+      return;
+    }
+    try {
+      const executions = await api<TaskExecution[]>('list_task_executions', { taskId: task.id });
+      if (executions.length > 0) {
+        setError('Cette tâche possède déjà un historique d’exécution. Pour préserver cet historique, annulez-la et créez une nouvelle tâche.');
+        return;
+      }
+      setEditingTaskId(task.id);
+      setTitle(task.title);
+      setModuleName(task.module);
+      setTaskType(task.taskType);
+      setScheduledAt(toLocalDateTimeInput(task.scheduledAt));
+      setMaxAttempts(task.maxAttempts);
+      setPayloadJson(JSON.stringify(task.payload, null, 2) ?? '{}');
+      setShowForm(true);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
+
+  function toggleTaskForm() {
+    if (showForm) {
+      setShowForm(false);
+      setEditingTaskId(null);
+    } else {
+      startNewTask();
+    }
+  }
+
+  async function saveTask(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
     setError('');
     setNotice('');
+    const wasEditing = editingTaskId !== null;
     try {
       const parsedPayload: unknown = JSON.parse(payloadJson);
       const plannedDate = new Date(scheduledAt);
       if (Number.isNaN(plannedDate.getTime())) throw new Error('Choisissez une date de planification valide.');
+      const existingTask = editingTaskId ? tasks.find((task) => task.id === editingTaskId) : undefined;
+      if (editingTaskId && !existingTask) throw new Error('Cette tâche n’existe plus. Actualisez la liste.');
       const input: NewTask = {
-        idempotencyKey: `manual-${crypto.randomUUID()}`,
+        idempotencyKey: existingTask?.idempotencyKey ?? 'manual-' + crypto.randomUUID(),
         module: moduleName,
         taskType,
         title: title.trim(),
@@ -622,15 +672,19 @@ function TasksPage() {
         scheduledAt: plannedDate.toISOString(),
         maxAttempts,
       };
-      const created = await api<Task>('create_task', { input });
-      setTasks((current) => [created, ...current.filter((task) => task.id !== created.id)].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)));
+      const saved = existingTask
+        ? await api<Task>('update_task', { taskId: existingTask.id, input })
+        : await api<Task>('create_task', { input });
+      setTasks((current) => [saved, ...current.filter((task) => task.id !== saved.id)]
+        .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)));
       setTitle('');
       setTaskType('manual');
       setScheduledAt(defaultTaskDateTime());
       setMaxAttempts(3);
       setPayloadJson('{}');
+      setEditingTaskId(null);
       setShowForm(false);
-      setNotice('Tâche enregistrée dans le coffre local.');
+      setNotice(wasEditing ? 'Modifications enregistrées dans le coffre local.' : 'Tâche enregistrée dans le coffre local.');
     } catch (reason) {
       setError(reason instanceof SyntaxError ? 'Le contenu JSON est invalide.' : errorMessage(reason));
     } finally {
@@ -686,7 +740,7 @@ function TasksPage() {
       eyebrow="ORGANISATION ET SUIVI"
       title="Tâches"
       description="Des actions planifiées, conservées dans votre coffre, avec un historique consultable."
-      action={<button className="button primary" onClick={() => setShowForm((value) => !value)}><Plus size={16} /> Nouvelle tâche</button>}
+      action={<button className="button primary" onClick={toggleTaskForm}><Plus size={16} /> Nouvelle tâche</button>}
     />
     <div className="panel tasks-notice">
       <ShieldCheck size={18} />
@@ -695,8 +749,8 @@ function TasksPage() {
     {!isDesktopRuntime() && <div className="alert warning"><CircleAlert size={16} /><span>Mode aperçu : les tâches restent en mémoire et disparaissent au rechargement. Le coffre natif est nécessaire pour valider la persistance chiffrée.</span></div>}
     {error && <div className="alert error"><CircleAlert size={17} /><span>{error}</span><button onClick={() => setError('')} aria-label="Fermer l’erreur"><X size={16} /></button></div>}
     {notice && <div className="alert success"><CheckCircle2 size={17} /><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Fermer le message"><X size={16} /></button></div>}
-    {showForm && <form className="panel tasks-form" onSubmit={createTask}>
-      <div className="tasks-form-heading"><div><h2>Nouvelle tâche</h2><p>Les tentatives sont historisées ; les exécutions automatiques seront activées ultérieurement.</p></div><button type="button" className="icon-button" onClick={() => setShowForm(false)} aria-label="Fermer le formulaire"><X size={17} /></button></div>
+    {showForm && <form className="panel tasks-form" onSubmit={saveTask}>
+      <div className="tasks-form-heading"><div><h2>{editingTaskId ? 'Modifier la tâche' : 'Nouvelle tâche'}</h2><p>{editingTaskId ? 'Modification possible avant la première exécution, sans altérer l’historique.' : 'Les tentatives sont historisées ; les exécutions automatiques seront activées ultérieurement.'}</p></div><button type="button" className="icon-button" onClick={() => { setShowForm(false); setEditingTaskId(null); }} aria-label="Fermer le formulaire"><X size={17} /></button></div>
       <div className="tasks-form-grid">
         <Field label="Titre"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required placeholder="Ex. Vérifier les pièces de novembre" /></Field>
         <Field label="Module"><select value={moduleName} onChange={(event) => setModuleName(event.target.value)}><option value="general">Général</option><option value="documents">Documents</option><option value="import_bancaire">Import bancaire</option><option value="locatif">Gestion locative</option><option value="fiscalite">Fiscalité</option></select></Field>
@@ -705,7 +759,7 @@ function TasksPage() {
         <Field label="Nombre maximal de tentatives"><input type="number" value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} min={1} max={100} required /></Field>
       </div>
       <Field label="Données de la tâche (JSON)"><textarea value={payloadJson} onChange={(event) => setPayloadJson(event.target.value)} rows={3} spellCheck={false} required /></Field>
-      <div className="tasks-form-actions"><button type="button" className="button secondary" onClick={() => setShowForm(false)}>Annuler</button><button className="button primary" type="submit" disabled={submitting || !title.trim() || !taskType.trim() || maxAttempts < 1 || maxAttempts > 100}>{submitting ? 'Enregistrement…' : 'Enregistrer la tâche'} <ArrowRight size={16} /></button></div>
+      <div className="tasks-form-actions"><button type="button" className="button secondary" onClick={() => { setShowForm(false); setEditingTaskId(null); }}>Annuler</button><button className="button primary" type="submit" disabled={submitting || !title.trim() || !taskType.trim() || maxAttempts < 1 || maxAttempts > 100}>{submitting ? 'Enregistrement…' : editingTaskId ? 'Enregistrer les modifications' : 'Enregistrer la tâche'} <ArrowRight size={16} /></button></div>
     </form>}
     <div className="tasks-list-heading"><div><h2>Liste des tâches</h2><p>{tasks.length} tâche{tasks.length > 1 ? 's' : ''} enregistrée{tasks.length > 1 ? 's' : ''}</p></div><button className="button secondary" onClick={() => void refresh()} disabled={refreshing}><Activity size={15} /> {refreshing ? 'Actualisation…' : 'Actualiser'}</button></div>
     {loading ? <div className="panel tasks-empty"><p>Chargement des tâches…</p></div> : tasks.length === 0
@@ -716,6 +770,7 @@ function TasksPage() {
             <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
           </div>
           <div className="task-card-actions">
+            {task.status !== 'cancelled' && <button className="button secondary" onClick={() => void startEditingTask(task)}>Modifier</button>}
             {task.status !== 'cancelled' && <button className="button secondary" onClick={() => void changeStatus(task, task.status === 'paused' ? 'scheduled' : 'paused')}>{task.status === 'paused' ? 'Reprendre' : 'Mettre en pause'}</button>}
             {task.status === 'cancelled' ? <button className="button secondary" onClick={() => void changeStatus(task, 'scheduled')}>Réactiver</button> : <button className="button danger-ghost" onClick={() => void changeStatus(task, 'cancelled')}>Annuler</button>}
             <button className="button ghost" onClick={() => void toggleExecutionHistory(task.id)}>{historyTaskId === task.id ? 'Masquer l’historique' : 'Historique'}</button>
@@ -733,6 +788,12 @@ function defaultTaskDateTime(): string {
   const value = new Date(Date.now() + 5 * 60_000);
   value.setSeconds(0, 0);
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function toLocalDateTimeInput(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return defaultTaskDateTime();
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
 function taskStatusLabel(status: TaskStatus): string {

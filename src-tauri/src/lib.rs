@@ -52,6 +52,7 @@ pub fn run() {
             commands::list_ecritures,
             commands::list_tasks,
             commands::create_task,
+            commands::update_task,
             commands::update_task_status,
             commands::list_task_executions,
             commands::list_task_attempts,
