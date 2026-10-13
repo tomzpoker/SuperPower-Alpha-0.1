@@ -11,8 +11,8 @@ use std::{
 use chrono::Utc;
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager};
 use task_engine::{TaskHandlerRegistry, TaskWorker, TaskWorkerConfig, WorkerOutcome};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::database::AppState;
 
@@ -54,7 +54,10 @@ impl ReminderNotificationQueue {
             existing.event = event;
             return Ok(());
         }
-        pending.push_back(PendingReminder { event, completed: false });
+        pending.push_back(PendingReminder {
+            event,
+            completed: false,
+        });
         Ok(())
     }
 
@@ -122,7 +125,10 @@ impl TaskWorkerController {
             .lock()
             .map_err(|_| "Le contrôleur du worker est indisponible.".to_string())?;
 
-        if slot.as_ref().is_some_and(|worker| !worker.join.is_finished()) {
+        if slot
+            .as_ref()
+            .is_some_and(|worker| !worker.join.is_finished())
+        {
             return Ok(());
         }
         if let Some(finished) = slot.take() {
@@ -263,7 +269,9 @@ mod tests {
     fn reminder_message_is_bounded() {
         let long_message = "x".repeat(MAX_REMINDER_MESSAGE_CHARS + 20);
         assert_eq!(
-            reminder_message("Rappel", &serde_json::json!({"message": long_message})).chars().count(),
+            reminder_message("Rappel", &serde_json::json!({"message": long_message}))
+                .chars()
+                .count(),
             MAX_REMINDER_MESSAGE_CHARS
         );
     }
@@ -278,10 +286,12 @@ mod tests {
             scheduled_for: "2026-10-13T10:00:00Z".to_string(),
         };
         queue.enqueue(original.clone()).unwrap();
-        queue.enqueue(TaskReminderEvent {
-            message: "Contenu réessayé".to_string(),
-            ..original
-        }).unwrap();
+        queue
+            .enqueue(TaskReminderEvent {
+                message: "Contenu réessayé".to_string(),
+                ..original
+            })
+            .unwrap();
         assert!(queue.ready_events().unwrap().is_empty());
         queue.mark_completed("exec-1").unwrap();
         let ready = queue.ready_events().unwrap();
