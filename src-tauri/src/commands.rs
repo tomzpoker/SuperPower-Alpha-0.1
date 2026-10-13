@@ -127,7 +127,11 @@ pub fn initialize_database(
     worker: State<'_, TaskWorkerController>,
 ) -> Result<(), String> {
     state.initialize(&passphrase)?;
-    worker.start(app)
+    if let Err(error) = worker.start(app) {
+        state.lock();
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -138,7 +142,11 @@ pub fn unlock_database(
     worker: State<'_, TaskWorkerController>,
 ) -> Result<(), String> {
     state.unlock(&passphrase)?;
-    worker.start(app)
+    if let Err(error) = worker.start(app) {
+        state.lock();
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[tauri::command]

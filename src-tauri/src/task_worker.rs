@@ -172,6 +172,9 @@ fn run_worker(app: AppHandle, stop: Arc<AtomicBool>) {
         if let Err(error) = process_due_tasks(&app, &stop) {
             eprintln!("Erreur du worker de tâches : {error}");
         }
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
         publish_ready_reminders(&app);
 
         for _ in 0..POLL_TICKS {
@@ -191,7 +194,8 @@ fn process_due_tasks(app: &AppHandle, stop: &AtomicBool) -> Result<(), String> {
     // Si le coffre n'est pas accessible, aucune tâche n'est réservée ou consommée.
     let mut connection = match app.state::<AppState>().connection() {
         Ok(connection) => connection,
-        Err(_) => return Ok(()),
+        Err(error) if error == "La base est verrouillée." => return Ok(()),
+        Err(error) => return Err(error),
     };
     let registry = app.state::<TaskHandlerRegistry>();
 

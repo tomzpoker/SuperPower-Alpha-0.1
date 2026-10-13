@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type { FormEvent, ReactNode } from 'react';
 import {
@@ -24,6 +24,11 @@ type TaskReminderEvent = {
   title: string;
   message: string;
   scheduledFor: string;
+};
+
+type ToastMessage = {
+  id: number;
+  text: string;
 };
 
 const navigation: Array<{ key: PageKey; label: string; icon: typeof LayoutDashboard; group: string }> = [
@@ -84,8 +89,27 @@ function App() {
   const [creditAccount, setCreditAccount] = useState('706');
   const [entryAmount, setEntryAmount] = useState('');
   const [entryBusy, setEntryBusy] = useState(false);
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const activeToast = useRef<ToastMessage | null>(null);
+  const toastQueue = useRef<ToastMessage[]>([]);
+  const toastSequence = useRef(0);
+
+  const showToast = useCallback((text: string) => {
+    const message = { id: ++toastSequence.current, text };
+    if (activeToast.current) {
+      toastQueue.current.push(message);
+    } else {
+      activeToast.current = message;
+      setToast(message);
+    }
+  }, []);
+
+  const dismissToast = useCallback(() => {
+    const next = toastQueue.current.shift() ?? null;
+    activeToast.current = next;
+    setToast(next);
+  }, []);
 
   const activeCompany = useMemo(() => societes.find((company) => company.id === selectedSocieteId) ?? null, [societes, selectedSocieteId]);
   const activePage = navigation.find((item) => item.key === page) ?? navigation[0];
@@ -134,7 +158,7 @@ function App() {
     let unlisten: (() => void) | undefined;
     void listen<TaskReminderEvent>('task-reminder', ({ payload }) => {
       const detail = payload.message && payload.message !== payload.title ? ` — ${payload.message}` : '';
-      setToast(`Rappel : ${payload.title}${detail}`);
+      showToast(`Rappel : ${payload.title}${detail}`);
     })
       .then((stopListening) => {
         if (active) unlisten = stopListening;
@@ -147,13 +171,13 @@ function App() {
       active = false;
       unlisten?.();
     };
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(''), 6500);
+    const timer = window.setTimeout(dismissToast, 6500);
     return () => window.clearTimeout(timer);
-  }, [toast]);
+  }, [toast, dismissToast]);
 
   async function handleDatabaseAccess(event: FormEvent) {
     event.preventDefault();
@@ -164,9 +188,14 @@ function App() {
       await api<void>(command, { passphrase });
       setPassphrase('');
       setStatus('ready');
-      setToast(!isDesktopRuntime() ? 'Mode démo activé : données temporaires en mémoire uniquement.' : status === 'needs_setup' ? 'Coffre local chiffré créé.' : 'Coffre déverrouillé.');
+      showToast(!isDesktopRuntime() ? 'Mode démo activé : données temporaires en mémoire uniquement.' : status === 'needs_setup' ? 'Coffre local chiffré créé.' : 'Coffre déverrouillé.');
     } catch (reason) {
       setError(errorMessage(reason));
+      try {
+        setStatus(await api<DatabaseStatus>('database_status'));
+      } catch {
+        // Keep the original error visible if the status query also fails.
+      }
     } finally {
       setBusy(false);
     }
@@ -175,11 +204,18 @@ function App() {
   async function handleLock() {
     try {
       await api<void>('lock_database');
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
       setStatus('locked');
       setPassphrase('');
-      setSocietes([]); setEntries([]); setFlux([]); setAccounts([]); setSummary(emptySummary);
+      setSocietes([]);
+      setEntries([]);
+      setFlux([]);
+      setAccounts([]);
+      setSummary(emptySummary);
       setPage('dashboard');
-    } catch (reason) { setError(errorMessage(reason)); }
+    }
   }
 
   function handleEditCompany(company: Societe) {
@@ -210,7 +246,7 @@ function App() {
         setShowCompanyForm(false);
       }
       await loadData();
-      setToast(isDesktopRuntime() ? 'Société supprimée du coffre local.' : 'Société supprimée du mode démo volatile.');
+      showToast(isDesktopRuntime() ? 'Société supprimée du coffre local.' : 'Société supprimée du mode démo volatile.');
     } catch (reason) { setError(errorMessage(reason)); }
   }
   async function handleCreateCompany(event: FormEvent) {
@@ -228,7 +264,7 @@ function App() {
       setShowCompanyForm(false);
       setSelectedSocieteId(created.id);
       await loadData();
-      setToast(isDesktopRuntime() ? (isEditing ? 'Société modifiée dans le coffre local.' : 'Société enregistrée dans le coffre local.') : (isEditing ? 'Société modifiée dans le mode démo volatile.' : 'Société ajoutée au mode démo volatile.'));
+      showToast(isDesktopRuntime() ? (isEditing ? 'Société modifiée dans le coffre local.' : 'Société enregistrée dans le coffre local.') : (isEditing ? 'Société modifiée dans le mode démo volatile.' : 'Société ajoutée au mode démo volatile.'));
     } catch (reason) { setError(errorMessage(reason)); }
   }
 
@@ -254,7 +290,7 @@ function App() {
       await api<EntryView>('create_ecriture', { input });
       setEntryLabel(''); setEntryReference(''); setEntryAmount(''); setShowEntryForm(false);
       await loadData();
-      setToast('Écriture équilibrée et validée. Elle est verrouillée : une correction devra passer par une contre-écriture.');
+      showToast('Écriture équilibrée et validée. Elle est verrouillée : une correction devra passer par une contre-écriture.');
     } catch (reason) { setError(errorMessage(reason)); }
     finally { setEntryBusy(false); }
   }
@@ -271,27 +307,27 @@ function App() {
   }
   async function createFlow(input: FluxInput): Promise<boolean> {
     setError('');
-    try { await api<FluxView>('create_flux', { input }); await refreshFlows(); setToast(isDesktopRuntime() ? 'Prévision enregistrée dans le coffre local.' : 'Prévision enregistrée en mémoire démo volatile.'); return true; }
+    try { await api<FluxView>('create_flux', { input }); await refreshFlows(); showToast(isDesktopRuntime() ? 'Prévision enregistrée dans le coffre local.' : 'Prévision enregistrée en mémoire démo volatile.'); return true; }
     catch (reason) { setError(errorMessage(reason)); return false; }
   }
   async function updateFlow(id: string, input: FluxInput): Promise<boolean> {
     setError('');
-    try { await api<FluxView>('update_flux', { id, input }); await refreshFlows(); setToast('Prévision mise à jour ; les réalisations sont conservées.'); return true; }
+    try { await api<FluxView>('update_flux', { id, input }); await refreshFlows(); showToast('Prévision mise à jour ; les réalisations sont conservées.'); return true; }
     catch (reason) { setError(errorMessage(reason)); return false; }
   }
   async function realiseFlow(fluxId: string, input: RealisationFluxInput): Promise<boolean> {
     setError('');
-    try { await api<FluxView>('register_flux_realisation', { fluxId, input }); await refreshFlows(); setToast('Réalisation enregistrée ; le total et l’écart ont été recalculés.'); return true; }
+    try { await api<FluxView>('register_flux_realisation', { fluxId, input }); await refreshFlows(); showToast('Réalisation enregistrée ; le total et l’écart ont été recalculés.'); return true; }
     catch (reason) { setError(errorMessage(reason)); return false; }
   }
   async function cancelFlow(id: string): Promise<boolean> {
     setError('');
-    try { await api<FluxView>('cancel_flux', { id }); await refreshFlows(); setToast('Prévision annulée ; historique conservé.'); return true; }
+    try { await api<FluxView>('cancel_flux', { id }); await refreshFlows(); showToast('Prévision annulée ; historique conservé.'); return true; }
     catch (reason) { setError(errorMessage(reason)); return false; }
   }
   async function cancelRealisation(id: string, motifAnnulation: string): Promise<boolean> {
     setError('');
-    try { await api<FluxView>('cancel_flux_realisation', { id, motifAnnulation }); await refreshFlows(); setToast('Réalisation annulée et motif conservé.'); return true; }
+    try { await api<FluxView>('cancel_flux_realisation', { id, motifAnnulation }); await refreshFlows(); showToast('Réalisation annulée et motif conservé.'); return true; }
     catch (reason) { setError(errorMessage(reason)); return false; }
   }
   async function stopRecurrence(recurrenceId: string, dateFin: string): Promise<boolean> {
@@ -299,7 +335,7 @@ function App() {
     try {
       await api<void>('arreter_flux_recurrence', { recurrenceId, dateFin });
       await refreshFlows();
-      setToast('Récurrence arrêtée ; les échéances postérieures sont conservées dans l’historique et annulées.');
+      showToast('Récurrence arrêtée ; les échéances postérieures sont conservées dans l’historique et annulées.');
       return true;
     } catch (reason) { setError(errorMessage(reason)); return false; }
   }
@@ -377,7 +413,7 @@ function App() {
         <footer className="page-footer"><span>SuperPower Alpha 0.1</span><span><span className="footer-dot" /> Coffre local {isDesktopRuntime() ? 'chiffré' : 'démo volatile'}</span><span>Conçu pour garder le contrôle.</span></footer>
       </div>
     </main>
-    {toast && <div className="toast"><CheckCircle2 size={18} /><span>{toast}</span><button aria-label="Fermer" onClick={() => setToast('')}><X size={15} /></button></div>}
+    {toast && <div className="toast" aria-live="polite"><CheckCircle2 size={18} /><span>{toast.text}</span><button aria-label="Fermer le message" onClick={dismissToast}><X size={15} /></button></div>}
   </div>;
 }
 
