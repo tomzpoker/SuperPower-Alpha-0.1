@@ -104,7 +104,7 @@ pub enum TaskEngineError {
     TaskInactive,
     #[error("Une tâche annulée ne peut pas être modifiée. Réactivez-la avant de recommencer.")]
     TaskCancelled,
-    #[error("Une tâche avec une exécution ne peut plus être modifiée ; annulez-la et créez-en une nouvelle pour préserver l'historique.")]
+    #[error("Une tâche avec une exécution ne peut plus être modifiée ou supprimée ; annulez-la et créez-en une nouvelle pour préserver l'historique.")]
     TaskHasExecutions,
     #[error("L'exécution « {0} » n'existe pas.")]
     ExecutionNotFound(String),
@@ -439,6 +439,32 @@ impl TaskEngine {
 
         find_task_by_id(transaction, task_id)?
             .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))
+    }
+
+    /// Supprime une définition sans exécution. Les tâches ayant un historique doivent
+    /// être annulées plutôt que supprimées, afin de ne jamais effacer leurs résultats.
+    /// L'appelant conserve la transaction pour journaliser l'audit atomiquement.
+    pub fn delete_task_in_transaction(
+        transaction: &Transaction<'_>,
+        task_id: &str,
+    ) -> Result<Task, TaskEngineError> {
+        let existing = find_task_by_id(transaction, task_id)?
+            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))?;
+        let has_executions: i64 = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM task_executions WHERE task_id = ?1)",
+            [task_id],
+            |row| row.get(0),
+        )?;
+        if has_executions != 0 {
+            return Err(TaskEngineError::TaskHasExecutions);
+        }
+
+        let deleted =
+            transaction.execute("DELETE FROM task_definitions WHERE id = ?1", [task_id])?;
+        if deleted != 1 {
+            return Err(TaskEngineError::TaskNotFound(task_id.to_string()));
+        }
+        Ok(existing)
     }
 
     pub fn list_tasks(connection: &Connection) -> Result<Vec<Task>, TaskEngineError> {
@@ -1331,6 +1357,70 @@ mod tests {
         assert_eq!(attempts.len(), 2);
         assert_eq!(attempts[1].status, AttemptStatus::Failed);
         assert_eq!(attempts[1].error_message.as_deref(), Some("Erreur de test"));
+    }
+
+    #[test]
+    fn task_without_execution_can_be_deleted_in_the_callers_transaction() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let task =
+            TaskEngine::create_task(&connection, &new_task("delete-task-test", 3), BEFORE_DUE)
+                .unwrap();
+
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let deleted = TaskEngine::delete_task_in_transaction(&transaction, &task.id).unwrap();
+        assert_eq!(deleted.id, task.id);
+        transaction.commit().unwrap();
+
+        assert!(
+            TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .is_none()
+        );
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        assert!(matches!(
+            TaskEngine::delete_task_in_transaction(&transaction, &task.id),
+            Err(TaskEngineError::TaskNotFound(_))
+        ));
+        drop(transaction);
+    }
+
+    #[test]
+    fn task_with_execution_cannot_be_deleted_and_remains_persisted() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let task =
+            TaskEngine::create_task(&connection, &new_task("delete-guard-test", 3), BEFORE_DUE)
+                .unwrap();
+        TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "delete-guard-occurrence",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let result = TaskEngine::delete_task_in_transaction(&transaction, &task.id);
+        assert!(matches!(result, Err(TaskEngineError::TaskHasExecutions)));
+        drop(transaction);
+
+        assert!(
+            TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .is_some()
+        );
+        let executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(executions.len(), 1);
     }
 
     #[test]

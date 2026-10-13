@@ -757,6 +757,31 @@ function TasksPage() {
     }
   }
 
+  async function deleteTask(task: Task) {
+    setError('');
+    setNotice('');
+    if (!window.confirm(`Supprimer définitivement « ${task.title} » ? Cette action est possible uniquement avant la première exécution ; elle sera inscrite au journal d’audit.`)) {
+      return;
+    }
+    try {
+      const executions = await api<TaskExecution[]>('list_task_executions', { taskId: task.id });
+      if (executions.length > 0) {
+        throw new Error('Cette tâche possède un historique d’exécution. Annulez-la pour préserver cet historique.');
+      }
+      await api<void>('delete_task', { taskId: task.id });
+      setTasks((current) => current.filter((item) => item.id !== task.id));
+      setExecutionHistory((current) => {
+        const next = { ...current };
+        delete next[task.id];
+        return next;
+      });
+      if (historyTaskId === task.id) setHistoryTaskId(null);
+      setNotice('Tâche supprimée. L’action est inscrite au journal d’audit.');
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
+
   async function toggleExecutionHistory(taskId: string) {
     if (historyTaskId === taskId) {
       setHistoryTaskId(null);
@@ -844,6 +869,9 @@ function TasksPage() {
             {task.status !== 'cancelled' && <button className="button secondary" onClick={() => void changeStatus(task, task.status === 'paused' ? 'scheduled' : 'paused')}>{task.status === 'paused' ? 'Reprendre' : 'Mettre en pause'}</button>}
             {task.status === 'cancelled' ? <button className="button secondary" onClick={() => void changeStatus(task, 'scheduled')}>Réactiver</button> : <button className="button danger-ghost" onClick={() => void changeStatus(task, 'cancelled')}>Annuler</button>}
             <button className="button ghost" onClick={() => void toggleExecutionHistory(task.id)}>{historyTaskId === task.id ? 'Masquer l’historique' : 'Historique'}</button>
+            {(executionHistory[task.id] ?? []).length === 0
+              ? <button className="button danger-ghost" onClick={() => void deleteTask(task)}>Supprimer</button>
+              : null}
           </div>
           {historyTaskId === task.id && <div className="task-history"><h4>Historique d’exécution</h4>{(executionHistory[task.id] ?? []).length === 0 ? <p>Aucune exécution enregistrée. Le worker de fond n’est pas encore lancé automatiquement.</p> : (executionHistory[task.id] ?? []).map((execution) => <div className="task-execution" key={execution.id}>
               <div><strong>{new Date(execution.scheduledFor).toLocaleString('fr-FR')}</strong><span>{taskExecutionStatusLabel(execution.status)} · {execution.attemptCount}/{execution.maxAttempts} tentative(s)</span>{execution.lastError && <p className="task-error-detail">{execution.lastError}</p>}</div>

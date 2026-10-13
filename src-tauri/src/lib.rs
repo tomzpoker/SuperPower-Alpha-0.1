@@ -53,6 +53,7 @@ pub fn run() {
             commands::list_tasks,
             commands::preview_cron_schedule,
             commands::create_task,
+            commands::delete_task,
             commands::update_task,
             commands::update_task_status,
             commands::list_task_executions,

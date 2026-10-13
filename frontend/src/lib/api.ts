@@ -402,6 +402,15 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       demoTasks = demoTasks.map(item => item.id === taskId ? updated : item);
       return updated as T;
     }
+    case 'delete_task': {
+      const taskId = String(args.taskId ?? '');
+      if (!demoTasks.some(item => item.id === taskId)) throw new Error('Cette tâche n’existe plus.');
+      if (demoTaskExecutions.some(item => item.taskId === taskId)) {
+        throw new Error('Cette tâche possède un historique d’exécution ; annulez-la pour préserver cet historique.');
+      }
+      demoTasks = demoTasks.filter(item => item.id !== taskId);
+      return undefined as T;
+    }
     case 'update_task_status': {
       const taskId = String(args.taskId ?? '');
       const status = args.status as TaskStatus;

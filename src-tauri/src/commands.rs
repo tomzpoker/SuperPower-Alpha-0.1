@@ -1550,6 +1550,33 @@ pub fn create_task(input: NewTask, state: State<'_, AppState>) -> Result<Task, S
 }
 
 #[tauri::command]
+pub fn delete_task(task_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut connection = state.connection()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let deleted = TaskEngine::delete_task_in_transaction(&transaction, &task_id)
+        .map_err(|error| error.to_string())?;
+    audit_tx(
+        &transaction,
+        "delete",
+        "task_definition",
+        &task_id,
+        serde_json::json!({
+            "module": &deleted.module,
+            "taskType": &deleted.task_type,
+            "title": &deleted.title,
+            "scheduledAt": &deleted.scheduled_at,
+            "cronExpression": &deleted.cron_expression,
+            "status": deleted.status
+        }),
+    )
+    .map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn update_task(
     task_id: String,
     input: NewTask,

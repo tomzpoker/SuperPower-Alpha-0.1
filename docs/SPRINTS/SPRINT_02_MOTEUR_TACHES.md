@@ -43,7 +43,7 @@
 - Les exécutions en cours portent un bail. Après interruption, un bail expiré est inscrit comme tentative échouée puis peut être repris ; les tentatives épuisées deviennent terminales.
 - flexiq-core est absent du dépôt et n'est pas ajouté sans prototype ni vérification de compatibilité.
 - La migration transactionnelle v3→v4 est maintenant câblée dans `src-tauri/src/database.rs` et ajoute les tables `task_definitions`, `task_executions` et `task_attempts`. Elle conserve les tables existantes, versionne le schéma et possède un test de conservation d'un flux v3 ; le dernier changement doit encore passer les contrôles.
-- Les commandes Tauri (liste/création/modification/statut/historique) et la page UI Tâches sont ajoutées. Une tâche ne peut être modifiée qu'avant sa première exécution ; les paramètres d'une tâche avec historique sont verrouillés afin de le préserver.
+- Les commandes Tauri (liste/création/modification/suppression contrôlée/statut/historique) et la page UI Tâches sont ajoutées. Une tâche ne peut être modifiée ou supprimée qu'avant sa première exécution ; suppression et audit sont atomiques, et une tâche avec historique doit être annulée pour préserver ses résultats.
 - La page dispose maintenant d'un calendrier mensuel en grille, avec navigation entre mois et affichage des échéances par statut ; la liste reste l'endroit prévu pour modifier une tâche et consulter son historique.
 - Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
@@ -64,6 +64,7 @@
 - [x] Ajouter un parseur cron à cinq champs avec validation stricte et tests unitaires.
 - [ ] Intégrer le démarrage/arrêt du worker à Tauri avec arrêt propre et handlers métier explicites ; enregistrer les handlers métier avant le premier lancement.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
+- [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
 
 ### Validation CI la plus récente
