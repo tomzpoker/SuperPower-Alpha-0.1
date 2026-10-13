@@ -719,16 +719,35 @@ fn clean_optional(value: Option<String>) -> Option<String> {
 
 fn read_flux_record(connection: &rusqlite::Connection, id: &str) -> Result<FluxRecord, String> {
     connection.query_row(
-        "SELECT id, societe_id, libelle, sens, categorie, date_prevue, montant_prevu_cents, tiers, reference, statut, created_at, updated_at
-         FROM flux_previsionnels WHERE id = ?1",
+        "SELECT f.id, f.societe_id, f.libelle, f.sens, f.categorie, f.date_prevue,
+                f.montant_prevu_cents, f.tiers, f.reference, f.statut, f.created_at, f.updated_at,
+                f.recurrence_id, r.frequence, r.date_fin, r.actif
+         FROM flux_previsionnels f
+         LEFT JOIN flux_recurrences r ON r.id = f.recurrence_id
+         WHERE f.id = ?1",
         [id],
         |row| Ok(FluxRecord {
-            id: row.get(0)?, societe_id: row.get(1)?, libelle: row.get(2)?, sens: row.get(3)?,
-            categorie: row.get(4)?, date_prevue: row.get(5)?, montant_prevu_cents: row.get(6)?,
-            tiers: row.get(7)?, reference: row.get(8)?, statut: row.get(9)?, created_at: row.get(10)?, updated_at: row.get(11)?,
+            id: row.get(0)?,
+            societe_id: row.get(1)?,
+            libelle: row.get(2)?,
+            sens: row.get(3)?,
+            categorie: row.get(4)?,
+            date_prevue: row.get(5)?,
+            montant_prevu_cents: row.get(6)?,
+            tiers: row.get(7)?,
+            reference: row.get(8)?,
+            statut: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            recurrence_id: row.get(12)?,
+            frequence_recurrence: row.get(13)?,
+            date_fin_recurrence: row.get(14)?,
+            recurrence_active: row.get(15)?,
         })
-    ).optional().map_err(db_error)?
-     .ok_or_else(|| "Ce flux n'existe plus.".to_string())
+    )
+    .optional()
+    .map_err(db_error)?
+    .ok_or_else(|| "Ce flux n'existe plus.".to_string())
 }
 
 fn build_flux_view(
@@ -770,6 +789,10 @@ fn build_flux_view(
     let statut: StatutFlux = from_enum(&record.statut)?;
     let sens: SensFlux = from_enum(&record.sens)?;
     let categorie: CategorieFlux = from_enum(&record.categorie)?;
+    let frequence_recurrence = match record.frequence_recurrence.as_deref() {
+        Some(frequence) => from_enum(frequence)?,
+        None => FrequenceFlux::Ponctuel,
+    };
     let date = NaiveDate::parse_from_str(&record.date_prevue, "%Y-%m-%d").map_err(|_| {
         "Une date prévue enregistrée est invalide ; vérifiez la base et sa sauvegarde.".to_string()
     })?;
@@ -795,6 +818,10 @@ fn build_flux_view(
         montant_realise_cents,
         reste_cents: record.montant_prevu_cents - montant_realise_cents,
         realisations,
+        recurrence_id: record.recurrence_id,
+        frequence_recurrence,
+        date_fin_recurrence: record.date_fin_recurrence,
+        recurrence_active: record.recurrence_active == Some(1),
         created_at: record.created_at,
         updated_at: record.updated_at,
     })
