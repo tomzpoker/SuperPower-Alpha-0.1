@@ -357,7 +357,7 @@ mod migration_tests {
     use super::*;
 
     #[test]
-    fn migrates_v1_to_v2_preserves_existing_data_and_is_idempotent() {
+    fn migrates_v1_to_v3_preserves_existing_data_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch("PRAGMA foreign_keys = ON;")
@@ -471,6 +471,15 @@ mod migration_tests {
                 .unwrap();
             assert_eq!(count, 1, "la table {table} doit être créée");
         }
+
+        let recurrence_column_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('flux_previsionnels') WHERE name = 'recurrence_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(recurrence_column_count, 1, "le lien facultatif vers une série doit être ajouté");
 
         let company_name: String = connection
             .query_row(
