@@ -38,6 +38,8 @@ function flowInput(societeId: string, changes: Partial<FluxInput> = {}): FluxInp
     montantPrevuCents: 10_000,
     tiers: null,
     reference: null,
+    frequenceRecurrence: 'ponctuel',
+    dateFinRecurrence: null,
     ...changes,
   };
 }
@@ -104,6 +106,61 @@ describe('browser demo cashflow behaviour', () => {
     const listed = await api<FluxView[]>('list_flux');
     expect(listed[0].montantRealiseCents).toBe(0);
     expect(listed[0].realisations[0].annuleeAt).toBeTruthy();
+  });
+
+  it('generates monthly end-of-month occurrences without calendar drift', async () => {
+    const company = await createCompany();
+    const first = await api<FluxView>('create_flux', {
+      input: flowInput(company.id, {
+        datePrevue: '2026-01-31',
+        frequenceRecurrence: 'mensuel',
+        dateFinRecurrence: '2026-04-30',
+      }),
+    });
+    const listed = await api<FluxView[]>('list_flux');
+    const series = listed
+      .filter(flow => flow.recurrenceId === first.recurrenceId)
+      .sort((a, b) => a.datePrevue.localeCompare(b.datePrevue));
+    expect(series.map(flow => flow.datePrevue)).toEqual([
+      '2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30',
+    ]);
+    expect(new Set(series.map(flow => flow.id)).size).toBe(4);
+  });
+
+  it('stops a recurrence without deleting later scheduled occurrences', async () => {
+    const company = await createCompany();
+    const first = await api<FluxView>('create_flux', {
+      input: flowInput(company.id, {
+        datePrevue: '2026-10-13',
+        frequenceRecurrence: 'mensuel',
+        dateFinRecurrence: '2027-02-13',
+      }),
+    });
+    await api<void>('arreter_flux_recurrence', {
+      recurrenceId: first.recurrenceId,
+      dateFin: '2026-11-13',
+    });
+    const listed = await api<FluxView[]>('list_flux');
+    const series = listed
+      .filter(flow => flow.recurrenceId === first.recurrenceId)
+      .sort((a, b) => a.datePrevue.localeCompare(b.datePrevue));
+    expect(series).toHaveLength(5);
+    expect(series.every(flow => !flow.recurrenceActive)).toBe(true);
+    expect(series.filter(flow => flow.datePrevue <= '2026-11-13').every(flow => flow.statut === 'actif')).toBe(true);
+    expect(series.filter(flow => flow.datePrevue > '2026-11-13').every(flow => flow.statut === 'annule')).toBe(true);
+  });
+
+  it('rejects end dates for one-off forecasts and end dates before the first occurrence', async () => {
+    const company = await createCompany();
+    await expect(api<FluxView>('create_flux', {
+      input: flowInput(company.id, { dateFinRecurrence: '2026-12-31' }),
+    })).rejects.toThrow('date de fin');
+    await expect(api<FluxView>('create_flux', {
+      input: flowInput(company.id, {
+        frequenceRecurrence: 'mensuel',
+        dateFinRecurrence: '2026-11-30',
+      }),
+    })).rejects.toThrow('ne peut pas précéder');
   });
 
   it('rejects values that exceed the native field limits', async () => {
