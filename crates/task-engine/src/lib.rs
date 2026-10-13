@@ -15,7 +15,9 @@ use std::io;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{
-    params, types::{Type, Value as SqlValue}, Connection, OptionalExtension, Row, Transaction, TransactionBehavior,
+    params,
+    types::{Type, Value as SqlValue},
+    Connection, OptionalExtension, Row, Transaction, TransactionBehavior,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -733,11 +735,11 @@ impl TaskEngine {
             );
             let mut values = vec![SqlValue::Text(now.clone())];
             values.extend(filter_values);
-            transaction.query_row(
-                &query,
-                rusqlite::params_from_iter(values.iter()),
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            ).optional()?
+            transaction
+                .query_row(&query, rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .optional()?
         };
 
         let Some((execution_id, previous_status, previous_attempt_count)) = candidate else {
@@ -1109,10 +1111,7 @@ fn find_task_by_idempotency_key(
         .optional()
 }
 
-fn task_id_filter(
-    alias: &str,
-    eligible_task_ids: Option<&[String]>,
-) -> (String, Vec<SqlValue>) {
+fn task_id_filter(alias: &str, eligible_task_ids: Option<&[String]>) -> (String, Vec<SqlValue>) {
     let Some(task_ids) = eligible_task_ids else {
         return (String::new(), Vec::new());
     };

@@ -70,14 +70,13 @@ impl TaskHandlerRegistry {
     }
 
     /// Indique si le couple module/type dispose d'un handler enregistré.
-    pub fn has_handler(
-        &self,
-        module: &str,
-        task_type: &str,
-    ) -> Result<bool, HandlerRegistryError> {
+    pub fn has_handler(&self, module: &str, task_type: &str) -> Result<bool, HandlerRegistryError> {
         let module = normalize_key(module).ok_or(HandlerRegistryError::InvalidModule)?;
         let task_type = normalize_key(task_type).ok_or(HandlerRegistryError::InvalidTaskType)?;
-        let handlers = self.handlers.read().map_err(|_| HandlerRegistryError::Poisoned)?;
+        let handlers = self
+            .handlers
+            .read()
+            .map_err(|_| HandlerRegistryError::Poisoned)?;
         Ok(handlers.contains_key(&(module, task_type)))
     }
 
@@ -637,7 +636,9 @@ mod tests {
         .expect("missing handler should defer the task safely");
 
         assert_eq!(outcome, WorkerOutcome::Idle);
-        assert!(TaskEngine::list_executions(&connection, &task.id).unwrap().is_empty());
+        assert!(TaskEngine::list_executions(&connection, &task.id)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -675,7 +676,9 @@ mod tests {
         .expect("process only a registered handler");
 
         assert!(matches!(outcome, WorkerOutcome::Succeeded { .. }));
-        assert!(TaskEngine::list_executions(&connection, &unhandled.id).unwrap().is_empty());
+        assert!(TaskEngine::list_executions(&connection, &unhandled.id)
+            .unwrap()
+            .is_empty());
         let executions = TaskEngine::list_executions(&connection, &handled.id).unwrap();
         assert_eq!(executions.len(), 1);
         assert_eq!(executions[0].status, ExecutionStatus::Succeeded);
@@ -713,8 +716,12 @@ mod tests {
         .expect("defer cron task without a handler");
 
         assert_eq!(outcome, WorkerOutcome::Idle);
-        assert!(TaskEngine::list_executions(&connection, &task.id).unwrap().is_empty());
-        let unchanged = TaskEngine::get_task_by_id(&connection, &task.id).unwrap().unwrap();
+        assert!(TaskEngine::list_executions(&connection, &task.id)
+            .unwrap()
+            .is_empty());
+        let unchanged = TaskEngine::get_task_by_id(&connection, &task.id)
+            .unwrap()
+            .unwrap();
         assert_eq!(unchanged.scheduled_at, original_scheduled_at);
     }
 
