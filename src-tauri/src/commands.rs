@@ -675,6 +675,23 @@ pub fn arreter_flux_recurrence(
     if !fin_est_echeance {
         return Err("La date d'arrêt doit correspondre à une échéance réelle de cette série.".to_string());
     }
+    let realisation_apres_fin: bool = transaction
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM flux_previsionnels f
+                JOIN flux_realisations r ON r.flux_id = f.id
+                WHERE f.recurrence_id = ?1
+                  AND f.date_prevue > ?2
+                  AND r.annulee_at IS NULL
+            )",
+            params![recurrence_id, fin.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if realisation_apres_fin {
+        return Err("Impossible d'arrêter la récurrence avant une échéance qui possède déjà une réalisation active. Choisissez une date de fin à cette échéance ou après.".to_string());
+    }
 
     transaction
         .execute(
