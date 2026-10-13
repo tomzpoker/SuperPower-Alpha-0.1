@@ -1051,7 +1051,7 @@ function TasksPage() {
   </section>;
 }
 
-function TaskCalendar({
+export function TaskCalendar({
   tasks,
   month,
   onMonthChange,
