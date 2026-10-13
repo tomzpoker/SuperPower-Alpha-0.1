@@ -623,6 +623,101 @@ pub fn cancel_flux(id: String, state: State<'_, AppState>) -> Result<FluxView, S
 }
 
 #[tauri::command]
+pub fn arreter_flux_recurrence(
+    recurrence_id: String,
+    date_fin: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let fin = NaiveDate::parse_from_str(&date_fin, "%Y-%m-%d")
+        .map_err(|_| "La date d'arrêt doit être au format AAAA-MM-JJ.".to_string())?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut connection = state.connection()?;
+    let transaction = connection.transaction().map_err(db_error)?;
+    let serie: Option<(String, Option<String>, i64)> = transaction
+        .query_row(
+            "SELECT date_debut, date_fin, actif FROM flux_recurrences WHERE id = ?1",
+            [&recurrence_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db_error)?;
+    let Some((date_debut, fin_existante, actif)) = serie else {
+        return Err("Cette série de récurrence n'existe plus.".to_string());
+    };
+    if actif != 1 {
+        return Err("Cette récurrence est déjà arrêtée.".to_string());
+    }
+    let debut = NaiveDate::parse_from_str(&date_debut, "%Y-%m-%d")
+        .map_err(|_| "La date de début de la récurrence est invalide.".to_string())?;
+    if fin < debut {
+        return Err("La date d'arrêt ne peut pas précéder la première échéance.".to_string());
+    }
+    if fin_existante
+        .as_deref()
+        .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+        .is_some_and(|existing| fin > existing)
+    {
+        return Err("La date d'arrêt ne peut pas prolonger une récurrence déjà limitée.".to_string());
+    }
+
+    transaction
+        .execute(
+            "UPDATE flux_recurrences SET actif = 0, date_fin = ?1, updated_at = ?2 WHERE id = ?3 AND actif = 1",
+            params![fin.to_string(), now, recurrence_id],
+        )
+        .map_err(db_error)?;
+
+    let futures = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT id, date_prevue FROM flux_previsionnels
+                 WHERE recurrence_id = ?1 AND statut = 'actif' AND date_prevue > ?2
+                 ORDER BY date_prevue",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map(params![recurrence_id, fin.to_string()], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(db_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?
+    };
+    for (flux_id, date_prevue) in &futures {
+        transaction
+            .execute(
+                "UPDATE flux_previsionnels SET statut = 'annule', updated_at = ?1 WHERE id = ?2 AND statut = 'actif'",
+                params![now, flux_id],
+            )
+            .map_err(db_error)?;
+        audit_tx(
+            &transaction,
+            "cancel",
+            "flux_previsionnel",
+            flux_id,
+            serde_json::json!({
+                "recurrenceId": recurrence_id,
+                "motif": "Échéance postérieure à l'arrêt de la récurrence",
+                "datePrevue": date_prevue,
+            }),
+        )
+        .map_err(db_error)?;
+    }
+    audit_tx(
+        &transaction,
+        "stop",
+        "flux_recurrence",
+        &recurrence_id,
+        serde_json::json!({
+            "dateFin": fin.to_string(),
+            "echeancesAnnulees": futures.len(),
+        }),
+    )
+    .map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn register_flux_realisation(
     flux_id: String,
     input: RealisationFluxInput,
