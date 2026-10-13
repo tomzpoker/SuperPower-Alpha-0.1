@@ -26,7 +26,7 @@ crates/core/src/
   society.rs     # société, régimes, avertissements
   flows.rs       # flux prévisionnels, réalisations, validation, états
   events.rs      # bus mémoire, pas encore branché
-  ../task-engine/src/lib.rs # prototype isolé de file durable SQLCipher (branche S02, non intégré)
+  ../task-engine/src/lib.rs # file durable SQLCipher, idempotence et reprise (branche S02)
 src-tauri/src/
   database.rs    # AppState, SQLCipher, Argon2id, schéma/migrations
   commands.rs    # IPC Tauri et persistance
@@ -73,7 +73,8 @@ Aucun fallback vers SQLite non chiffré n'est autorisé.
 ## 6. Migration de schéma
 - v1 : sociétés, comptes, écritures, lignes, audit.
 - v2 : ajoute \`flux_previsionnels\` et \`flux_realisations\`, index chronologiques et contraintes de montant.
-- Migration v1→v2 transactionnelle à l'initialisation et au déverrouillage ; elle ne supprime aucune table v1.
+- Migrations v1→v2 et v2→v3 transactionnelles à l'initialisation et au déverrouillage ; elles ne reconstruisent pas les tables historiques.
+- Migration v3→v4 transactionnelle câblée sur la branche S02. Sa validation par CI et tests locaux après intégration reste nécessaire avant fusion.
 - Une version future inconnue est refusée, jamais rétrogradée automatiquement.
 - Test automatisé d'idempotence ajouté ; la validation sur copie d'une vraie base SQLCipher v1 reste nécessaire avant merge.
 
@@ -108,4 +109,4 @@ S06-A ne crée pas d'écriture comptable ni de TVA. Une opération réelle peut 
 - Couverture >80 % non démontrée.
 
 ## 10. Évolutions
-S06-A → import bancaire (03) → gestion locative (05) → projection/alertes (06) → règles comptables et fiscalité préparatoire (07). Le Sprint 02 démarre par un prototype interne task-engine utilisant la connexion SQLCipher de l'application, avec persistance, idempotence et reprise par bail. Il reste isolé tant que ses tests/CI ne sont pas validés ; flexiq-core est absent du dépôt et n'est pas ajouté sans évaluation.
+S06-A → import bancaire (03) → gestion locative (05) → projection/alertes (06) → règles comptables et fiscalité préparatoire (07). Le Sprint 02 utilise une crate interne task-engine sur la connexion SQLCipher de l'application, avec persistance, idempotence et reprise par bail. La migration v3→v4 est câblée sur sa branche. Commandes IPC, handlers, cron et UI restent à faire ; flexiq-core est absent du dépôt et n'est pas ajouté sans évaluation.
