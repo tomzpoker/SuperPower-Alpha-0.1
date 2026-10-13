@@ -10,7 +10,9 @@ use superpower_core::{
     recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux},
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
-use task_engine::{CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus};
+use task_engine::{
+    CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus,
+};
 use tauri::State;
 use uuid::Uuid;
 
@@ -1478,13 +1480,16 @@ fn build_cron_preview(expression: &str, after: &str, count: u8) -> Result<Vec<St
     let schedule = CronSchedule::parse(expression.trim())
         .map_err(|error| format!("Expression cron invalide : {error}"))?;
     let mut cursor = chrono::DateTime::parse_from_rfc3339(after)
-        .map_err(|_| "La date de départ doit être un instant ISO 8601 avec fuseau horaire.".to_string())?
+        .map_err(|_| {
+            "La date de départ doit être un instant ISO 8601 avec fuseau horaire.".to_string()
+        })?
         .with_timezone(&Utc);
     let mut occurrences = Vec::with_capacity(usize::from(count));
 
     for _ in 0..count {
         let next = schedule.next_after(&cursor).ok_or_else(|| {
-            "Aucune occurrence suivante trouvée dans la fenêtre de recherche de cinq ans.".to_string()
+            "Aucune occurrence suivante trouvée dans la fenêtre de recherche de cinq ans."
+                .to_string()
         })?;
         occurrences.push(next.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
         cursor = next;
@@ -1494,7 +1499,11 @@ fn build_cron_preview(expression: &str, after: &str, count: u8) -> Result<Vec<St
 }
 
 #[tauri::command]
-pub fn preview_cron_schedule(expression: String, after: String, count: u8) -> Result<Vec<String>, String> {
+pub fn preview_cron_schedule(
+    expression: String,
+    after: String,
+    count: u8,
+) -> Result<Vec<String>, String> {
     build_cron_preview(&expression, &after, count)
 }
 
