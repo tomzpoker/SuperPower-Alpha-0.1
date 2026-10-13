@@ -1,4 +1,4 @@
-use chrono::{Local, Months, NaiveDate};
+use chrono::{Local, Months, NaiveDate, Utc};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use superpower_core::{
@@ -11,6 +11,7 @@ use superpower_core::{
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
 use tauri::State;
+use task_engine::{NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus};
 use uuid::Uuid;
 
 use crate::database::{AppState, DatabaseStatus};
@@ -1467,6 +1468,100 @@ pub fn list_ecritures(
         entries.push(entry);
     }
     Ok(entries)
+}
+
+#[tauri::command]
+pub fn list_tasks(state: State<'_, AppState>) -> Result<Vec<Task>, String> {
+    let connection = state.connection()?;
+    TaskEngine::list_tasks(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn create_task(input: NewTask, state: State<'_, AppState>) -> Result<Task, String> {
+    let mut connection = state.connection()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let existing = TaskEngine::get_task_by_idempotency_key(&transaction, &input.idempotency_key)
+        .map_err(|error| error.to_string())?;
+    let task = TaskEngine::create_task(&transaction, &input, &Utc::now().to_rfc3339())
+        .map_err(|error| error.to_string())?;
+    if existing.is_none() {
+        audit_tx(
+            &transaction,
+            "create",
+            "task_definition",
+            &task.id,
+            serde_json::json!({
+                "module": task.module,
+                "taskType": task.task_type,
+                "scheduledAt": task.scheduled_at
+            }),
+        )
+        .map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)?;
+    Ok(task)
+}
+
+#[tauri::command]
+pub fn update_task_status(
+    task_id: String,
+    status: TaskStatus,
+    state: State<'_, AppState>,
+) -> Result<Task, String> {
+    let mut connection = state.connection()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let previous = TaskEngine::get_task_by_id(&transaction, &task_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("La tâche « {task_id} » n'existe pas."))?;
+    let updated = TaskEngine::update_task_status_in_transaction(
+        &transaction,
+        &task_id,
+        status,
+        &Utc::now().to_rfc3339(),
+    )
+    .map_err(|error| error.to_string())?;
+    if previous.status != status {
+        let action = match status {
+            TaskStatus::Scheduled => "resume",
+            TaskStatus::Paused => "pause",
+            TaskStatus::Cancelled => "cancel",
+        };
+        audit_tx(
+            &transaction,
+            action,
+            "task_definition",
+            &task_id,
+            serde_json::json!({
+                "from": previous.status,
+                "to": status
+            }),
+        )
+        .map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub fn list_task_executions(
+    task_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TaskExecution>, String> {
+    let connection = state.connection()?;
+    TaskEngine::list_executions(&connection, &task_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_task_attempts(
+    execution_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TaskAttempt>, String> {
+    let connection = state.connection()?;
+    TaskEngine::list_attempts(&connection, &execution_id).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
