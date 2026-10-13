@@ -77,3 +77,17 @@ Le moteur comptable futur devra traiter multi-lignes, tiers, principal/intérêt
 - [x] Modification du loyer à 1 400 € avec conservation des 400 € réalisés ; enregistrement puis annulation depuis Historique de réalisations de 300 € sur les flux de test ; préservation des lignes/motifs et exclusion des montants annulés du cumul ; annulation de la prévision d'assurance et filtre des prévisions annulées — observés et confirmés par l'utilisateur.
 - [x] Confirmer visuellement l'état « Réalisé au-delà du prévu » pour 300 € réalisés sur 240 € prévus ; confirmation utilisateur reçue.
 - [ ] Confirmer que la commande métier refuse de créer une réalisation sur une prévision annulée (les boutons d'action ont disparu dans l'UI).
+
+## S06-B — Règles de récurrence du prévisionnel
+
+Décision d'extension : les flux peuvent être ponctuels (défaut), mensuels, trimestriels ou annuels. Les séries récurrentes génèrent des échéances indépendantes, sans écrire automatiquement en comptabilité et sans calculer la TVA.
+
+- Les dates sont calculées depuis la date de départ d'origine pour éviter toute dérive de fin de mois ; les jours inexistants sont ramenés au dernier jour du mois cible. Les années bissextiles sont couvertes par tests.
+- Sans date de fin, les occurrences sont matérialisées sur un horizon glissant de 36 mois. La matérialisation est idempotente et l'unicité (série, date) est protégée en base.
+- La migration SQLCipher v2 → v3 ajoute `flux_recurrences` et un lien nullable depuis `flux_previsionnels`. Les flux existants restent ponctuels ; leurs réalisations et historiques ne sont ni supprimés ni remplacés.
+- Une réalisation et une annulation concernent une occurrence seulement. Modifier une occurrence récurrente n'altère pas le modèle des prochaines échéances ; la modification globale d'une série est différée à un lot ultérieur.
+- L'arrêt se fait sur une échéance générée et visible dans l'horizon de 36 mois. Les échéances postérieures non réalisées sont annulées mais conservées dans l'historique. L'arrêt est refusé s'il annulerait une échéance postérieure avec une réalisation active.
+- La génération automatique des occurrences est auditée dans la transaction. Les règles métier sont validées dans Rust, pas uniquement dans l'interface.
+
+Le suivi des flux demeure séparé des écritures comptables : aucune fréquence, catégorie ou description ne suffit à déduire une écriture PCG ni un traitement de TVA.
+
