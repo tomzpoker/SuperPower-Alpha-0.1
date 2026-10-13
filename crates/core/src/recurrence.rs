@@ -95,27 +95,25 @@ pub fn generer_echeances(
 /// Calcule chaque occurrence à partir de la date d'origine, jamais à partir de
 /// l'occurrence précédente, pour préserver le jour choisi par l'utilisateur.
 fn date_ancree(debut: NaiveDate, decalage_mois: u32) -> Result<NaiveDate, ErreurRecurrence> {
-    let mois_absolu = i64::from(debut.year()) * 12
-        + i64::from(debut.month0())
-        + i64::from(decalage_mois);
-    let annee = i32::try_from(mois_absolu.div_euclid(12))
-        .map_err(|_| ErreurRecurrence::DateHorsPlage)?;
+    let mois_absolu =
+        i64::from(debut.year()) * 12 + i64::from(debut.month0()) + i64::from(decalage_mois);
+    let annee =
+        i32::try_from(mois_absolu.div_euclid(12)).map_err(|_| ErreurRecurrence::DateHorsPlage)?;
     let mois = u32::try_from(mois_absolu.rem_euclid(12) + 1)
         .map_err(|_| ErreurRecurrence::DateHorsPlage)?;
 
-    let premier = NaiveDate::from_ymd_opt(annee, mois, 1)
-        .ok_or(ErreurRecurrence::DateHorsPlage)?;
     let (annee_suivante, mois_suivant) = if mois == 12 {
         (
-            annee.checked_add(1).ok_or(ErreurRecurrence::DateHorsPlage)?,
+            annee
+                .checked_add(1)
+                .ok_or(ErreurRecurrence::DateHorsPlage)?,
             1,
         )
     } else {
         (annee, mois + 1)
     };
-    let premier_mois_suivant =
-        NaiveDate::from_ymd_opt(annee_suivante, mois_suivant, 1)
-            .ok_or(ErreurRecurrence::DateHorsPlage)?;
+    let premier_mois_suivant = NaiveDate::from_ymd_opt(annee_suivante, mois_suivant, 1)
+        .ok_or(ErreurRecurrence::DateHorsPlage)?;
     let dernier_jour = (premier_mois_suivant - Duration::days(1)).day();
     NaiveDate::from_ymd_opt(annee, mois, debut.day().min(dernier_jour))
         .ok_or(ErreurRecurrence::DateHorsPlage)
@@ -144,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn mensuel_fin_de_mois_ne_deriver_pas() {
+    fn mensuel_fin_de_mois_ne_derive_pas() {
         assert_eq!(
             generer_echeances(
                 FrequenceFlux::Mensuel,
