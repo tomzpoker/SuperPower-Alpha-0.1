@@ -43,7 +43,8 @@
 - Les exécutions en cours portent un bail. Après interruption, un bail expiré est inscrit comme tentative échouée puis peut être repris ; les tentatives épuisées deviennent terminales.
 - flexiq-core est absent du dépôt et n'est pas ajouté sans prototype ni vérification de compatibilité.
 - La migration transactionnelle v3→v4 est maintenant câblée dans `src-tauri/src/database.rs` et ajoute les tables `task_definitions`, `task_executions` et `task_attempts`. Elle conserve les tables existantes, versionne le schéma et possède un test de conservation d'un flux v3 ; le dernier changement doit encore passer les contrôles.
-- Cron, registre de handlers, commandes Tauri, interface liste/calendrier et reprise du widget historique restent à faire.
+- Les premières commandes Tauri (liste/création/statut/historique) et une page UI de liste/création/statut/historique sont maintenant ajoutées ; validation CI du dernier commit en cours.
+- Worker d'exécution, registre des handlers, cron, calendrier, édition complète et reprise du widget historique restent à faire.
 
 ### Contrôles avant clôture
 
