@@ -108,8 +108,6 @@ struct RecurrenceRecord {
     montant_prevu_cents: i64,
     tiers: Option<String>,
     reference: Option<String>,
-    created_at: String,
-    updated_at: String,
 }
 
 #[tauri::command]
@@ -924,8 +922,7 @@ fn materialiser_recurrences(connection: &mut rusqlite::Connection) -> Result<(),
         let mut statement = transaction
             .prepare(
                 "SELECT id, societe_id, frequence, date_debut, date_fin, actif,
-                        libelle, sens, categorie, montant_prevu_cents, tiers, reference,
-                        created_at, updated_at
+                        libelle, sens, categorie, montant_prevu_cents, tiers, reference
                  FROM flux_recurrences WHERE actif = 1 ORDER BY date_debut, created_at",
             )
             .map_err(db_error)?;
@@ -944,8 +941,6 @@ fn materialiser_recurrences(connection: &mut rusqlite::Connection) -> Result<(),
                     montant_prevu_cents: row.get(9)?,
                     tiers: row.get(10)?,
                     reference: row.get(11)?,
-                    created_at: row.get(12)?,
-                    updated_at: row.get(13)?,
                 })
             })
             .map_err(db_error)?;
