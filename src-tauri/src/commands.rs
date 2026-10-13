@@ -11,7 +11,8 @@ use superpower_core::{
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
 use task_engine::{
-    CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus,
+    CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskRecurrenceFrequency,
+    TaskStatus,
 };
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -1877,7 +1878,6 @@ mod task_command_tests {
         test::{mock_app, MockRuntime},
         Manager,
     };
-    use task_engine::TaskRecurrenceFrequency;
     use uuid::Uuid;
 
     const TEST_PASSPHRASE: &str = "command-layer temporary vault passphrase";
@@ -1898,10 +1898,9 @@ mod task_command_tests {
     }
 
     fn test_app() -> (TemporaryVault, tauri::App<MockRuntime>) {
-        let vault = TemporaryVault(std::env::temp_dir().join(format!(
-            "superpower-task-command-{}.db",
-            Uuid::new_v4()
-        )));
+        let vault = TemporaryVault(
+            std::env::temp_dir().join(format!("superpower-task-command-{}.db", Uuid::new_v4())),
+        );
         let state = AppState::new(vault.0.clone());
         state
             .initialize(TEST_PASSPHRASE)
@@ -1955,12 +1954,9 @@ mod task_command_tests {
 
         let mut revised_input = input;
         revised_input.title = "Tâche modifiée".to_string();
-        let revised = super::update_task(
-            created.id.clone(),
-            revised_input,
-            app.state::<AppState>(),
-        )
-        .expect("edit task before its first execution");
+        let revised =
+            super::update_task(created.id.clone(), revised_input, app.state::<AppState>())
+                .expect("edit task before its first execution");
         assert_eq!(revised.title, "Tâche modifiée");
         assert_eq!(audit_count(&app, "update", &created.id), 1);
 
@@ -1970,12 +1966,9 @@ mod task_command_tests {
             TaskStatus::Cancelled,
             TaskStatus::Scheduled,
         ] {
-            let changed = super::update_task_status(
-                created.id.clone(),
-                status,
-                app.state::<AppState>(),
-            )
-            .expect("apply task status transition");
+            let changed =
+                super::update_task_status(created.id.clone(), status, app.state::<AppState>())
+                    .expect("apply task status transition");
             assert_eq!(changed.status, status);
         }
 
@@ -2013,12 +2006,9 @@ mod task_command_tests {
 
         let mut revised_input = input;
         revised_input.title = "Modification interdite".to_string();
-        let update_error = super::update_task(
-            created.id.clone(),
-            revised_input,
-            app.state::<AppState>(),
-        )
-        .expect_err("a task with history must not be editable");
+        let update_error =
+            super::update_task(created.id.clone(), revised_input, app.state::<AppState>())
+                .expect_err("a task with history must not be editable");
         assert!(update_error.contains("ne peut plus être modifiée ou supprimée"));
 
         let delete_error = super::delete_task(created.id.clone(), app.state::<AppState>())
@@ -2046,18 +2036,14 @@ mod task_command_tests {
         let (_vault, app) = test_app();
         app.manage(TaskWorkerController::default());
 
-        super::lock_database(
-            app.state::<AppState>(),
-            app.state::<TaskWorkerController>(),
-        )
-        .expect("lock temporary SQLCipher vault through Tauri command");
+        super::lock_database(app.state::<AppState>(), app.state::<TaskWorkerController>())
+            .expect("lock temporary SQLCipher vault through Tauri command");
 
         assert_eq!(app.state::<AppState>().status(), DatabaseStatus::Locked);
-        assert!(
-            app.state::<AppState>()
-                .connection()
-                .expect_err("new connection must be refused while locked")
-                .contains("verrouillée")
-        );
+        assert!(app
+            .state::<AppState>()
+            .connection()
+            .expect_err("new connection must be refused while locked")
+            .contains("verrouillée"));
     }
 }
