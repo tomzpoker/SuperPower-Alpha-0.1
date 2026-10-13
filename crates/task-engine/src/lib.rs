@@ -840,8 +840,8 @@ fn find_execution_by_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use rusqlite::OpenFlags;
+    use std::path::PathBuf;
 
     const KEY_HEX: &str = "2727272727272727272727272727272727272727272727272727272727272727";
     const BEFORE_DUE: &str = "2026-10-13T09:00:00Z";
