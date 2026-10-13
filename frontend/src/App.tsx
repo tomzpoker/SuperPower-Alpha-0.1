@@ -438,11 +438,12 @@ function frequenceFluxLabel(value: FrequenceFlux): string {
 function fluxStateLabel(value: FluxView['etat']): string {
   return ({ a_prevoir: 'À prévoir', en_retard: 'En retard', partiellement_realise: 'Partiellement réalisé', realise: 'Réalisé', depasse: 'Réalisé au-delà du prévu', annule: 'Prévision annulée' })[value];
 }
-function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreate, onUpdate, onRealise, onCancel, onCancelRealisation }: {
+function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreate, onUpdate, onRealise, onCancel, onCancelRealisation, onStopRecurrence }: {
   societes: Societe[]; selectedSocieteId: string; flux: FluxView[]; onNewCompany: () => void;
   onCreate: (input: FluxInput) => Promise<boolean>; onUpdate: (id: string, input: FluxInput) => Promise<boolean>;
   onRealise: (fluxId: string, input: RealisationFluxInput) => Promise<boolean>;
   onCancel: (id: string) => Promise<boolean>; onCancelRealisation: (id: string, motif: string) => Promise<boolean>;
+  onStopRecurrence: (recurrenceId: string, dateFin: string) => Promise<boolean>;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -451,6 +452,8 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
   const [realForm, setRealForm] = useState({ dateRealisation: localDateInput(), montant: '', reference: '', note: '' });
   const [localError, setLocalError] = useState('');
   const [showCancelled, setShowCancelled] = useState(false);
+  const editingFlow = editingId ? flux.find(flow => flow.id === editingId) ?? null : null;
+  const recurrenceLocked = Boolean(editingFlow?.recurrenceId);
   const active = flux.filter(flow => flow.statut === 'actif');
   const planIn = active.filter(flow => flow.sens === 'encaissement').reduce((sum, flow) => sum + flow.montantPrevuCents, 0);
   const planOut = active.filter(flow => flow.sens === 'decaissement').reduce((sum, flow) => sum + flow.montantPrevuCents, 0);
@@ -500,6 +503,15 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
   async function cancelForecast(flow: FluxView) {
     if (window.confirm('Annuler la prévision « ' + flow.libelle + ' » ? Les réalisations et l’historique seront conservés.')) await onCancel(flow.id);
   }
+  async function stopForecastRecurrence(flow: FluxView) {
+    if (!flow.recurrenceId || !flow.recurrenceActive) return;
+    const dateFin = window.prompt(
+      'Dernière échéance à conserver (AAAA-MM-JJ). Les échéances ultérieures seront annulées mais resteront dans l’historique :',
+      localDateInput(),
+    );
+    if (dateFin === null || !dateFin.trim()) return;
+    await onStopRecurrence(flow.recurrenceId, dateFin.trim());
+  }
   async function cancelActual(item: FluxRealisationView) {
     const reason = window.prompt('Motif obligatoire de l’annulation (conservé dans l’historique) :');
     if (reason === null || !reason.trim()) return;
@@ -524,6 +536,8 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
           <Field label="Ce que cela concerne *"><select value={form.categorie} onChange={e => setForm({ ...form, categorie: e.target.value as CategorieFlux })}><option value="loyer">Loyer</option><option value="charge_courante">Charge courante</option><option value="travaux">Travaux</option><option value="impot_taxe">Impôt ou taxe</option><option value="emprunt">Emprunt</option><option value="apport_associe">Apport d’associé</option><option value="autre">Autre</option></select></Field>
           <Field label="Nom de l’opération *"><input required maxLength={160} value={form.libelle} onChange={e => setForm({ ...form, libelle: e.target.value })} placeholder="Ex. Loyer du local commercial" /></Field>
           <Field label="Date prévue *"><input type="date" required value={form.datePrevue} onChange={e => setForm({ ...form, datePrevue: e.target.value })} /></Field>
+          <Field label="Récurrence *"><select value={form.frequenceRecurrence} disabled={recurrenceLocked} onChange={e => { const frequenceRecurrence = e.target.value as FrequenceFlux; setForm({ ...form, frequenceRecurrence, dateFinRecurrence: frequenceRecurrence === 'ponctuel' ? '' : form.dateFinRecurrence }); }}><option value="ponctuel">Ponctuel — une seule échéance</option><option value="mensuel">Mensuel</option><option value="trimestriel">Trimestriel</option><option value="annuel">Annuel</option></select>{recurrenceLocked && <small>La fréquence de la série existante se gère séparément de chaque échéance.</small>}</Field>
+          {form.frequenceRecurrence !== 'ponctuel' && <Field label="Dernière échéance (facultatif)"><input type="date" min={form.datePrevue} value={form.dateFinRecurrence} disabled={recurrenceLocked} onChange={e => setForm({ ...form, dateFinRecurrence: e.target.value })} /><small>Sans date de fin, les échéances sont générées sur un horizon glissant de 36 mois.</small></Field>}
           <Field label="Montant prévu (€) *"><input required inputMode="decimal" value={form.montantPrevu} onChange={e => setForm({ ...form, montantPrevu: e.target.value })} placeholder="Ex. 1 200,00" /></Field>
           <Field label="Locataire / fournisseur / tiers"><input maxLength={160} value={form.tiers} onChange={e => setForm({ ...form, tiers: e.target.value })} placeholder="Nom du tiers" /></Field>
           <Field label="Référence (facultatif)"><input maxLength={100} value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="Facture ou référence interne" /></Field>
@@ -533,10 +547,11 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
       </form>}
       <div className="list-toolbar cashflow-toolbar"><div><strong>Vos flux</strong><span>{shown.length} prévision(s)</span></div><label className="cashflow-toggle"><input type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} /> Afficher les prévisions annulées</label></div>
       {shown.length ? <div className="cashflow-list">{shown.map(flow => <article className={'panel cashflow-card' + (flow.statut === 'annule' ? ' is-cancelled' : '')} key={flow.id}>
-        <div className="cashflow-card-header"><div className="cashflow-title-row"><span className={'cashflow-direction ' + flow.sens}>{flow.sens === 'encaissement' ? <ArrowDownLeft size={19} /> : <ArrowUpRight size={19} />}</span><div><h3>{flow.libelle}</h3><p>{formatDate(flow.datePrevue)} · {fluxCategoryLabel(flow.categorie)} · {societes.find(company => company.id === flow.societeId)?.nom ?? 'Société'}</p></div></div><span className={'cashflow-status status-' + flow.etat}>{fluxStateLabel(flow.etat)}</span></div>
+        <div className="cashflow-card-header"><div className="cashflow-title-row"><span className={'cashflow-direction ' + flow.sens}>{flow.sens === 'encaissement' ? <ArrowDownLeft size={19} /> : <ArrowUpRight size={19} />}</span><div><h3>{flow.libelle}</h3><p>{formatDate(flow.datePrevue)} · {fluxCategoryLabel(flow.categorie)} · {societes.find(company => company.id === flow.societeId)?.nom ?? 'Société'} · {frequenceFluxLabel(flow.frequenceRecurrence)}</p></div></div><span className={'cashflow-status status-' + flow.etat}>{fluxStateLabel(flow.etat)}</span></div>
         <div className="cashflow-amounts"><div><span>Prévu</span><strong>{formatMoney(flow.montantPrevuCents)}</strong></div><div><span>Réalisé</span><strong>{formatMoney(flow.montantRealiseCents)}</strong></div><div><span>Écart (prévu − réalisé)</span><strong>{formatMoney(flow.resteCents)}</strong></div></div>
         {(flow.tiers || flow.reference) && <div className="cashflow-meta">{flow.tiers && <span><strong>Tiers :</strong> {flow.tiers}</span>}{flow.reference && <span><strong>Réf. :</strong> {flow.reference}</span>}</div>}
         {flow.statut === 'actif' && <div className="cashflow-actions"><button type="button" className="button secondary small" onClick={() => openEdit(flow)}><Pencil size={14} /> Modifier le prévu</button><button type="button" className="button primary small" onClick={() => openRealisation(flow)}><CheckCircle2 size={14} /> Enregistrer {flow.sens === 'encaissement' ? 'un encaissement' : 'un paiement'}</button><button type="button" className="button secondary small" onClick={() => void cancelForecast(flow)}><X size={14} /> Annuler la prévision</button></div>}
+        {flow.recurrenceId && flow.recurrenceActive && <div className="cashflow-actions"><button type="button" className="button secondary small" onClick={() => void stopForecastRecurrence(flow)}><X size={14} /> Arrêter la récurrence</button></div>}
         {realisingId === flow.id && <form className="cashflow-realisation-form" onSubmit={event => void submitRealisation(event, flow)}><h4>Enregistrer ce qui s’est réellement passé</h4><p>Vous pouvez enregistrer une réalisation partielle. Un dépassement est signalé, jamais masqué.</p><div className="form-grid two-cols"><Field label="Date réelle *"><input type="date" required value={realForm.dateRealisation} onChange={e => setRealForm({ ...realForm, dateRealisation: e.target.value })} /></Field><Field label="Montant réellement reçu/payé (€) *"><input required inputMode="decimal" value={realForm.montant} onChange={e => setRealForm({ ...realForm, montant: e.target.value })} placeholder="Ex. 600,00" /></Field><Field label="Référence du paiement"><input maxLength={100} value={realForm.reference} onChange={e => setRealForm({ ...realForm, reference: e.target.value })} /></Field><Field label="Note"><input maxLength={500} value={realForm.note} onChange={e => setRealForm({ ...realForm, note: e.target.value })} placeholder="Virement partiel" /></Field></div>{localError && <div className="alert error">{localError}</div>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => { setRealisingId(null); setLocalError(''); }}>Annuler</button><button type="submit" className="button primary"><CheckCircle2 size={16} /> Confirmer la réalisation</button></div></form>}
         {!!flow.realisations.length && <details className="cashflow-history"><summary>Historique des réalisations ({flow.realisations.length})</summary><div>{flow.realisations.map(item => <div className={'cashflow-realisation' + (item.annuleeAt ? ' is-cancelled' : '')} key={item.id}><div><strong>{formatDate(item.dateRealisation)} · {formatMoney(item.montantCents)}</strong><span>{item.note || item.reference || 'Réalisation enregistrée'}{item.annuleeAt ? ' · Annulée : ' + (item.motifAnnulation || 'motif absent') : ''}</span></div>{!item.annuleeAt && <button type="button" className="button secondary small" onClick={() => void cancelActual(item)}>Annuler cette réalisation</button>}</div>)}</div></details>}
       </article>)}</div> : <EmptyState icon={Wallet} title="Aucun flux prévisionnel" description="Ajoutez une entrée attendue (loyer) ou une sortie (facture, emprunt). Enregistrez ensuite les montants réels sans choisir de comptes." action={<button className="button primary" onClick={openNew}><Plus size={16} /> Créer une première prévision</button>} />}
