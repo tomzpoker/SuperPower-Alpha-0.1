@@ -4,7 +4,7 @@
 
 ## 1. État du dépôt
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
-- `main` de référence : `5078de2`.
+- `main` de référence : `41d26e6ae10f382e20df8fbc9adfe0e3dfadb09c`.
 - Branche de travail : `feat/guided-cash-flows`, pull request [#1 — Sprint 06](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/1).
 - Le run [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762) est vert sur le commit de code `b65085c` : Rust, frontend, build Tauri Windows et tests workspace passent. La mise à jour documentaire qui consigne le retour manuel doit déclencher une nouvelle CI.
 
@@ -117,4 +117,8 @@ Le test automatisé utilise SQLite en mémoire et le schéma v1 complet représe
 S06-A ne génère ni écritures comptables ni TVA. Les récurrences, projections 12/24/36 mois, alertes, import/rapprochement bancaire, baux, règles PCG multi-lignes, fiscalité et FEC restent à concevoir/livrer dans leurs lots dédiés.
 
 ## 8. Suite après validation
+
+S06-A est fusionné sur main. La CI #40 est verte sur le commit 41d26e6. Les contrôles résiduels sont la vérification indépendante de la version de schéma sur une copie isolée et le test ciblé du refus métier d'une réalisation sur une prévision annulée.
+
+La suite fonctionnelle est S06-B, flux récurrents ponctuels/mensuels/trimestriels/annuels, spécifiés dans [l'issue #2](https://github.com/tomzpoker/SuperPower-Alpha-0.1/issues/2) et dans `SPRINTS/SPRINT_06B_RECURRENCE.md`.
 Une fois les tests manuels consignés, fusionner la PR si les contrôles sont verts, puis prioriser les tests d'intégration des commandes/audit. Les prochains choix métier à spécifier sont la génération PCG/TVA, les emprunts (principal/intérêts), les apports/CCA, les dépôts/garanties, les paiements partiels, les avoirs et les contre-passations.
