@@ -1042,6 +1042,56 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_is_transactional_and_cancels_queued_executions() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let task = TaskEngine::create_task(
+            &connection,
+            &new_task("cancel-task-test", 2),
+            BEFORE_DUE,
+        )
+        .unwrap();
+        let execution = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "cancel-task-occurrence",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+        assert_eq!(execution.status, ExecutionStatus::Queued);
+
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let cancelled = TaskEngine::update_task_status_in_transaction(
+            &transaction,
+            &task.id,
+            TaskStatus::Cancelled,
+            "2026-10-13T09:30:00Z",
+        )
+        .unwrap();
+        assert_eq!(cancelled.status, TaskStatus::Cancelled);
+        transaction.commit().unwrap();
+
+        let persisted = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].status, ExecutionStatus::Cancelled);
+        assert_eq!(
+            persisted[0].finished_at.as_deref(),
+            Some("2026-10-13T09:30:00.000Z")
+        );
+        assert_eq!(
+            TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            TaskStatus::Cancelled
+        );
+    }
+
+    #[test]
     fn successful_execution_is_terminal_and_keeps_attempt_history() {
         let database = TemporaryDatabase::new();
         let connection = database.connect();
