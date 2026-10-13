@@ -320,8 +320,7 @@ impl TaskEngine {
         input: &NewTask,
         now: &str,
     ) -> Result<Task, TaskEngineError> {
-        let transaction =
-            connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let updated = Self::update_task_in_transaction(&transaction, task_id, input, now)?;
         transaction.commit()?;
         Ok(updated)
@@ -1202,13 +1201,9 @@ mod tests {
         revised.payload = serde_json::json!({"bailId": "bail-test"});
         revised.scheduled_at = "2026-10-13T11:00:00Z".to_string();
         revised.max_attempts = 5;
-        let updated = TaskEngine::update_task(
-            &mut connection,
-            &task.id,
-            &revised,
-            "2026-10-13T09:20:00Z",
-        )
-        .unwrap();
+        let updated =
+            TaskEngine::update_task(&mut connection, &task.id, &revised, "2026-10-13T09:20:00Z")
+                .unwrap();
         assert_eq!(updated.title, "Tâche corrigée");
         assert_eq!(updated.module, "locatif");
         assert_eq!(updated.task_type, "verifier_echeance");
@@ -1235,12 +1230,7 @@ mod tests {
 
         revised.title = "Modification trop tardive".to_string();
         assert!(matches!(
-            TaskEngine::update_task(
-                &mut connection,
-                &task.id,
-                &revised,
-                "2026-10-13T09:40:00Z",
-            ),
+            TaskEngine::update_task(&mut connection, &task.id, &revised, "2026-10-13T09:40:00Z",),
             Err(TaskEngineError::TaskHasExecutions)
         ));
     }
