@@ -44,6 +44,7 @@ pub fn run() {
             commands::create_flux,
             commands::update_flux,
             commands::cancel_flux,
+            commands::arreter_flux_recurrence,
             commands::register_flux_realisation,
             commands::cancel_flux_realisation,
             commands::list_comptes,
