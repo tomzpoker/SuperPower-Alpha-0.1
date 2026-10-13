@@ -11,6 +11,8 @@ import { api, isDesktopRuntime } from './lib/api';
 import { formatDate, formatMoney, parseAmountToCents } from './lib/money';
 import { readReminderMessage, withReminderMessage } from './lib/task-payload';
 import { taskCalendarOccurrenceDates } from './lib/task-calendar';
+import { filterTasks } from './lib/task-filter';
+import type { TaskStatusFilter } from './lib/task-filter';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DashboardSummary, DatabaseStatus,
   EntryView, ExigibiliteTva, FluxInput, FluxRealisationView, FluxView, FormeJuridique,
@@ -647,6 +649,8 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
 
 function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [taskSearch, setTaskSearch] = useState('');
+  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatusFilter>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -676,6 +680,7 @@ function TasksPage() {
   const [executionHistory, setExecutionHistory] = useState<Record<string, TaskExecution[]>>({});
   const [attemptHistory, setAttemptHistory] = useState<Record<string, TaskAttempt[]>>({});
   const [openAttemptId, setOpenAttemptId] = useState<string | null>(null);
+  const filteredTasks = useMemo(() => filterTasks(tasks, taskSearch, taskStatusFilter), [tasks, taskSearch, taskStatusFilter]);
   const [selectedCalendarOccurrence, setSelectedCalendarOccurrence] = useState<{ taskId: string; scheduledAt: string } | null>(null);
 
   const refresh = useCallback(async (isInitial = false) => {
@@ -922,6 +927,8 @@ function TasksPage() {
 
   function selectCalendarOccurrence(taskId: string, scheduledAt: string) {
     setSelectedCalendarOccurrence({ taskId, scheduledAt });
+    setTaskSearch('');
+    setTaskStatusFilter('all');
     setTaskView('list');
     setError('');
     setNotice(`Occurrence du ${new Date(scheduledAt).toLocaleString('fr-FR')} sélectionnée : la tâche correspondante est mise en évidence dans la liste.`);
@@ -1001,7 +1008,7 @@ function TasksPage() {
       <div className="tasks-form-actions"><button type="button" className="button secondary" onClick={() => { setShowForm(false); setEditingTaskId(null); }}>Annuler</button><button className="button primary" type="submit" disabled={submitting || !title.trim() || !taskType.trim() || maxAttempts < 1 || maxAttempts > 100}>{submitting ? 'Enregistrement…' : editingTaskId ? 'Enregistrer les modifications' : 'Enregistrer la tâche'} <ArrowRight size={16} /></button></div>
     </form>}
     <div className="tasks-list-heading">
-      <div><h2>{taskView === 'calendar' ? 'Calendrier des tâches' : 'Liste des tâches'}</h2><p>{tasks.length} tâche{tasks.length > 1 ? 's' : ''} enregistrée{tasks.length > 1 ? 's' : ''}</p></div>
+      <div><h2>{taskView === 'calendar' ? 'Calendrier des tâches' : 'Liste des tâches'}</h2><p>{taskView === 'list' ? `${filteredTasks.length} sur ${tasks.length} tâche${tasks.length > 1 ? 's' : ''}` : `${tasks.length} tâche${tasks.length > 1 ? 's' : ''} enregistrée${tasks.length > 1 ? 's' : ''}`}</p></div>
       <div className="tasks-heading-controls">
         <div className="tasks-view-toggle" role="group" aria-label="Mode d’affichage des tâches">
           <button type="button" className={taskView === 'list' ? 'button primary' : 'button secondary'} onClick={() => setTaskView('list')}><Menu size={15} /> Liste</button>
@@ -1010,11 +1017,18 @@ function TasksPage() {
         <button className="button secondary" onClick={() => void refresh()} disabled={refreshing}><Activity size={15} /> {refreshing ? 'Actualisation…' : 'Actualiser'}</button>
       </div>
     </div>
+    {taskView === 'list' && tasks.length > 0 && <div className="tasks-filters">
+      <label className="tasks-filter-field"><span>Rechercher</span><input type="search" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} placeholder="Titre, module ou type technique" aria-label="Rechercher une tâche par titre, module ou type" /></label>
+      <label className="tasks-filter-field"><span>Statut</span><select value={taskStatusFilter} onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatusFilter)} aria-label="Filtrer les tâches par statut"><option value="all">Tous les statuts</option><option value="scheduled">Planifiées</option><option value="paused">En pause</option><option value="cancelled">Annulées</option></select></label>
+      {(taskSearch.trim() || taskStatusFilter !== 'all') && <button type="button" className="button ghost tasks-clear-filters" onClick={() => { setTaskSearch(''); setTaskStatusFilter('all'); }}>Effacer les filtres</button>}
+    </div>}
     {loading ? <div className="panel tasks-empty"><p>Chargement des tâches…</p></div> : tasks.length === 0
       ? <EmptyState icon={Clock3} title="Aucune tâche pour le moment" description="Créez une tâche pour commencer à organiser les actions à suivre." action={<button className="button primary" onClick={() => setShowForm(true)}><Plus size={16} /> Créer une tâche</button>} />
       : taskView === 'calendar'
         ? <TaskCalendar tasks={tasks} month={calendarMonth} onMonthChange={setCalendarMonth} selectedOccurrence={selectedCalendarOccurrence} onSelectOccurrence={selectCalendarOccurrence} />
-        : <div className="tasks-list">{tasks.map((task) => <article id={'task-card-' + task.id} className={'panel task-card' + (selectedCalendarOccurrence?.taskId === task.id ? ' is-calendar-selected' : '')} key={task.id}>
+        : filteredTasks.length === 0
+          ? <EmptyState icon={Clock3} title="Aucune tâche correspondante" description="Modifiez votre recherche ou choisissez un autre statut." action={<button className="button secondary" onClick={() => { setTaskSearch(''); setTaskStatusFilter('all'); }}>Effacer les filtres</button>} />
+          : <div className="tasks-list">{filteredTasks.map((task) => <article id={'task-card-' + task.id} className={'panel task-card' + (selectedCalendarOccurrence?.taskId === task.id ? ' is-calendar-selected' : '')} key={task.id}>
           <div className="task-card-main">
             <div className="task-card-icon"><Clock3 size={19} /></div>
             <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span>{selectedCalendarOccurrence?.taskId === task.id && <span className="task-calendar-selection">Occurrence sélectionnée : {new Date(selectedCalendarOccurrence.scheduledAt).toLocaleString('fr-FR')}</span>}</div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}{(task.recurrenceFrequency ?? (task.cronExpression ? 'custom_cron' : 'once')) === 'custom_cron' && task.cronExpression ? <> · Cron UTC : {task.cronExpression}</> : (task.recurrenceFrequency ?? 'once') !== 'once' ? <> · {taskRecurrenceLabels[task.recurrenceFrequency ?? 'once']}</> : ''}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
