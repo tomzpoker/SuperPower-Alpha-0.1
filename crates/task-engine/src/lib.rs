@@ -1152,9 +1152,12 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         init(&connection);
-        let task =
-            TaskEngine::create_task(&connection, &new_task("reactivate-task-test", 2), BEFORE_DUE)
-                .unwrap();
+        let task = TaskEngine::create_task(
+            &connection,
+            &new_task("reactivate-task-test", 2),
+            BEFORE_DUE,
+        )
+        .unwrap();
         let first = TaskEngine::enqueue_execution(
             &connection,
             &task.id,
@@ -1201,7 +1204,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(repeated.id, first.id);
-        assert_eq!(TaskEngine::list_executions(&connection, &task.id).unwrap().len(), 1);
+        assert_eq!(
+            TaskEngine::list_executions(&connection, &task.id)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
