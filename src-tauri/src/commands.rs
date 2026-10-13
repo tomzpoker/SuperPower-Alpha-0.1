@@ -659,12 +659,6 @@ pub fn arreter_flux_recurrence(
             "La date d'arrêt ne peut pas prolonger une récurrence déjà limitée.".to_string(),
         );
     }
-    if fin > horizon_recurrence(debut) {
-        return Err(
-            "Choisissez une dernière échéance dans l'horizon prévisionnel visible de 36 mois."
-                .to_string(),
-        );
-    }
     let fin_est_echeance: bool = transaction
         .query_row(
             "SELECT EXISTS(
@@ -856,13 +850,11 @@ fn clean_optional(value: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
-fn horizon_recurrence(debut: NaiveDate) -> NaiveDate {
+fn horizon_recurrence() -> NaiveDate {
     let aujourd_hui = Local::now().date_naive();
-    let horizon_courant = aujourd_hui
+    aujourd_hui
         .checked_add_months(Months::new(36))
-        .unwrap_or(aujourd_hui);
-    let horizon_debut = debut.checked_add_months(Months::new(36)).unwrap_or(debut);
-    horizon_courant.max(horizon_debut)
+        .unwrap_or(aujourd_hui)
 }
 
 fn dates_pour_input(input: &FluxInput, debut: NaiveDate) -> Result<Vec<NaiveDate>, String> {
@@ -875,14 +867,21 @@ fn dates_pour_input(input: &FluxInput, debut: NaiveDate) -> Result<Vec<NaiveDate
             })
         })
         .transpose()?;
-    generer_echeances(
+    let mut dates = generer_echeances(
         input.frequence_recurrence,
         debut,
         fin,
-        horizon_recurrence(debut),
+        horizon_recurrence(),
         1_200,
     )
-    .map_err(|error: ErreurRecurrence| format!("Génération des échéances impossible : {error}"))
+    .map_err(|error: ErreurRecurrence| format!("Génération des échéances impossible : {error}"))?;
+
+    // La première échéance reste enregistrée même si elle se situe au-delà
+    // de la fenêtre ; les échéances suivantes seront générées quand l'horizon avancera.
+    if dates.is_empty() {
+        dates.push(debut);
+    }
+    Ok(dates)
 }
 
 fn inserer_serie_recurrence_tx(
@@ -1009,7 +1008,7 @@ fn materialiser_recurrences(connection: &mut rusqlite::Connection) -> Result<(),
             })
             .transpose()?;
         let frequence: FrequenceFlux = from_enum(&serie.frequence)?;
-        let dates = generer_echeances(frequence, debut, fin, horizon_recurrence(debut), 1_200)
+        let dates = generer_echeances(frequence, debut, fin, horizon_recurrence(), 1_200)
             .map_err(|error| format!("Génération d'une série récurrente impossible : {error}"))?;
 
         for date in dates {
@@ -1530,6 +1529,35 @@ fn from_enum<T: for<'de> Deserialize<'de>>(value: &str) -> Result<T, String> {
 
 fn db_error(error: rusqlite::Error) -> String {
     format!("Erreur de base de données : {error}")
+}
+
+#[cfg(test)]
+mod recurrence_input_horizon_tests {
+    use super::dates_pour_input;
+    use chrono::{Local, Months};
+    use superpower_core::flows::{CategorieFlux, FluxInput, FrequenceFlux, SensFlux};
+
+    #[test]
+    fn first_occurrence_is_kept_when_series_starts_outside_the_36_month_window() {
+        let debut = Local::now()
+            .date_naive()
+            .checked_add_months(Months::new(48))
+            .unwrap();
+        let input = FluxInput {
+            societe_id: "soc-test".to_string(),
+            libelle: "Loyer futur".to_string(),
+            sens: SensFlux::Encaissement,
+            categorie: CategorieFlux::Loyer,
+            date_prevue: debut.format("%Y-%m-%d").to_string(),
+            montant_prevu_cents: 100_000,
+            tiers: None,
+            reference: None,
+            frequence_recurrence: FrequenceFlux::Mensuel,
+            date_fin_recurrence: None,
+        };
+
+        assert_eq!(dates_pour_input(&input, debut), Ok(vec![debut]));
+    }
 }
 
 #[cfg(test)]

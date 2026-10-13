@@ -75,9 +75,11 @@ function demoRecurrenceDates(input: FluxInput): string[] {
   const monthStep: Record<Exclude<FrequenceFlux, 'ponctuel'>, number> = {
     mensuel: 1, trimestriel: 3, annuel: 12,
   };
-  const horizonToday = demoAddMonthsAnchored(demoToday(), 36);
-  const horizonStart = demoAddMonthsAnchored(input.datePrevue, 36);
-  const horizon = horizonToday > horizonStart ? horizonToday : horizonStart;
+  const horizon = demoAddMonthsAnchored(demoToday(), 36);
+  // Conserver la première échéance demandée même si elle est encore hors fenêtre.
+  // Le mode démo est volatil ; en natif, les échéances suivantes seront matérialisées
+  // à mesure que la fenêtre glissante avance.
+  if (input.datePrevue > horizon) return [input.datePrevue];
   const bound = input.dateFinRecurrence && input.dateFinRecurrence < horizon
     ? input.dateFinRecurrence
     : horizon;
@@ -276,10 +278,6 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       const existingEnd = seriesFlows[0].dateFinRecurrence;
       if (dateFin < start) throw new Error('La date d’arrêt ne peut pas précéder la première échéance.');
       if (existingEnd && dateFin > existingEnd) throw new Error('La date d’arrêt ne peut pas prolonger une récurrence déjà limitée.');
-      const horizonToday = demoAddMonthsAnchored(demoToday(), 36);
-      const horizonStart = demoAddMonthsAnchored(start, 36);
-      const horizon = horizonToday > horizonStart ? horizonToday : horizonStart;
-      if (dateFin > horizon) throw new Error('Choisissez une dernière échéance dans l’horizon prévisionnel visible de 36 mois.');
       if (!seriesFlows.some(flow => flow.datePrevue === dateFin)) {
         throw new Error('La date d’arrêt doit correspondre à une échéance réelle de cette série.');
       }
