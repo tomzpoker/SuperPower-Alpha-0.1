@@ -6,7 +6,7 @@
 |---|---|
 | Lot parent | Sprint 06 — Trésorerie |
 | Prérequis | S06-A fusionné dans main |
-| Statut | IMPLÉMENTATION EN COURS — PR #5 ouverte ; CI complète et test natif de migration v2→v3 à confirmer |
+| Statut | INTÉGRÉ DANS MAIN — CI PR #96 verte ; essai natif SQLCipher v2→v3 encore requis |
 | Issue | [#2 — Configurer les flux récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/issues/2) |
 
 ## Objectif
@@ -17,9 +17,9 @@ Ce lot étend le suivi prévu/réalisé de S06-A. Il ne produit toujours aucune 
 
 ## État de l'implémentation (2026-10-13)
 
-Le formulaire, les commandes Rust, le générateur de calendrier, la génération idempotente des occurrences et la migration SQLCipher v2→v3 sont implémentés sur la [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). Le mode démo navigateur et ses tests couvrent aussi les principales règles de fréquence et d'arrêt. La fenêtre de 36 mois est calculée depuis aujourd'hui ; si la première échéance est plus éloignée, elle reste enregistrée et les suivantes sont matérialisées au fur et à mesure de l'avancée de la fenêtre. Une prévision ponctuelle n'est pas limitée par cette fenêtre. Cette fonctionnalité n'est pas encore livrée dans `main` tant que la PR n'est pas fusionnée.
+Le formulaire, les commandes Rust, le générateur de calendrier, la génération idempotente des occurrences et la migration SQLCipher v2→v3 sont intégrés dans `main` via la [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre de 36 mois est calculée depuis aujourd'hui ; si la première échéance est plus éloignée, elle reste enregistrée et les suivantes sont matérialisées au fur et à mesure de l'avancée de la fenêtre. Une prévision ponctuelle n'est pas limitée par cette fenêtre.
 
-Dernier état CI vérifié : les contrôles frontend et Rust sont verts sur le commit `0102103` ([run #94](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332295125)); la compilation Tauri Windows et les tests workspace restaient à confirmer au dernier relevé. L'essai natif SQLCipher v2→v3 reste à effectuer sur une copie isolée, sans toucher au coffre habituel.
+La CI de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est entièrement verte, y compris build Tauri Windows et tests workspace. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est encore en cours au dernier relevé. L'essai natif SQLCipher v2→v3 reste à effectuer sur une copie isolée, sans toucher au coffre habituel.
 
 ## User stories et critères d'acceptation
 
@@ -71,7 +71,8 @@ La génération doit être déterministe, bornée à 36 mois glissants au-delà 
 
 ## Vérifications restantes avant clôture
 
-- [ ] CI complète verte sur le dernier commit de la PR #5, notamment build Tauri Windows et tests workspace.
+- [x] CI complète verte sur la PR #5, run #96 : Rust/formattage, frontend, documentation, build Tauri Windows et tests workspace.
+- [ ] Confirmer la CI post-fusion du commit `17966e1` ([run #97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817)).
 - [ ] Essai natif sur une copie SQLCipher connue en v2 : confirmer `PRAGMA user_version = 3`, la table `flux_recurrences`, la colonne `recurrence_id` et la conservation des flux/réalisations.
 - [ ] Vérifier en interface native les quatre fréquences, l'annulation d'une occurrence sans affecter ses voisines et l'arrêt de la série avec conservation de l'historique.
 

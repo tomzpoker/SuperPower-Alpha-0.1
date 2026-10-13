@@ -1,13 +1,13 @@
 # HANDOFF — reprise de SuperPower Alpha
 
-> Dernière mise à jour : 2026-10-13. S06-A est fusionné ; S06-B est en cours dans la PR #5. Distinguer compilation CI, test unitaire et essai natif SQLCipher.
+> Dernière mise à jour : 2026-10-13. S06-B est fusionné dans `main`. Distinguer CI verte, tests automatisés et essai natif SQLCipher.
 
 ## 1. État du dépôt
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
-- `main` de référence : `7f87caf9d878db0ae2e254fcbd4f01b7acc48a2c`.
-- S06-A est fusionné ; les PR #3 (spécification S06-B) et #4 (test du garde-fou des flux annulés) sont également fusionnées.
-- PR de travail : [#5 — S06-B, flux prévisionnels récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5), branche `feat/s06b-recurrence-domain`.
-- Le run [#94](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332295125) a passé frontend et Rust sur `0102103`; build Tauri Windows et tests workspace restent à confirmer. La dernière correction conserve une prévision ponctuelle même au-delà de trois ans et n'affiche la suite d'une récurrence que dans l'horizon glissant de 36 mois. Ne pas fusionner avant CI verte sur le dernier SHA.
+- `main` de référence : `17966e1009daca10b8daa53cc6c937fdc22073d3`.
+- S06-A et S06-B sont fusionnés dans `main`; la PR [#5 — S06-B, flux prévisionnels récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5) a été fusionnée le 13 octobre 2026.
+- Le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb`, y compris build Tauri Windows et tests workspace. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est en cours sur `17966e1`; frontend et Rust sont verts, build Windows encore en cours au dernier relevé.
+- S06-B conserve les prévisions ponctuelles au-delà de trois ans ; pour les récurrences, l'horizon glissant de 36 mois part d'aujourd'hui.
 
 Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une saisie comptable technique. S06-A ajoute le suivi des flux de trésorerie prévisionnels et réalisés sans choix de comptes comptables.
 
@@ -20,7 +20,7 @@ Résultats manuels signalés le 2026-10-13 :
 - Copie de `superpower.db` et `superpower.salt` dans un dossier temporaire : l'application s'est déverrouillée, les données existantes ont été signalées présentes et la réouverture de cette même copie a fonctionné.
 - Aucun test n'a utilisé le coffre habituel comme cible de migration ; il a servi uniquement de source pour copier les fichiers.
 
-S06-A est fusionné et ses scénarios manuels de base sont documentés. Deux contrôles natifs restent à distinguer :
+S06-A et S06-B sont fusionnés et la CI complète du commit source de S06-B est verte. Deux contrôles restent à distinguer :
 1. Sur une copie isolée connue en v2, vérifier qu'une ouverture avec le code S06-B migre vers `PRAGMA user_version = 3`, crée `flux_recurrences` et `recurrence_id`, et conserve les flux/réalisations v2.
 2. Le garde-fou « refus d'une réalisation sur prévision annulée » a un test unitaire sur la fonction appelée par la commande dans la PR #4, passé en CI ; un test d'intégration invoquant cette commande avec une base native annulée reste souhaitable.
 
@@ -115,11 +115,11 @@ Les tests automatisés utilisent des bases en mémoire ; ils ne prouvent pas à 
 - Un contrôle non exécuté reste « non vérifié ».
 
 ## 7. Limites fonctionnelles
-S06-A et S06-B ne génèrent ni écritures comptables ni TVA. Les occurrences récurrentes sont en cours d'implémentation sous PR #5 ; la projection de trésorerie dédiée au-delà des échéances, les alertes, l'import/rapprochement bancaire, les baux, les règles PCG multi-lignes, la fiscalité et le FEC restent des lots séparés.
+S06-A et S06-B ne génèrent ni écritures comptables ni TVA. S06-B est livré dans `main`; la projection de trésorerie dédiée au-delà des échéances, les alertes, l'import/rapprochement bancaire, les baux, les règles PCG multi-lignes, la fiscalité et le FEC restent des lots séparés.
 
-## 8. Suite après validation
+## 8. Suite après fusion
 
-1. Obtenir le résultat vert de la CI sur le dernier SHA de la [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5) avant de la fusionner.
-2. Après fusion, exécuter le test manuel de la migration v2→v3 sur une copie isolée SQLCipher et vérifier `user_version = 3`, les tables/colonnes attendues et la conservation de flux/réalisations.
-3. Tester dans l'interface native les quatre choix (ponctuel, mensuel, trimestriel, annuel), l'ancrage des fins de mois, l'arrêt d'une série et l'indépendance de chaque occurrence. Le navigateur reste un mode démo volatil, pas une preuve du coffre chiffré.
+1. Confirmer le résultat du run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817).
+2. Exécuter le test manuel de la migration v2→v3 sur une copie isolée SQLCipher et vérifier `user_version = 3`, la table `flux_recurrences`, la colonne `flux_previsionnels.recurrence_id` et la conservation des flux/réalisations v2.
+3. Tester dans l'interface native les quatre fréquences, l'ancrage des fins de mois, l'arrêt d'une série et l'indépendance de chaque occurrence. Le navigateur reste une démo volatile, pas une preuve du coffre chiffré.
 4. Maintenir la comptabilisation PCG/TVA dans un lot séparé ; S06-B ne génère aucune écriture comptable.

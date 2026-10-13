@@ -5,7 +5,7 @@
 |---|---|
 | Numéro | 06 |
 | Branche du lot initial | \`feat/guided-cash-flows\` |
-| Statut | IN_PROGRESS — CI verte sur le commit documentaire précédent ; parcours Trésorerie natif partiellement confirmé ; vérifications schéma/migration restantes |
+| Statut | S06-A et S06-B intégrés dans `main` ; CI S06-B verte sur le run #96 ; validation native migration v2→v3 restante |
 | Décision | [ADR-0001](../DECISIONS/ADR-0001-flux-previsionnels.md) |
 
 ## Problème utilisateur
@@ -102,4 +102,4 @@ Selon le test manuel utilisateur, dans un coffre temporaire distinct :
 - Le refus métier de réaliser sur une prévision annulée doit encore être confirmé séparément ; les boutons disparaissaient déjà dans l'interface après annulation.
 
 ## État de livraison
-IN_PROGRESS. La CI précédente est verte sur les contrôles de code et les tests automatisés. Après cette mise à jour documentaire, confirmer la nouvelle CI. La copie native s'ouvre et se rouvre d'après le retour utilisateur, mais la version source `PRAGMA user_version` n'a pas été relevée indépendamment ; ne pas considérer la migration v1→v2 comme définitivement prouvée avant confirmation de la version source/cible et des tables S06-A.
+S06-A et S06-B sont intégrés dans `main`. La CI complète du code S06-B est verte sur le run [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) ; le run post-fusion #97 reste à confirmer. La copie native précédemment ouverte et rouverte n'avait pas de version source `PRAGMA user_version` relevée indépendamment : ne pas considérer cet ancien essai comme une preuve formelle de migration v1→v2. Pour S06-B, valider v2→v3 sur une copie dont la version source est connue, sans toucher au coffre habituel.

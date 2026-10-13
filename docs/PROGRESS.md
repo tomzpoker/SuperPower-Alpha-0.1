@@ -6,11 +6,11 @@
 | Champ | Valeur |
 |---|---|
 | Version | `0.1.0-alpha.1` |
-| Main de référence | `7f87caf` — S06-A fusionné, PR de préparation S06-B également fusionnées |
-| Lot en cours | S06-B — récurrences en cours d'implémentation dans la PR #5 |
-| Branche | `feat/s06b-recurrence-domain` → [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5) |
-| Statut | S06-A fusionné. S06-B implémenté sur la branche de PR #5 : frontend et Rust verts ; build Tauri Windows/tests workspace et essai natif de migration v2→v3 encore à confirmer. |
-| Prochaine action | Confirmer la CI complète du dernier commit de la PR #5, puis tester la migration v2→v3 uniquement sur une copie SQLCipher isolée. |
+| Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
+| Lot en cours | Vérification native de migration SQLCipher v2→v3 et parcours natif des récurrences |
+| Branche | `main` |
+| Statut | S06-B fusionné dans `main` (commit `17966e1`). CI PR #5 entièrement verte au run #96. CI post-fusion #97 : frontend et Rust verts, build Windows encore en cours au dernier relevé. Essai natif SQLCipher v2→v3 et parcours UI récurrences à confirmer. |
+| Prochaine action | Finir de confirmer la CI post-fusion #97, puis tester la migration v2→v3 sur une copie SQLCipher isolée et vérifier les quatre fréquences dans l'interface native. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -23,23 +23,23 @@
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
-| 06 | Trésorerie | S06-A fusionné ; S06-B en PR #5 | `SPRINTS/SPRINT_06_TRESORERIE.md` et `SPRINTS/SPRINT_06B_RECURRENCE.md` | Formulaire, générateur et persistance de récurrence sur branche ; pas encore validés/fusionnés |
+| 06 | Trésorerie | S06-A et S06-B fusionnés ; validation native restante | `SPRINTS/SPRINT_06_TRESORERIE.md` et `SPRINTS/SPRINT_06B_RECURRENCE.md` | Récurrences intégrées dans `main` ; migration v2→v3 et essai métier natif à confirmer |
 | 07 | Fiscalité | TODO | `SPRINTS/SPRINT_07_FISCALITE.md` | Déclarations non livrées |
 | 08 | Sync mobile | TODO | `SPRINTS/SPRINT_08_SYNC_MOBILE.md` | Non livré |
 | 09 | Stocks | TODO | `SPRINTS/SPRINT_09_STOCKS.md` | Extension facultative |
 
 ## Validation automatisée
 
-Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38326327437) est vert sur le commit S06-A `41d26e6`. Pour S06-B, le run [#94](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332295125) a confirmé frontend et Rust sur le commit `0102103`; le build Tauri Windows et les tests workspace restent à confirmer.
+Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38326327437) a validé S06-A. Pour S06-B, le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb` : formatage, tests Rust du domaine, frontend, vérification documentaire, build Tauri Windows et tests workspace sont tous passés. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est en cours sur `17966e1`; frontend et Rust sont verts, build Windows encore en cours au dernier relevé.
 
 | Contrôle | Portée et état |
 |---|---|
-| `cargo fmt --all -- --check` | S06-A passé sur `b65085c` ; S06-B passé sur le run #94 |
-| Tests Rust du domaine | S06-A passé sur `b65085c` ; S06-B passé sur le run #94 |
-| Tests workspace / migration automatisée | Passés en CI sur `b65085c`, dont préservation de données représentatives et idempotence de la migration du schéma |
-| Frontend | S06-A passé sur `b65085c` ; typecheck/tests/bundle S06-B passés sur le run #94 |
-| Build Tauri Windows | S06-A passé sur `b65085c` ; S06-B en cours sur le run #94 |
-| Vérification Markdown et liens | S06-A passée sur `b65085c` ; S06-B passée sur le run #94 |
+| `cargo fmt --all -- --check` | S06-B passé sur le run #96 |
+| Tests Rust du domaine | S06-B passé sur le run #96 et le run post-fusion #97 |
+| Tests workspace / migrations automatisées | Passés sur le run #96 ; migration v2→v3 sur fichier SQLCipher natif à valider séparément |
+| Frontend | Typecheck, tests et bundle S06-B passés sur le run #96 et le run post-fusion #97 |
+| Build Tauri Windows | Passé sur le run #96 ; run post-fusion #97 en cours au dernier relevé |
+| Vérification Markdown et liens | Passée sur le run #96 |
 | Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
 | Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
@@ -64,9 +64,15 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Mode aperçu navigateur cohérent mais volatil.
 - Spécification : [Sprint 06](SPRINTS/SPRINT_06_TRESORERIE.md), [ADR-0001](DECISIONS/ADR-0001-flux-previsionnels.md).
 
+## Sprint 06-B livré dans main
+- Fréquences ponctuelle, mensuelle, trimestrielle et annuelle.
+- Génération idempotente et horizon glissant de 36 mois, sans dérive de calendrier.
+- Arrêt d'une série distinct de l'annulation d'une occurrence ; historique conservé.
+- Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
+
 ## Limites / risques connus
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
-- Récurrences en implémentation dans [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5), mais pas encore livrées dans `main`. La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
+- S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
 - Baux, import bancaire, grand livre/balance, FEC validé, clôture et fiscalité automatisée non livrés.
 - Plan de comptes limité au socle illustratif.
@@ -82,4 +88,4 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 | 2026-10-13 | 06-A | Renforcement du test automatisé de migration v1 → v2 | CI verte sur main, run #40 |
 | 2026-10-13 | 06-A | Parcours natif Trésorerie et copie de coffre isolée | Scénarios observés réussis ; version source de la copie migrée non relevée indépendamment |
 
-| 2026-10-13 | 06-B | Fréquences ponctuelle/mensuelle/trimestrielle/annuelle, générateur idempotent et migration v2→v3 | PR #5 ouverte ; frontend/Rust verts, build Windows/workspace tests et essai natif migration à confirmer |
+| 2026-10-13 | 06-B | Fréquences ponctuelle/mensuelle/trimestrielle/annuelle, générateur idempotent et migration v2→v3 | Fusionné dans main (commit `17966e1`) ; CI PR #96 verte ; validation native migration à faire |
