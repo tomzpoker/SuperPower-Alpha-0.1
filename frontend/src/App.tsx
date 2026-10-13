@@ -507,7 +507,7 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
     if (!flow.recurrenceId || !flow.recurrenceActive) return;
     const dateFin = window.prompt(
       'Dernière échéance à conserver (AAAA-MM-JJ). Les échéances ultérieures seront annulées mais resteront dans l’historique :',
-      localDateInput(),
+      flow.datePrevue,
     );
     if (dateFin === null || !dateFin.trim()) return;
     await onStopRecurrence(flow.recurrenceId, dateFin.trim());
@@ -530,6 +530,7 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
       <div className="alert warning cashflow-hint"><CircleAlert size={17} /><span>Cette version suit le prévu et le réel. Elle ne crée pas encore d’écriture comptable et ne calcule pas la TVA automatiquement.</span></div>
       {showForm && <form className="panel form-panel cashflow-form" onSubmit={submitFlow}>
         <div className="form-heading"><div><span className="eyebrow">{editingId ? 'MODIFIER LA PRÉVISION' : 'NOUVELLE PRÉVISION'}</span><h3>{editingId ? 'Mettre à jour l’opération prévue' : 'Décrire une opération attendue'}</h3></div><span className="required-note">* Champs obligatoires</span></div>
+        {recurrenceLocked && <div className="alert warning"><CircleAlert size={16} /><span>Vous modifiez uniquement cette échéance. Les autres dates et montants de la série ne changent pas. Pour mettre fin à la série, utilisez « Arrêter la récurrence ».</span></div>}
         <div className="form-grid two-cols">
           <Field label="Société *"><select required disabled={!!editingId} value={form.societeId} onChange={e => setForm({ ...form, societeId: e.target.value })}>{societes.map(company => <option key={company.id} value={company.id}>{company.nom}</option>)}</select></Field>
           <Field label="Nature du flux *"><select value={form.sens} onChange={e => setForm({ ...form, sens: e.target.value as SensFlux })}><option value="encaissement">Argent qui doit entrer (encaissement)</option><option value="decaissement">Argent qui doit sortir (paiement)</option></select></Field>
