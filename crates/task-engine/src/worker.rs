@@ -18,6 +18,9 @@ use crate::{
 };
 
 type Handler = dyn Fn(&Task, &TaskExecution) -> Result<(), String> + Send + Sync + 'static;
+
+/// Maximum d'occurrences cron rattrapées par tâche et par appel du worker.
+const MAX_CRON_CATCH_UP_PER_TASK: usize = 1_000;
 type HandlerKey = (String, String);
 
 #[derive(Debug, Error, PartialEq, Eq)]
