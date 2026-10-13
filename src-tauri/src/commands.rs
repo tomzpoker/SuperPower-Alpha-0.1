@@ -1505,6 +1505,53 @@ pub fn create_task(input: NewTask, state: State<'_, AppState>) -> Result<Task, S
 }
 
 #[tauri::command]
+pub fn update_task(
+    task_id: String,
+    input: NewTask,
+    state: State<'_, AppState>,
+) -> Result<Task, String> {
+    let mut connection = state.connection()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let previous = TaskEngine::get_task_by_id(&transaction, &task_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("La tâche « {task_id} » n'existe pas."))?;
+    let updated = TaskEngine::update_task_in_transaction(
+        &transaction,
+        &task_id,
+        &input,
+        &Utc::now().to_rfc3339(),
+    )
+    .map_err(|error| error.to_string())?;
+    audit_tx(
+        &transaction,
+        "update",
+        "task_definition",
+        &task_id,
+        serde_json::json!({
+            "before": {
+                "module": &previous.module,
+                "taskType": &previous.task_type,
+                "title": &previous.title,
+                "scheduledAt": &previous.scheduled_at,
+                "maxAttempts": previous.max_attempts
+            },
+            "after": {
+                "module": &updated.module,
+                "taskType": &updated.task_type,
+                "title": &updated.title,
+                "scheduledAt": &updated.scheduled_at,
+                "maxAttempts": updated.max_attempts
+            }
+        }),
+    )
+    .map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    Ok(updated)
+}
+
+#[tauri::command]
 pub fn update_task_status(
     task_id: String,
     status: TaskStatus,
