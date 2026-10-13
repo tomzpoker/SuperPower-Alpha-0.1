@@ -390,3 +390,61 @@ body { font-size: 16px; }
 /* SUPERPOWER COMPANY ACTIONS PATCH */
 .company-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .company-card-actions .button { min-height: 36px; }
+
+
+/* SPRINT 06-A — interface de trésorerie guidée et responsive. */
+.cashflow-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; }
+.cashflow-summary-card { padding:17px 19px; display:flex; flex-direction:column; gap:8px; }
+.cashflow-summary-card>span { color:var(--text-2); font-size:14px; font-weight:650; }
+.cashflow-summary-card strong { font-family:'Cascadia Code','SFMono-Regular',Consolas,monospace; font-size:clamp(21px,2vw,28px); overflow-wrap:anywhere; }
+.cashflow-summary-card small { color:var(--muted); font-size:12px; line-height:1.45; }
+.cashflow-hint { margin:14px 0 18px; }
+.cashflow-toolbar { align-items:center; margin-top:20px; }
+.cashflow-toggle { display:inline-flex; align-items:center; gap:9px; color:var(--text-2); font-size:13px; }
+.cashflow-toggle input { width:17px; height:17px; accent-color:var(--primary); }
+.cashflow-list { display:grid; gap:13px; }
+.cashflow-card { min-width:0; padding:19px; }
+.cashflow-card.is-cancelled { opacity:.78; }
+.cashflow-card-header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.cashflow-title-row { display:flex; align-items:center; gap:12px; min-width:0; }
+.cashflow-title-row>div { min-width:0; }
+.cashflow-title-row h3 { margin:0 0 5px; font-size:17px; overflow-wrap:anywhere; }
+.cashflow-title-row p { margin:0; color:var(--muted); font-size:13px; line-height:1.45; }
+.cashflow-direction { width:42px; height:42px; flex:0 0 42px; border-radius:12px; display:grid; place-items:center; }
+.cashflow-direction.encaissement { color:var(--green); background:color-mix(in srgb,var(--green) 12%,var(--surface)); }
+.cashflow-direction.decaissement { color:var(--orange); background:color-mix(in srgb,var(--orange) 12%,var(--surface)); }
+.cashflow-status { flex:0 0 auto; max-width:220px; padding:6px 9px; border:1px solid var(--border); border-radius:8px; color:var(--text-2); font-size:12px; font-weight:700; line-height:1.35; text-align:center; }
+.cashflow-status.status-a_prevoir { color:var(--primary); }
+.cashflow-status.status-en_retard { color:var(--red); }
+.cashflow-status.status-partiellement_realise { color:var(--orange); }
+.cashflow-status.status-realise { color:var(--green); }
+.cashflow-status.status-depasse { color:var(--pink); }
+.cashflow-amounts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:18px; padding:14px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+.cashflow-amounts>div { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.cashflow-amounts span { color:var(--muted); font-size:12px; }
+.cashflow-amounts strong { font-family:'Cascadia Code','SFMono-Regular',Consolas,monospace; font-size:16px; overflow-wrap:anywhere; }
+.cashflow-meta { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:12px; color:var(--text-2); font-size:13px; }
+.cashflow-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:15px; }
+.cashflow-realisation-form { margin-top:16px; padding:16px; background:var(--surface-2); border:1px solid var(--border); border-radius:12px; }
+.cashflow-realisation-form h4 { margin:0 0 6px; font-size:16px; }
+.cashflow-realisation-form>p { margin:0 0 14px; color:var(--muted); font-size:13px; line-height:1.5; }
+.cashflow-history { margin-top:14px; color:var(--text-2); }
+.cashflow-history summary { color:var(--primary); font-size:13px; font-weight:650; cursor:pointer; }
+.cashflow-history>div { display:grid; gap:8px; margin-top:11px; }
+.cashflow-realisation { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; background:var(--surface-2); border-radius:9px; }
+.cashflow-realisation.is-cancelled { opacity:.65; }
+.cashflow-realisation>div { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.cashflow-realisation strong { font-size:13px; }
+.cashflow-realisation span { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+@media (max-width:760px) {
+ .cashflow-summary { grid-template-columns:1fr; }
+ .cashflow-card-header { flex-direction:column; }
+ .cashflow-status { max-width:100%; }
+ .cashflow-amounts { gap:8px; }
+ .cashflow-amounts strong { font-size:13px; }
+ .cashflow-actions { flex-direction:column; align-items:stretch; }
+ .cashflow-actions .button { width:100%; }
+ .cashflow-realisation { align-items:flex-start; flex-direction:column; }
+ .cashflow-realisation .button { width:100%; }
+ .cashflow-toolbar { align-items:flex-start; flex-direction:column; }
+}

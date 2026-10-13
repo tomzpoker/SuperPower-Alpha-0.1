@@ -69,3 +69,47 @@ export interface CreateEntryInput {
   reference: string | null;
   lines: EntryLine[];
 }
+
+
+export type SensFlux = 'encaissement' | 'decaissement';
+export type CategorieFlux = 'loyer' | 'charge_courante' | 'travaux' | 'impot_taxe' | 'emprunt' | 'apport_associe' | 'autre';
+export type StatutFlux = 'actif' | 'annule';
+export type EtatFlux = 'a_prevoir' | 'en_retard' | 'partiellement_realise' | 'realise' | 'depasse' | 'annule';
+
+export interface FluxInput {
+  societeId: string;
+  libelle: string;
+  sens: SensFlux;
+  categorie: CategorieFlux;
+  datePrevue: string;
+  montantPrevuCents: number;
+  tiers: string | null;
+  reference: string | null;
+}
+export interface RealisationFluxInput {
+  dateRealisation: string;
+  montantCents: number;
+  reference: string | null;
+  note: string | null;
+}
+export interface FluxRealisationView {
+  id: string;
+  fluxId: string;
+  dateRealisation: string;
+  montantCents: number;
+  reference: string | null;
+  note: string | null;
+  createdAt: string;
+  annuleeAt: string | null;
+  motifAnnulation: string | null;
+}
+export interface FluxView extends FluxInput {
+  id: string;
+  statut: StatutFlux;
+  etat: EtatFlux;
+  montantRealiseCents: number;
+  resteCents: number;
+  realisations: FluxRealisationView[];
+  createdAt: string;
+  updatedAt: string;
+}

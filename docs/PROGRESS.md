@@ -1,84 +1,82 @@
 # PROGRESS — SuperPower Alpha
 
-> Source de vérité : distinguer le code écrit du code compilé/testé. Une fonctionnalité ne passe à `DONE` qu'après validation locale et revue.
+> Source de vérité : distinguer le code présent du code compilé/testé. Une fonctionnalité ne passe à `DONE` qu'après validation CI, parcours métier et revue.
 
 ## État actuel
-
 | Champ | Valeur |
 |---|---|
-| **Version cible** | `0.1.0-alpha.1` |
-| **Sprint en cours** | 00 — Bootstrap et 01 — Noyau (première tranche) |
-| **Statut** | IN_PROGRESS — logique de base vérifiée partiellement ; build natif et SQLCipher à exécuter |
-| **Dernière mise à jour** | 2026-10-12 |
-| **Prochaine action** | Après ce correctif : réinstaller npm et relancer `npm test`, `npm run typecheck`, `npm run build`; installer Strawberry Perl puis relancer `cargo test --workspace` et `npm run tauri:dev`. Consigner le résultat avant le lot A. |
-| **Reprise par une IA** | `AGENTS.md` → `docs/HANDOFF.md` |
-| **Dépôt cible** | https://github.com/tomzpoker/SuperPower-Alpha-0.1 (vide lors de l'initialisation de cette livraison) |
+| Version | `0.1.0-alpha.1` |
+| Main de référence | `5078de2` — socle précédent |
+| Lot en cours | S06-A — flux prévisionnels et réalisations guidées |
+| Branche | `feat/guided-cash-flows` |
+| Statut | IN_PROGRESS — CI verte jusqu'au commit documentaire `1071158` ; plusieurs scénarios Trésorerie natifs confirmés par l'utilisateur ; version source de la base de migration et refus technique d'un réel sur prévision annulée à confirmer |
+| Prochaine action | Revalider la CI après cette mise à jour, confirmer la version de la base avant migration et tester le refus métier d'une réalisation sur une prévision annulée |
+| Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
+| Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
 ## Sprints
-
 | # | Nom | Statut | Fichier | Notes |
 |---|---|---|---|---|
-| 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Workspace/UI/CI présents dans les sources ; build natif pas encore vérifié |
-| 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés, comptes de base, écritures équilibrées et audit initial codés ; validation locale en attente |
-| 02 | Moteur de tâches | TODO | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Choisir une solution durable après prototype |
-| 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | Parser CSV et rapprochement non livrés |
-| 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Le fichier de sprint est présent ; aucun pipeline livré |
-| 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Fichier recréé car absent du ZIP source ; baux/TVA par opération à spécifier |
-| 06 | Trésorerie | TODO | `SPRINTS/SPRINT_06_TRESORERIE.md` | Projection non livrée |
-| 07 | Fiscalité | TODO | `SPRINTS/SPRINT_07_FISCALITE.md` | Déclarations non livrées ; sources officielles documentées |
+| 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
+| 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
+| 02 | Moteur de tâches | TODO | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Prototype durable/idempotent à décider |
+| 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
+| 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
+| 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
+| 06 | Trésorerie | IN_PROGRESS | `SPRINTS/SPRINT_06_TRESORERIE.md` | S06-A : prévu/réalisé ; projection et rapprochement restent à faire |
+| 07 | Fiscalité | TODO | `SPRINTS/SPRINT_07_FISCALITE.md` | Déclarations non livrées |
 | 08 | Sync mobile | TODO | `SPRINTS/SPRINT_08_SYNC_MOBILE.md` | Non livré |
 | 09 | Stocks | TODO | `SPRINTS/SPRINT_09_STOCKS.md` | Extension facultative |
 
-## Vérifications effectuées (revue initiale + retour Windows du 2026-10-12)
+## Validation automatisée
 
-| Contrôle | Résultat | Réserve |
-|---|---|---|
-| `scripts/check_docs.py` | OK dans la revue initiale | À relancer sur ce ZIP corrigé |
-| `npm install` | Réussi sur le poste Windows | 6 vulnérabilités signalées ; scripts `esbuild` bloqués. Résultat obtenu avant le bump de Vitest. |
-| `npm test` | 3/3 réussis sur Windows | Résultat obtenu avant le bump de Vitest. À rejouer sur ce ZIP. |
-| `npm run typecheck` | ÉCHEC avant correctif | `DashboardSummary` inutilisé corrigé ; conflit Vite 6/Vitest 2 corrigé dans `package.json`, à revalider. |
-| `npm run build` | ÉCHEC car `typecheck` échouait | Pas de bundle confirmé avant correctif ; à revalider. |
-| `cargo test -p superpower-core` | 8/8 réussis sur Windows | Compilation et tests Rust réels du noyau. |
-| `cargo test --workspace` | ÉCHEC avant compilation applicative | `openssl-sys`: `perl` introuvable dans l'environnement Windows. |
-| `npm run tauri:dev` | ÉCHEC pendant compilation native | Vite démarre, mais le même problème OpenSSL/Perl arrête Tauri. |
-| SQLCipher natif / tests de verrouillage | Non validés | Besoin de réussir le build workspace et de tester base + mauvais/bon mot de passe. |
+Le run GitHub Actions [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762) est vert sur le commit de code `b65085c` (avant la présente mise à jour documentaire) : formatage/tests Rust, tests/typecheck/bundle frontend, build Tauri Windows et tests du workspace compris. La CI doit se réexécuter sur le commit documentaire qui suit.
 
-Constats de la revue : immutabilité des écritures et journal « append-only » **non appliqués en base** (seulement par l'absence d'endpoint) ; bus d'événements non branché ; docs de sprints 00/01/04 en partie obsolètes ou mal formatées (corrigé) ; voir `docs/HANDOFF.md` §5.
+| Contrôle | Portée et état |
+|---|---|
+| `cargo fmt --all -- --check` | Passé en CI sur `b65085c` |
+| Tests Rust du domaine | Passés en CI sur `b65085c` |
+| Tests workspace / migration automatisée | Passés en CI sur `b65085c`, dont préservation de données représentatives et idempotence de la migration du schéma |
+| Frontend | Typecheck, tests et bundle de production passés en CI sur `b65085c` |
+| Build Tauri Windows | Passé en CI sur `b65085c` |
+| Vérification Markdown et liens | Passée en CI sur `b65085c` |
+| Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
+| Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
+| Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
+| État `depasse` visible avant annulation | **Confirmé par l'utilisateur** : il a vu l'étiquette « Réalisé au-delà du prévu » lors de la réalisation de 300 € pour une prévision de 240 €, avant d'annuler cette réalisation |
+| Refus technique d'une réalisation sur prévision annulée | À vérifier au niveau de la commande métier ; l'interface a masqué les boutons d'action après annulation |
+| Vérification directe de `user_version = 2` et des deux tables S06-A | À faire si un outil SQLCipher adapté est disponible ; ne pas ouvrir le coffre original directement |
 
-## Livré dans la tranche alpha
+Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers temporaires. La base source n'a pas été remplacée ni fusionnée avec les données des tests.
 
-- Identité de dépôt et structure React/Vite + Tauri/Rust.
-- Design system CSS à cinq thèmes, navigation desktop/mobile et page Cockpit.
-- Saisie de sociétés avec configuration indépendante de la forme juridique, de l'IR/IS et des paramètres TVA.
-- Base locale conçue pour SQLCipher, clé dérivée via Argon2id, verrouillage/déverrouillage.
-- Petit socle de comptes, validation comptable en partie double avec centimes entiers, écriture immuable dans l'interface, audit initial.
-- Tests unitaires écrits pour le noyau Rust et parser de montants frontend ; CI déclarée.
-- Documentation de base réparée, un sprint 05 ajouté, références fiscales officielles listées.
 
-## Blocages et limites
+## Livré dans main
+- Application native Tauri + React/TypeScript + noyau Rust.
+- Coffre local SQLCipher/Argon2id.
+- Gestion multi-entités des sociétés, socle de comptes et saisie technique d'écritures équilibrées.
+- CI Windows, cache Rust et diagnostics.
 
-- Le noyau Rust compile et ses 8 tests ont réussi sur Windows, mais la compilation du workspace complet et le build natif échouent avant compilation de l'application, car `perl` est introuvable pendant la compilation OpenSSL vendored. Aucun claim de build natif réussi n'est fait.
-- `npm install` et `npm test` ont réussi sur Windows avant le dernier correctif (3 tests frontend réussis). Le `typecheck` et le build frontend échouaient ; ils doivent être rejoués après la mise à niveau de Vitest dans cette révision.
-- Le build natif doit confirmer SQLCipher/OpenSSL et le comportement sur mauvaise clé avant des données réelles. Le prérequis manquant constaté sur le poste Windows est Strawberry Perl dans le `PATH`.
-- La couverture SQLCipher, l'audit atomique de toutes les mutations, les sauvegardes/restaurations et les tests de reprise restent à renforcer.
-- Le plan de comptes n'est qu'un socle initial. Pas d'import bancaire, FEC fiable, clôture, balance, lettrage, contre-passation, bail, quittance, CA3, 2072, 2044 ou liasse 2065 implémentés.
+## Lot S06-A sur la branche de travail
+- Domaine Rust pour flux prévisionnels et réalisations partielles.
+- Migration versionnée `user_version 1 → 2`, transactionnelle et sans reconstruction des tables v1.
+- Commandes Tauri de liste/création/modification/annulation/réalisation avec audit transactionnel.
+- Écran Trésorerie « Prévisionnel et réalisé », sans saisie de comptes, avec écart, états et historique.
+- Mode aperçu navigateur cohérent mais volatil.
+- Spécification : [Sprint 06](SPRINTS/SPRINT_06_TRESORERIE.md), [ADR-0001](DECISIONS/ADR-0001-flux-previsionnels.md).
 
-## Dette technique identifiée
-
-- Le frontend propose dans cette alpha une saisie d'écriture simplifiée à deux lignes.
-- Le journal d'audit n'est pas encore transactionnel avec toutes les mutations.
-- Les tests d'intégration SQLCipher et migration ne sont pas encore présents.
-- Les règles de compatibilité de régimes sont des avertissements de paramétrage, pas un moteur juridique.
-- Il manque le verrouillage de période et la contre-passation des écritures validées.
-- Immutabilité et audit append-only non appliqués par triggers SQL ; échecs de déverrouillage non tracés.
-- Pas de `Cargo.lock` / `package-lock.json` ; CI sans clippy ni `npm ci`.
-- `EventBus` du noyau non branché ; `App.tsx` monolithique ; composants/thèmes de la spécification du sprint 00 non découpés.
+## Limites / risques connus
+- S06-A ne crée pas encore d'écritures comptables ni de TVA.
+- Récurrences, projection 12/24/36 mois, alertes et rapprochement bancaire automatique non livrés.
+- Baux, import bancaire, grand livre/balance, FEC validé, clôture et fiscalité automatisée non livrés.
+- Plan de comptes limité au socle illustratif.
+- Triggers d'immutabilité/append-only, sauvegarde/restauration chiffrée, audit sécurité complet et tests de mauvaise clé à renforcer.
+- `App.tsx` reste monolithique ; la couverture supérieure à 80 % n'est pas démontrée.
 
 ## Journal des modifications
-
-| Date | Sprint | Action | Auteur |
+| Date | Lot | Action | Statut |
 |---|---|---|---|
-| 2026-10-12 | 00/01 | Première tranche source : Tauri, UI, noyau, société, journal équilibré, chiffrement configuré | OpenAI |
-| 2026-10-12 | Docs | Correction des wrappers Markdown, noms de projet, modèle TVA et ajout des sources officielles | OpenAI |
-| 2026-10-12 | Revue | Audit docs↔code, tests partiels, réparations documentaires et CI | Claude |
-| 2026-10-12 | Correctif post-Windows | Suppression import TypeScript inutilisé, migration Vitest vers 4.1.11 pour résoudre le conflit de types Vite 6/Vitest 2, mise à jour du handoff à partir des logs réels ; compilation corrigée non encore revalidée dans l’environnement de préparation | OpenAI |
+| 2026-10-12 | 00/01 | Première tranche : Tauri, UI, sociétés, écritures, coffre | Sur main |
+| 2026-10-12 | CI | Formatage, cache Windows et diagnostics | Sur main |
+| 2026-10-13 | 06-A | Prévu/réalisé, migration v2 et documentation métier | Branche de travail, validation manuelle restante |
+| 2026-10-13 | 06-A | Renforcement du test de migration pour confirmer la conservation des données v1 | CI verte sur `b65085c` ; nouvelle exécution attendue après cette mise à jour documentaire |
+| 2026-10-13 | 06-A | Parcours Trésorerie natif détaillé et réouverture d'une copie isolée du coffre | Loyer modifié, assurance créée, réalisations annulées depuis l'historique, prévision annulée et totaux vérifiés selon le retour utilisateur ; version source de la base non vérifiée indépendamment |

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
-  Activity, ArrowRight, Bell, BookOpenCheck,
+  Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bell, BookOpenCheck,
   Building2, CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3,
   Files, House, Landmark, LayoutDashboard, LockKeyhole, LogOut,
   Menu, Pencil, Plus, ReceiptText, ShieldCheck, Sparkles, Trash2, Wallet, X,
@@ -10,7 +10,8 @@ import { api, isDesktopRuntime } from './lib/api';
 import { formatDate, formatMoney, parseAmountToCents } from './lib/money';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DashboardSummary, DatabaseStatus,
-  EntryView, ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe,
+  EntryView, ExigibiliteTva, FluxInput, FluxRealisationView, FluxView, FormeJuridique,
+  CategorieFlux, PeriodiciteTva, RealisationFluxInput, RegimeFiscal, RegimeTva, SensFlux, Societe,
 } from './lib/types';
 
 type PageKey = 'dashboard' | 'societes' | 'ecritures' | 'documents' | 'tresorerie' | 'locatif' | 'fiscalite' | 'parametres';
@@ -49,6 +50,7 @@ function App() {
   const [societes, setSocietes] = useState<Societe[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [entries, setEntries] = useState<EntryView[]>([]);
+  const [flux, setFlux] = useState<FluxView[]>([]);
   const [summary, setSummary] = useState<DashboardSummary>(emptySummary);
   const [selectedSocieteId, setSelectedSocieteId] = useState('');
   const [showCompanyForm, setShowCompanyForm] = useState(false);
@@ -70,12 +72,16 @@ function App() {
 
   const loadData = useCallback(async () => {
     setError('');
-    const [companies, accountList, entryList, metrics] = await Promise.all([
-      api<Societe[]>('list_societes'), api<Account[]>('list_comptes'), api<EntryView[]>('list_ecritures', { societeId: null }), api<DashboardSummary>('dashboard_summary'),
+    const [companies, accountList, entryList, metrics, flowList] = await Promise.all([
+      api<Societe[]>('list_societes'), api<Account[]>('list_comptes'),
+      api<EntryView[]>('list_ecritures', { societeId: null }),
+      api<DashboardSummary>('dashboard_summary'),
+      api<FluxView[]>('list_flux', { societeId: null }),
     ]);
     setSocietes(companies);
     setAccounts(accountList);
     setEntries(entryList);
+    setFlux(flowList);
     setSummary(metrics);
     setSelectedSocieteId((current) => current && companies.some((company) => company.id === current) ? current : companies[0]?.id ?? '');
     if (accountList.length) {
@@ -130,7 +136,7 @@ function App() {
       await api<void>('lock_database');
       setStatus('locked');
       setPassphrase('');
-      setSocietes([]); setEntries([]); setAccounts([]); setSummary(emptySummary);
+      setSocietes([]); setEntries([]); setFlux([]); setAccounts([]); setSummary(emptySummary);
       setPage('dashboard');
     } catch (reason) { setError(errorMessage(reason)); }
   }
@@ -219,6 +225,35 @@ function App() {
     } catch (reason) { setError(errorMessage(reason)); }
   }
 
+  async function refreshFlows() {
+    setFlux(await api<FluxView[]>('list_flux', { societeId: null }));
+  }
+  async function createFlow(input: FluxInput): Promise<boolean> {
+    setError('');
+    try { await api<FluxView>('create_flux', { input }); await refreshFlows(); setToast(isDesktopRuntime() ? 'Prévision enregistrée dans le coffre local.' : 'Prévision enregistrée en mémoire démo volatile.'); return true; }
+    catch (reason) { setError(errorMessage(reason)); return false; }
+  }
+  async function updateFlow(id: string, input: FluxInput): Promise<boolean> {
+    setError('');
+    try { await api<FluxView>('update_flux', { id, input }); await refreshFlows(); setToast('Prévision mise à jour ; les réalisations sont conservées.'); return true; }
+    catch (reason) { setError(errorMessage(reason)); return false; }
+  }
+  async function realiseFlow(fluxId: string, input: RealisationFluxInput): Promise<boolean> {
+    setError('');
+    try { await api<FluxView>('register_flux_realisation', { fluxId, input }); await refreshFlows(); setToast('Réalisation enregistrée ; le total et l’écart ont été recalculés.'); return true; }
+    catch (reason) { setError(errorMessage(reason)); return false; }
+  }
+  async function cancelFlow(id: string): Promise<boolean> {
+    setError('');
+    try { await api<FluxView>('cancel_flux', { id }); await refreshFlows(); setToast('Prévision annulée ; historique conservé.'); return true; }
+    catch (reason) { setError(errorMessage(reason)); return false; }
+  }
+  async function cancelRealisation(id: string, motifAnnulation: string): Promise<boolean> {
+    setError('');
+    try { await api<FluxView>('cancel_flux_realisation', { id, motifAnnulation }); await refreshFlows(); setToast('Réalisation annulée et motif conservé.'); return true; }
+    catch (reason) { setError(errorMessage(reason)); return false; }
+  }
+
   if (status === 'loading') {
     return <div className="boot-screen"><div className="brand-mark large">S<span>+</span></div><p>Ouverture de SuperPower…</p></div>;
   }
@@ -283,10 +318,11 @@ function App() {
       <div className="content-scroll">
         {!isDesktopRuntime() && <div className="demo-banner"><CircleAlert size={16} /><span><strong>Mode aperçu navigateur.</strong> Données temporaires, non chiffrées et non sauvegardées. Lancez <code>npm run tauri:dev</code> pour tester le coffre natif.</span></div>}
         {error && <div className="alert error global-alert"><CircleAlert size={17} /><span>{error}</span><button onClick={() => setError('')} aria-label="Fermer l'erreur"><X size={16} /></button></div>}
-        {page === 'dashboard' && <Dashboard summary={summary} societes={societes} entries={entries} onNavigate={setPage} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onNewEntry={() => { setPage('ecritures'); setShowEntryForm(true); }} />}
+        {page === 'dashboard' && <Dashboard summary={summary} societes={societes} entries={entries} flux={flux} onNavigate={setPage} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onNewFlow={() => setPage('tresorerie')} />}
         {page === 'societes' && <CompaniesPage onNew={() => { setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} editingSocieteId={editingSocieteId} onEdit={handleEditCompany} onDelete={handleDeleteCompany} societes={societes} showForm={showCompanyForm} setShowForm={setShowCompanyForm} form={companyForm} setForm={setCompanyForm} onSubmit={handleCreateCompany} />}
         {page === 'ecritures' && <EntriesPage entries={entries.filter((entry) => !selectedSocieteId || entry.societeId === selectedSocieteId)} societes={societes} accounts={accounts} activeCompany={activeCompany} setSelectedSocieteId={setSelectedSocieteId} showForm={showEntryForm} setShowForm={setShowEntryForm} onSubmit={handleCreateEntry} entryDate={entryDate} setEntryDate={setEntryDate} entryLabel={entryLabel} setEntryLabel={setEntryLabel} entryReference={entryReference} setEntryReference={setEntryReference} debitAccount={debitAccount} setDebitAccount={setDebitAccount} creditAccount={creditAccount} setCreditAccount={setCreditAccount} entryAmount={entryAmount} setEntryAmount={setEntryAmount} busy={entryBusy} onRefresh={refreshEntries} />}
-        {page !== 'dashboard' && page !== 'societes' && page !== 'ecritures' && <PlannedPage page={page} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} />}
+        {page === 'tresorerie' && <CashflowPage societes={societes} selectedSocieteId={selectedSocieteId} flux={flux.filter(flow => !selectedSocieteId || flow.societeId === selectedSocieteId)} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onCreate={createFlow} onUpdate={updateFlow} onRealise={realiseFlow} onCancel={cancelFlow} onCancelRealisation={cancelRealisation} />}
+        {page !== 'dashboard' && page !== 'societes' && page !== 'ecritures' && page !== 'tresorerie' && <PlannedPage page={page} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} />}
         <footer className="page-footer"><span>SuperPower Alpha 0.1</span><span><span className="footer-dot" /> Coffre local {isDesktopRuntime() ? 'chiffré' : 'démo volatile'}</span><span>Conçu pour garder le contrôle.</span></footer>
       </div>
     </main>
@@ -294,12 +330,13 @@ function App() {
   </div>;
 }
 
-function Dashboard({ summary, societes, entries, onNavigate, onNewCompany, onNewEntry }: {
-  summary: DashboardSummary; societes: Societe[]; entries: EntryView[];
-  onNavigate: (page: PageKey) => void; onNewCompany: () => void; onNewEntry: () => void;
+function Dashboard({ summary, societes, entries, flux, onNavigate, onNewCompany, onNewFlow }: {
+  summary: DashboardSummary; societes: Societe[]; entries: EntryView[]; flux: FluxView[];
+  onNavigate: (page: PageKey) => void; onNewCompany: () => void; onNewFlow: () => void;
 }) {
   const now = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
   const firstName = 'Bonjour';
+  const hasFlux = flux.some(flow => flow.statut === 'actif');
   return <>
     <section className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line" /> VOTRE ESPACE DE PILOTAGE</div><h1>{firstName}, reprenons le contrôle<span className="title-period">.</span></h1><p>Les chiffres importants, les prochaines actions, et rien de superflu.</p></div><div className="date-chip"><CalendarDays size={16} /><span>{now}</span></div></section>
     <section className="hero-card"><div className="hero-copy"><div className="hero-kicker"><Sparkles size={15} /> LE COCKPIT SUPERPOWER</div><h2>Tout commence<br />par une base solide.</h2><p>Vos sociétés, vos écritures et vos règles de gestion réunies au même endroit. Le socle local est prêt à être construit avec vous.</p><div className="hero-buttons"><button className="button primary" onClick={onNewCompany}><Plus size={17} /> Ajouter une société</button><button className="button ghost-light" onClick={() => onNavigate('ecritures')}>Voir la comptabilité <ArrowRight size={16} /></button></div></div><div className="hero-visual" aria-hidden="true"><div className="visual-glow" /><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="orbit orbit-three" /><div className="visual-center"><span>S</span><i>+</i></div><div className="float-card float-card-top"><Activity size={14} /><span>En local</span><strong>100%</strong></div><div className="float-card float-card-bottom"><ShieldCheck size={15} /><span>Chiffrement</span><strong>SQLCipher</strong></div></div><div className="hero-stamp"><span>ALPHA</span><strong>0.1</strong></div></section>
@@ -313,12 +350,12 @@ function Dashboard({ summary, societes, entries, onNavigate, onNewCompany, onNew
       <div className="panel quick-panel"><div className="panel-heading"><div><div className="eyebrow">POUR BIEN DÉMARRER</div><h3>Les prochaines étapes</h3></div><span className="soft-count">{societes.length ? 'Socle actif' : 'Étape 1 / 3'}</span></div>
         <div className="step-list">
           <button className={`step-item ${societes.length ? 'complete' : 'current'}`} onClick={onNewCompany}><div className="step-icon">{societes.length ? <CheckCircle2 size={18} /> : <span>01</span>}</div><div className="step-copy"><strong>Configurer vos sociétés</strong><span>Forme juridique, fiscalité, TVA et clôture</span></div><ArrowRight size={16} /></button>
-          <button className={`step-item ${summary.ecrituresValidees ? 'complete' : societes.length ? 'current' : ''}`} onClick={onNewEntry}><div className="step-icon">{summary.ecrituresValidees ? <CheckCircle2 size={18} /> : <span>02</span>}</div><div className="step-copy"><strong>Créer la première écriture</strong><span>Le contrôle d'équilibre est automatique</span></div><ArrowRight size={16} /></button>
+          <button className={`step-item ${hasFlux ? 'complete' : societes.length ? 'current' : ''}`} onClick={onNewFlow}><div className="step-icon">{hasFlux ? <CheckCircle2 size={18} /> : <span>02</span>}</div><div className="step-copy"><strong>Prévoir un premier flux</strong><span>Décrivez l'opération sans choisir de comptes</span></div><ArrowRight size={16} /></button>
           <button className="step-item planned" onClick={() => onNavigate('documents')}><div className="step-icon"><span>03</span></div><div className="step-copy"><strong>Préparer l'arrivée des documents</strong><span>Le classement intelligent vient ensuite</span></div><span className="nav-soon">Sprint 04</span></button>
         </div>
       </div>
       <div className="panel activity-panel"><div className="panel-heading"><div><div className="eyebrow">VOTRE ACTIVITÉ</div><h3>Dernières écritures</h3></div><button className="text-link" onClick={() => onNavigate('ecritures')}>Tout voir <ArrowRight size={15} /></button></div>
-        {entries.length ? <div className="activity-list">{entries.slice(0, 4).map((entry) => <div className="activity-row" key={entry.id}><div className="activity-glyph"><BookOpenCheck size={16} /></div><div className="activity-main"><strong>{entry.libelle}</strong><span>{formatDate(entry.dateEcriture)} · {entry.lines.length} lignes</span></div><div className="activity-amount"><strong>{formatMoney(entry.totalCents)}</strong><span><CheckCircle2 size={12} /> Validée</span></div></div>)}</div> : <div className="empty-activity"><div className="empty-art"><BookOpenCheck size={23} /></div><strong>Votre journal est encore calme.</strong><span>La première écriture équilibrée apparaîtra ici.</span><button className="button secondary small" onClick={onNewEntry}><Plus size={15} /> Ajouter une écriture</button></div>}
+        {entries.length ? <div className="activity-list">{entries.slice(0, 4).map((entry) => <div className="activity-row" key={entry.id}><div className="activity-glyph"><BookOpenCheck size={16} /></div><div className="activity-main"><strong>{entry.libelle}</strong><span>{formatDate(entry.dateEcriture)} · {entry.lines.length} lignes</span></div><div className="activity-amount"><strong>{formatMoney(entry.totalCents)}</strong><span><CheckCircle2 size={12} /> Validée</span></div></div>)}</div> : <div className="empty-activity"><div className="empty-art"><BookOpenCheck size={23} /></div><strong>Votre journal est encore calme.</strong><span>La première écriture équilibrée apparaîtra ici.</span><button className="button secondary small" onClick={onNewFlow}><Plus size={15} /> Prévoir un flux</button></div>}
       </div>
     </section>
     <section className="footnote-strip"><div className="footnote-icon"><ShieldCheck size={17} /></div><div><strong>Vos données restent chez vous.</strong><span>La base native est chiffrée. Les fonctions fiscales automatiques ne seront activées qu'avec des règles explicites et vérifiables.</span></div><button className="text-link" onClick={() => onNavigate('parametres')}>Sécurité <ArrowRight size={15} /></button></section>
@@ -362,6 +399,121 @@ function EntriesPage({ entries, societes, accounts, activeCompany, setSelectedSo
     {showForm && !!societes.length && <form className="panel form-panel" onSubmit={onSubmit}><div className="form-heading"><div><span className="eyebrow">NOUVELLE ÉCRITURE</span><h3>Enregistrement équilibré</h3></div><span className="validated-pill"><ShieldCheck size={14} /> Contrôle serveur</span></div><div className="form-grid two-cols"><Field label="Société"><select value={activeCompany?.id ?? societes[0].id} disabled={societes.length === 1} onChange={(event) => setSelectedSocieteId(event.target.value)} aria-label="Société de l'écriture">{societes.map((company) => <option value={company.id} key={company.id}>{company.nom}</option>)}</select><small>Utilisez le sélecteur du haut pour changer la société active.</small></Field><Field label="Date de l'écriture *"><input type="date" required value={entryDate} onChange={(event) => setEntryDate(event.target.value)} /></Field><Field label="Libellé *"><input required value={entryLabel} onChange={(event) => setEntryLabel(event.target.value)} placeholder="Ex. Paiement facture fournisseur" maxLength={180} /></Field><Field label="Référence de pièce"><input value={entryReference} onChange={(event) => setEntryReference(event.target.value)} placeholder="Ex. FAC-2026-0042" maxLength={100} /></Field></div><div className="form-section-label"><span>Ventilation de l'écriture</span><small>Version alpha : une ligne au débit et une au crédit</small></div><div className="form-grid two-cols"><Field label="Compte débité *"><select value={debitAccount} onChange={(event) => setDebitAccount(event.target.value)}>{accounts.map((account) => <option key={account.code} value={account.code}>{account.code} · {account.label}</option>)}</select></Field><Field label="Compte crédité *"><select value={creditAccount} onChange={(event) => setCreditAccount(event.target.value)}>{accounts.map((account) => <option key={account.code} value={account.code}>{account.code} · {account.label}</option>)}</select></Field><Field label="Montant en euros *"><input inputMode="decimal" required value={entryAmount} onChange={(event) => setEntryAmount(event.target.value)} placeholder="0,00" /></Field><div className="balance-preview"><div className="balance-mini"><span>Débit</span><strong>{formatMoney(amountCents ?? 0)}</strong></div><div className="balance-equals">=</div><div className="balance-mini"><span>Crédit</span><strong>{formatMoney(amountCents ?? 0)}</strong></div><div className="balance-ok"><CheckCircle2 size={15} /> Équilibré</div></div></div>{debitAccount === creditAccount && <div className="alert warning"><CircleAlert size={16} />Sélectionnez deux comptes différents.</div>}{(!debit || !credit) && <div className="alert warning"><CircleAlert size={16} />Le plan de comptes est vide : vérifiez l'initialisation du coffre.</div>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => setShowForm(false)}>Annuler</button><button type="submit" className="button primary" disabled={busy || amountCents === null || debitAccount === creditAccount || !entryLabel.trim()}>{busy ? 'Enregistrement…' : <><CheckCircle2 size={16} /> Valider l'écriture</>}</button></div><p className="form-footnote"><LockKeyhole size={14} /> Une écriture validée ne peut pas être modifiée dans cette alpha. La contre-passation sera ajoutée dans une prochaine brique.</p></form>}
     <div className="list-toolbar"><div><strong>Journal</strong><span>{entries.length} écriture(s) affichée(s)</span></div><button className="button secondary small" onClick={onRefresh}><Activity size={15} /> Actualiser</button></div>
     {entries.length ? <div className="panel entries-table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Libellé</th><th>Pièce</th><th>Lignes</th><th>Montant</th><th>Statut</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.id}><td className="date-cell">{formatDate(entry.dateEcriture)}</td><td><strong>{entry.libelle}</strong><small>{societes.find((company) => company.id === entry.societeId)?.nom ?? 'Société'}</small><details className="entry-details"><summary>Voir la ventilation</summary><div>{entry.lines.map((line, index) => <div className="entry-line" key={`${entry.id}-${index}`}><span>{line.accountCode} · {line.accountLabel}</span><strong>{line.debitCents ? `D ${formatMoney(line.debitCents)}` : `C ${formatMoney(line.creditCents)}`}</strong></div>)}</div></details></td><td>{entry.reference || '—'}</td><td>{entry.lines.length} lignes</td><td className="amount-cell">{formatMoney(entry.totalCents)}</td><td><span className="status-pill"><span /> Validée</span></td></tr>)}</tbody></table></div> : <EmptyState icon={BookOpenCheck} title="Aucune écriture enregistrée" description="Ajoutez une première écriture ; le noyau vérifie l'équilibre débit / crédit avant la persistance." action={<button className="button primary" disabled={!societes.length} onClick={() => setShowForm(true)}><Plus size={16} /> Nouvelle écriture</button>} />}
+  </section>;
+}
+
+
+type FluxFormState = {
+  societeId: string; libelle: string; sens: SensFlux; categorie: CategorieFlux;
+  datePrevue: string; montantPrevu: string; tiers: string; reference: string;
+};
+function localDateInput(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+function euroInput(cents: number): string { return (cents / 100).toFixed(2).replace('.', ','); }
+function newFluxForm(societeId: string): FluxFormState {
+  return { societeId, libelle: '', sens: 'encaissement', categorie: 'loyer', datePrevue: localDateInput(), montantPrevu: '', tiers: '', reference: '' };
+}
+function fluxCategoryLabel(value: CategorieFlux): string {
+  return ({ loyer: 'Loyer', charge_courante: 'Charge courante', travaux: 'Travaux', impot_taxe: 'Impôt ou taxe', emprunt: 'Emprunt', apport_associe: 'Apport d’associé', autre: 'Autre' })[value];
+}
+function fluxStateLabel(value: FluxView['etat']): string {
+  return ({ a_prevoir: 'À prévoir', en_retard: 'En retard', partiellement_realise: 'Partiellement réalisé', realise: 'Réalisé', depasse: 'Réalisé au-delà du prévu', annule: 'Prévision annulée' })[value];
+}
+function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreate, onUpdate, onRealise, onCancel, onCancelRealisation }: {
+  societes: Societe[]; selectedSocieteId: string; flux: FluxView[]; onNewCompany: () => void;
+  onCreate: (input: FluxInput) => Promise<boolean>; onUpdate: (id: string, input: FluxInput) => Promise<boolean>;
+  onRealise: (fluxId: string, input: RealisationFluxInput) => Promise<boolean>;
+  onCancel: (id: string) => Promise<boolean>; onCancelRealisation: (id: string, motif: string) => Promise<boolean>;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<FluxFormState>(() => newFluxForm(selectedSocieteId || societes[0]?.id || ''));
+  const [realisingId, setRealisingId] = useState<string | null>(null);
+  const [realForm, setRealForm] = useState({ dateRealisation: localDateInput(), montant: '', reference: '', note: '' });
+  const [localError, setLocalError] = useState('');
+  const [showCancelled, setShowCancelled] = useState(false);
+  const active = flux.filter(flow => flow.statut === 'actif');
+  const planIn = active.filter(flow => flow.sens === 'encaissement').reduce((sum, flow) => sum + flow.montantPrevuCents, 0);
+  const planOut = active.filter(flow => flow.sens === 'decaissement').reduce((sum, flow) => sum + flow.montantPrevuCents, 0);
+  const totalActual = active.reduce((sum, flow) => sum + flow.montantRealiseCents, 0);
+  const shown = showCancelled ? flux : flux.filter(flow => flow.statut !== 'annule');
+
+  function openNew() {
+    setEditingId(null); setForm(newFluxForm(selectedSocieteId || societes[0]?.id || ''));
+    setLocalError(''); setShowForm(true); setRealisingId(null);
+  }
+  function openEdit(flow: FluxView) {
+    setEditingId(flow.id);
+    setForm({ societeId: flow.societeId, libelle: flow.libelle, sens: flow.sens, categorie: flow.categorie, datePrevue: flow.datePrevue, montantPrevu: euroInput(flow.montantPrevuCents), tiers: flow.tiers ?? '', reference: flow.reference ?? '' });
+    setLocalError(''); setShowForm(true); setRealisingId(null);
+  }
+  async function submitFlow(event: FormEvent) {
+    event.preventDefault(); setLocalError('');
+    const cents = parseAmountToCents(form.montantPrevu);
+    if (!form.societeId) { setLocalError('Choisissez une société.'); return; }
+    if (!form.libelle.trim()) { setLocalError('Décrivez simplement l’opération.'); return; }
+    if (cents === null) { setLocalError('Le montant prévu doit être positif avec au maximum deux décimales.'); return; }
+    const input: FluxInput = { societeId: form.societeId, libelle: form.libelle.trim(), sens: form.sens, categorie: form.categorie, datePrevue: form.datePrevue, montantPrevuCents: cents, tiers: form.tiers.trim() || null, reference: form.reference.trim() || null };
+    const ok = editingId ? await onUpdate(editingId, input) : await onCreate(input);
+    if (ok) { setShowForm(false); setEditingId(null); setLocalError(''); }
+  }
+  function openRealisation(flow: FluxView) {
+    setRealisingId(flow.id); setShowForm(false); setLocalError('');
+    setRealForm({ dateRealisation: localDateInput(), montant: flow.resteCents > 0 ? euroInput(flow.resteCents) : '', reference: '', note: '' });
+  }
+  async function submitRealisation(event: FormEvent, flow: FluxView) {
+    event.preventDefault(); setLocalError('');
+    const cents = parseAmountToCents(realForm.montant);
+    if (cents === null) { setLocalError('Le montant réellement reçu ou payé doit être positif.'); return; }
+    const ok = await onRealise(flow.id, { dateRealisation: realForm.dateRealisation, montantCents: cents, reference: realForm.reference.trim() || null, note: realForm.note.trim() || null });
+    if (ok) { setRealisingId(null); setLocalError(''); }
+  }
+  async function cancelForecast(flow: FluxView) {
+    if (window.confirm('Annuler la prévision « ' + flow.libelle + ' » ? Les réalisations et l’historique seront conservés.')) await onCancel(flow.id);
+  }
+  async function cancelActual(item: FluxRealisationView) {
+    const reason = window.prompt('Motif obligatoire de l’annulation (conservé dans l’historique) :');
+    if (reason === null || !reason.trim()) return;
+    await onCancelRealisation(item.id, reason.trim());
+  }
+
+  return <section className="module-page cashflow-page">
+    <PageHeading eyebrow="TRÉSORERIE · PARCOURS SIMPLIFIÉ" title="Prévisionnel et réalisé" description="Décrivez les entrées et sorties d’argent comme au quotidien. Aucun numéro de compte à choisir." action={<button className="button primary" onClick={openNew} disabled={!societes.length}><Plus size={16} /> Nouvelle prévision</button>} />
+    {!societes.length && <div className="panel empty-state"><div className="empty-state-icon"><Building2 size={25} /></div><h3>Commencez par votre société</h3><p>Une prévision doit être rattachée à une société.</p><button className="button primary" onClick={onNewCompany}><Plus size={16} /> Configurer une société</button></div>}
+    {!!societes.length && <>
+      <div className="cashflow-summary">
+        <article className="panel cashflow-summary-card"><span>Prévu à encaisser</span><strong>{formatMoney(planIn)}</strong><small>{active.filter(flow => flow.sens === 'encaissement').length} flux actifs</small></article>
+        <article className="panel cashflow-summary-card"><span>Prévu à payer</span><strong>{formatMoney(planOut)}</strong><small>{active.filter(flow => flow.sens === 'decaissement').length} flux actifs</small></article>
+        <article className="panel cashflow-summary-card"><span>Total réalisé enregistré</span><strong>{formatMoney(totalActual)}</strong><small>Somme des réalisations actives, entrées et sorties confondues</small></article>
+      </div>
+      <div className="alert warning cashflow-hint"><CircleAlert size={17} /><span>Cette version suit le prévu et le réel. Elle ne crée pas encore d’écriture comptable et ne calcule pas la TVA automatiquement.</span></div>
+      {showForm && <form className="panel form-panel cashflow-form" onSubmit={submitFlow}>
+        <div className="form-heading"><div><span className="eyebrow">{editingId ? 'MODIFIER LA PRÉVISION' : 'NOUVELLE PRÉVISION'}</span><h3>{editingId ? 'Mettre à jour l’opération prévue' : 'Décrire une opération attendue'}</h3></div><span className="required-note">* Champs obligatoires</span></div>
+        <div className="form-grid two-cols">
+          <Field label="Société *"><select required disabled={!!editingId} value={form.societeId} onChange={e => setForm({ ...form, societeId: e.target.value })}>{societes.map(company => <option key={company.id} value={company.id}>{company.nom}</option>)}</select></Field>
+          <Field label="Nature du flux *"><select value={form.sens} onChange={e => setForm({ ...form, sens: e.target.value as SensFlux })}><option value="encaissement">Argent qui doit entrer (encaissement)</option><option value="decaissement">Argent qui doit sortir (paiement)</option></select></Field>
+          <Field label="Ce que cela concerne *"><select value={form.categorie} onChange={e => setForm({ ...form, categorie: e.target.value as CategorieFlux })}><option value="loyer">Loyer</option><option value="charge_courante">Charge courante</option><option value="travaux">Travaux</option><option value="impot_taxe">Impôt ou taxe</option><option value="emprunt">Emprunt</option><option value="apport_associe">Apport d’associé</option><option value="autre">Autre</option></select></Field>
+          <Field label="Nom de l’opération *"><input required maxLength={160} value={form.libelle} onChange={e => setForm({ ...form, libelle: e.target.value })} placeholder="Ex. Loyer du local commercial" /></Field>
+          <Field label="Date prévue *"><input type="date" required value={form.datePrevue} onChange={e => setForm({ ...form, datePrevue: e.target.value })} /></Field>
+          <Field label="Montant prévu (€) *"><input required inputMode="decimal" value={form.montantPrevu} onChange={e => setForm({ ...form, montantPrevu: e.target.value })} placeholder="Ex. 1 200,00" /></Field>
+          <Field label="Locataire / fournisseur / tiers"><input maxLength={160} value={form.tiers} onChange={e => setForm({ ...form, tiers: e.target.value })} placeholder="Nom du tiers" /></Field>
+          <Field label="Référence (facultatif)"><input maxLength={100} value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="Facture ou référence interne" /></Field>
+        </div>
+        {localError && <div className="alert error">{localError}</div>}
+        <div className="form-actions"><button type="button" className="button secondary" onClick={() => { setShowForm(false); setEditingId(null); setLocalError(''); }}>Annuler</button><button type="submit" className="button primary"><CheckCircle2 size={16} /> {editingId ? 'Enregistrer la prévision' : 'Créer la prévision'}</button></div>
+      </form>}
+      <div className="list-toolbar cashflow-toolbar"><div><strong>Vos flux</strong><span>{shown.length} prévision(s)</span></div><label className="cashflow-toggle"><input type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} /> Afficher les prévisions annulées</label></div>
+      {shown.length ? <div className="cashflow-list">{shown.map(flow => <article className={'panel cashflow-card' + (flow.statut === 'annule' ? ' is-cancelled' : '')} key={flow.id}>
+        <div className="cashflow-card-header"><div className="cashflow-title-row"><span className={'cashflow-direction ' + flow.sens}>{flow.sens === 'encaissement' ? <ArrowDownLeft size={19} /> : <ArrowUpRight size={19} />}</span><div><h3>{flow.libelle}</h3><p>{formatDate(flow.datePrevue)} · {fluxCategoryLabel(flow.categorie)} · {societes.find(company => company.id === flow.societeId)?.nom ?? 'Société'}</p></div></div><span className={'cashflow-status status-' + flow.etat}>{fluxStateLabel(flow.etat)}</span></div>
+        <div className="cashflow-amounts"><div><span>Prévu</span><strong>{formatMoney(flow.montantPrevuCents)}</strong></div><div><span>Réalisé</span><strong>{formatMoney(flow.montantRealiseCents)}</strong></div><div><span>Écart (prévu − réalisé)</span><strong>{formatMoney(flow.resteCents)}</strong></div></div>
+        {(flow.tiers || flow.reference) && <div className="cashflow-meta">{flow.tiers && <span><strong>Tiers :</strong> {flow.tiers}</span>}{flow.reference && <span><strong>Réf. :</strong> {flow.reference}</span>}</div>}
+        {flow.statut === 'actif' && <div className="cashflow-actions"><button type="button" className="button secondary small" onClick={() => openEdit(flow)}><Pencil size={14} /> Modifier le prévu</button><button type="button" className="button primary small" onClick={() => openRealisation(flow)}><CheckCircle2 size={14} /> Enregistrer {flow.sens === 'encaissement' ? 'un encaissement' : 'un paiement'}</button><button type="button" className="button secondary small" onClick={() => void cancelForecast(flow)}><X size={14} /> Annuler la prévision</button></div>}
+        {realisingId === flow.id && <form className="cashflow-realisation-form" onSubmit={event => void submitRealisation(event, flow)}><h4>Enregistrer ce qui s’est réellement passé</h4><p>Vous pouvez enregistrer une réalisation partielle. Un dépassement est signalé, jamais masqué.</p><div className="form-grid two-cols"><Field label="Date réelle *"><input type="date" required value={realForm.dateRealisation} onChange={e => setRealForm({ ...realForm, dateRealisation: e.target.value })} /></Field><Field label="Montant réellement reçu/payé (€) *"><input required inputMode="decimal" value={realForm.montant} onChange={e => setRealForm({ ...realForm, montant: e.target.value })} placeholder="Ex. 600,00" /></Field><Field label="Référence du paiement"><input maxLength={100} value={realForm.reference} onChange={e => setRealForm({ ...realForm, reference: e.target.value })} /></Field><Field label="Note"><input maxLength={500} value={realForm.note} onChange={e => setRealForm({ ...realForm, note: e.target.value })} placeholder="Virement partiel" /></Field></div>{localError && <div className="alert error">{localError}</div>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => { setRealisingId(null); setLocalError(''); }}>Annuler</button><button type="submit" className="button primary"><CheckCircle2 size={16} /> Confirmer la réalisation</button></div></form>}
+        {!!flow.realisations.length && <details className="cashflow-history"><summary>Historique des réalisations ({flow.realisations.length})</summary><div>{flow.realisations.map(item => <div className={'cashflow-realisation' + (item.annuleeAt ? ' is-cancelled' : '')} key={item.id}><div><strong>{formatDate(item.dateRealisation)} · {formatMoney(item.montantCents)}</strong><span>{item.note || item.reference || 'Réalisation enregistrée'}{item.annuleeAt ? ' · Annulée : ' + (item.motifAnnulation || 'motif absent') : ''}</span></div>{!item.annuleeAt && <button type="button" className="button secondary small" onClick={() => void cancelActual(item)}>Annuler cette réalisation</button>}</div>)}</div></details>}
+      </article>)}</div> : <EmptyState icon={Wallet} title="Aucun flux prévisionnel" description="Ajoutez une entrée attendue (loyer) ou une sortie (facture, emprunt). Enregistrez ensuite les montants réels sans choisir de comptes." action={<button className="button primary" onClick={openNew}><Plus size={16} /> Créer une première prévision</button>} />}
+    </>}
   </section>;
 }
 

@@ -1,147 +1,110 @@
 # Architecture technique — SuperPower Alpha
 
 ## 1. Principes
-
-- Application desktop locale : Rust + Tauri 2, avec une interface React + TypeScript.
-- Persistance mono-poste par défaut : base SQLite chiffrée via SQLCipher.
-- Domaines fiscaux et métiers séparés ; aucune règle fiscale implicite déduite uniquement du nom d'une société.
-- Frontière IPC explicite entre le frontend et les commandes Rust.
-- Noyau testable sans UI, sans SQLite et sans Tauri.
-- Pas de LLM local ni d'appel réseau requis pour l'interface ou le fonctionnement métier courant.
+- Application desktop locale : Rust + Tauri 2, React + TypeScript.
+- Persistance locale par défaut via SQLite/SQLCipher.
+- Domaines métier séparés ; aucune règle fiscale déduite du seul nom de société.
+- Frontière IPC explicite entre frontend et commandes Rust.
+- Noyau testable sans UI, Tauri ou SQLite.
+- Pas de LLM local ni d'appel réseau requis pour les fonctions métier courantes.
 
 ## 2. Vue de contexte
-
-```mermaid
+\`\`\`mermaid
 flowchart TD
-    U[Utilisateur] --> UI[React + TypeScript]
-    UI -->|Commandes IPC Tauri| APP[Backend Rust / Tauri]
-    APP --> CORE[superpower-core\nvalidation métier]
-    APP --> DB[(SQLite + SQLCipher)]
-    CORE --> EVT[Bus d'événements en mémoire]
-    APP --> AUDIT[Journal d'audit persistant]
-    FUT[Modules futurs : banque, locatif, documents, fiscalité] -. réutilisent .-> CORE
-```
+ U[Utilisateur] --> UI[React + TypeScript]
+ UI -->|IPC Tauri| APP[Backend Rust]
+ APP --> CORE[superpower-core]
+ APP --> DB[(SQLite + SQLCipher)]
+ APP --> AUDIT[Journal d'audit]
+ FUT[Banque, locatif, fiscalité] -. réutilisent .-> CORE
+\`\`\`
 
-## 3. Structure réellement livrée
+## 3. Structure livrée / en cours
+\`\`\`text
+crates/core/src/
+  accounting.rs  # comptes et validation partie double
+  society.rs     # société, régimes, avertissements
+  flows.rs       # flux prévisionnels, réalisations, validation, états
+  events.rs      # bus mémoire, pas encore branché
+src-tauri/src/
+  database.rs    # AppState, SQLCipher, Argon2id, schéma/migrations
+  commands.rs    # IPC Tauri et persistance
+  lib.rs         # enregistrement des commandes
+frontend/src/
+  App.tsx        # UI, encore monolithique
+  lib/api.ts     # adaptateur Tauri et démo navigateur volatile
+  lib/types.ts   # DTO TypeScript
+  lib/money.ts   # conversion euros/centimes
+  styles/app.css # design system et thèmes
+docs/
+  DECISIONS/ADR-0001-flux-previsionnels.md
+  SPRINTS/SPRINT_06_TRESORERIE.md
+\`\`\`
 
-```text
-SuperPower-Alpha-0.1/
-├── README.md                 # Entrée GitHub : présentation, démarrage, sécurité
-├── AGENTS.md                 # Consignes courtes pour une IA/un développeur qui reprend le code
-├── Cargo.toml                # Workspace : crates/core + src-tauri
-├── crates/
-│   └── core/src/
-│       ├── lib.rs            # Ré-exports
-│       ├── accounting.rs     # Account, EntryLine, validate_entry_lines, starter_accounts (26 comptes)
-│       ├── society.rs        # Societe, enums de régimes, validation, avertissements
-│       └── events.rs         # EventBus mpsc en mémoire (non branché pour l'instant)
-├── src-tauri/
-│   ├── Cargo.toml / build.rs / tauri.conf.json / capabilities/default.json
-│   └── src/
-│       ├── main.rs
-│       ├── lib.rs            # Enregistrement des 10 commandes IPC
-│       ├── database.rs       # AppState, SQLCipher, Argon2id, schéma v1
-│       └── commands.rs       # Commandes IPC + requêtes SQL
-├── frontend/
-│   ├── index.html / vite.config.ts / tsconfig.json
-│   └── src/
-│       ├── main.tsx
-│       ├── App.tsx           # Toute l'UI (≈370 lignes) : à découper
-│       ├── lib/api.ts        # Adaptateur Tauri + aperçu volatile navigateur
-│       ├── lib/types.ts      # Types miroirs des structures Rust (camelCase)
-│       ├── lib/money.ts(+test) # Montants exacts en centimes
-│       └── styles/app.css    # Design system et cinq thèmes
-├── scripts/check_docs.py     # Contrôle des Markdown, liens locaux, JSON de config
-├── docs/                     # Documentation (index : docs/README.md ; reprise : docs/HANDOFF.md)
-└── .github/workflows/ci.yml
-```
-
-Les autres modules (import bancaire, tâches durables, gestion locative, OCR documentaire, trésorerie et fiscalité déclarative) sont planifiés mais ne doivent pas être considérés comme présents parce que leurs pages apparaissent dans la navigation.
-
-## 4. Modèle métier de la première brique
-
+## 4. Modèle métier
 ### Société
+La fiche distingue forme juridique, IR/IS, régime TVA, exigibilité, périodicité, SIRET et clôture. Ce paramétrage ne constitue pas une décision juridique. Le traitement TVA peut dépendre du bien, du bail, de l'opération et du preneur.
 
-La fiche enregistre séparément :
+### Comptabilité actuelle
+- Montants en centimes entiers.
+- Une ligne ne peut pas porter débit et crédit simultanément.
+- Une écriture doit comporter au moins deux lignes et un total débit égal au total crédit.
+- Le backend vérifie société et comptes avant l'insertion.
+- Le plan de comptes est un socle illustratif, pas un PCG exhaustif.
+- L'immutabilité SQL des écritures et de l'audit reste à renforcer par triggers.
 
-- forme juridique : SCI, SARL, SAS ou autre ;
-- régime d'imposition du résultat : IR, IS ou non renseigné ;
-- régime TVA : non renseigné, hors champ, franchise en base, réel simplifié ou réel normal ;
-- exigibilité TVA : non définie, non applicable, encaissements ou débits ;
-- périodicité déclarative : non définie, non applicable, mensuelle, trimestrielle ou annuelle ;
-- SIRET facultatif et date de clôture comptable.
+### Flux de trésorerie S06-A
+Le flux prévu, chaque réalisation et une écriture comptable sont trois objets distincts. Le flux possède une société, un sens (encaissement/décaissement), une catégorie de pilotage, un libellé, une date, un montant prévu en centimes et des champs facultatifs tiers/référence. Les réalisations sont enregistrées séparément, ce qui permet les paiements partiels et la conservation du prévu.
 
-La liste de valeurs est une base de paramétrage, pas une décision juridique. Pour les locations immobilières, le traitement TVA peut dépendre de la nature du local, de l'opération, d'une option valable, du bail et de la situation du preneur. Le sprint de gestion locative devra donc ajouter les paramètres nécessaires au niveau du bien/lot et du bail, sans supposer qu'une seule propriété « TVA de la société » suffise à tous les cas.
+Les états sont \`a_prevoir\`, \`en_retard\`, \`partiellement_realise\`, \`realise\`, \`depasse\), \`annule\`. Le cumul réalisé exclut les réalisations annulées. L'écart est \`prévu - réalisé\`. Une annulation conserve date/motif ; mutation et audit sont transactionnels.
 
-### Comptabilité
-
-- Les montants sont des centimes signés/positifs selon le côté débit ou crédit (`i64`).
-- Une ligne ne peut pas avoir en même temps un débit et un crédit.
-- Les écritures doivent comporter au moins deux lignes, un total non nul et un total débit égal au total crédit.
-- Le backend vérifie que la société et les comptes existent avant d'insérer l'écriture.
-- Les écritures sauvegardées sont au statut `validated` et aucun endpoint de modification/suppression n'est exposé dans cette alpha. **Attention : l'immutabilité n'est aujourd'hui garantie que par l'absence d'endpoint** ; la base elle-même accepte un `UPDATE`/`DELETE` direct (constaté lors du test du schéma, 2026-10-12). Des triggers SQL d'interdiction sont à ajouter (voir HANDOFF).
-- Le plan de comptes livré est un **socle illustratif limité**, et non le PCG exhaustif certifié. Les comptes et leur paramétrage devront être revus et versionnés avant utilisation comptable en production.
+Les catégories (loyer, charge courante, travaux, impôt/taxe, emprunt, apport d'associé, autre) sont uniquement des catégories de pilotage. Elles ne déterminent ni compte PCG ni TVA.
 
 ## 5. Persistance et chiffrement
+1. La phrase secrète d'au moins 12 caractères sert à dériver une clé Argon2id.
+2. Un sel aléatoire est conservé à côté de la base.
+3. La clé est fournie à SQLCipher ; la phrase secrète n'est pas stockée.
+4. La base reste verrouillée jusqu'à ressaisie.
+5. Sauvegarder ensemble base et fichier \`.salt\).
 
-### Première ouverture
+Aucun fallback vers SQLite non chiffré n'est autorisé.
 
-1. L'application demande une phrase secrète d'au moins 12 caractères.
-2. Un sel aléatoire de 16 octets est conservé dans `superpower.salt` à côté de `superpower.db`.
-3. Argon2id dérive une clé de 256 bits en mémoire ; la clé est fournie à SQLCipher.
-4. La phrase secrète n'est pas sauvegardée par l'application. Elle est à conserver dans un gestionnaire de mots de passe.
+## 6. Migration de schéma
+- v1 : sociétés, comptes, écritures, lignes, audit.
+- v2 : ajoute \`flux_previsionnels\` et \`flux_realisations\`, index chronologiques et contraintes de montant.
+- Migration v1→v2 transactionnelle à l'initialisation et au déverrouillage ; elle ne supprime aucune table v1.
+- Une version future inconnue est refusée, jamais rétrogradée automatiquement.
+- Test automatisé d'idempotence ajouté ; la validation sur copie d'une vraie base SQLCipher v1 reste nécessaire avant merge.
 
-À chaque lancement ultérieur, la base est verrouillée jusqu'à ressaisie de la phrase secrète. Le fichier de sel n'est pas secret, mais il est indispensable : une sauvegarde doit contenir **la base et son fichier `.salt`**. Si la phrase secrète est perdue, les données sont irrécupérables.
-
-Le moteur de compilation doit inclure la fonctionnalité SQLCipher `bundled-sqlcipher-vendored-openssl`. En cas de problème de compilation de cette dépendance, ne pas rétrograder à SQLite non chiffré. Cette configuration doit être confirmée par un build et un test natifs sur Windows avant usage réel.
-
-### Journal d'audit
-
-Un journal d'audit de premier niveau (append-only par convention applicative, **pas encore par contrainte SQL**) enregistre la création des sociétés et la validation des écritures. Le système de journalisation n'est pas encore exhaustif : les corrections, sauvegardes, déverrouillages, migrations, exports et accès doivent y être ajoutés avant la production.
-
-## 6. Frontend et mode de démonstration
-
-Le mode navigateur existe pour prévisualiser les écrans et tester les interactions. Il maintient uniquement un état mémoire JavaScript, perdu au rechargement ; les données ne sont pas chiffrées et ce mode n'est pas adapté aux données réelles. Le mode natif utilise les commandes Tauri et la base SQLCipher.
-
-Les cinq thèmes sont stockés dans `localStorage` parce que cette préférence visuelle ne contient pas de données métier. Les polices utilisent la pile système ; aucun chargement de police distant n'est nécessaire.
-
-## 7. Sécurité à compléter
-
-Avant la production :
-
-- triggers SQL interdisant `UPDATE`/`DELETE` sur `ecritures`, `lignes_ecriture` et `journal_audit` ;
-- effacement mémoire de la clé dérivée (aujourd'hui `String` hexadécimale conservée dans `AppState`, non zéroïsée) ;
-- tests natifs réels de l'absence de données SQLite en clair et du rejet d'une mauvaise phrase secrète ;
-- sauvegarde et restauration chiffrées, contrôle d'intégrité et procédure de migration ;
-- audit complet avec transaction atomique pour chaque mutation sensible ;
-- contre-passations, clôtures d'exercice et verrouillage des périodes ;
-- validation FEC avec jeux d'essai ;
-- tests de fuzzing/imports, durcissement CSP et audit des dépendances ;
-- stratégie de récupération expliquée clairement à l'utilisateur.
-
-## 8. Contrat IPC actuel (frontend ↔ Rust)
-
-Champs JSON en `camelCase`, valeurs d'énumérations en `snake_case`. Les erreurs sont des `String` en français affichables telles quelles.
-
+## 7. Contrat IPC actuel
 | Commande | Arguments | Retour |
 |---|---|---|
-| `database_status` | — | `needs_setup` \| `locked` \| `ready` |
-| `initialize_database` | `passphrase` (≥ 12 caractères) | — |
-| `unlock_database` | `passphrase` | — |
-| `lock_database` | — | — |
-| `list_societes` | — | `Societe[]` + `warnings` |
-| `create_societe` | `input: CreateSocieteInput` | `Societe` |
-| `list_comptes` | — | `Account[]` |
-| `create_ecriture` | `input: CreateEntryInput` | `EntryView` |
-| `list_ecritures` | `societeId?` (limite 500) | `EntryView[]` |
-| `dashboard_summary` | — | compteurs + volume en centimes |
+| \`database_status\` | — | \`needs_setup\` / \`locked\` / \`ready\` |
+| \`initialize_database\` / \`unlock_database\` | \`passphrase\` | résultat de sécurité |
+| \`list_societes\` / \`create_societe\` / \`update_societe\` / \`delete_societe\` | DTO société / id | société(s) |
+| \`list_comptes\` | — | \`Account[]\` |
+| \`create_ecriture\` / \`list_ecritures\` | DTO écriture / filtre société | écriture(s) |
+| \`dashboard_summary\` | — | compteurs |
+| \`list_flux\` | \`societeId?\` | \`FluxView[]\`, limite 500 |
+| \`create_flux\` | \`input: FluxInput\` | \`FluxView\` |
+| \`update_flux\` | \`id\`, \`input: FluxInput\` | vue, société inchangée |
+| \`cancel_flux\` | \`id\` | vue annulée |
+| \`register_flux_realisation\` | \`fluxId\`, \`input: RealisationFluxInput\` | vue recalculée |
+| \`cancel_flux_realisation\` | \`id\`, \`motifAnnulation\` | vue recalculée |
 
-Toute nouvelle commande doit être ajoutée à la fois dans `commands.rs`, dans `generate_handler!` (`lib.rs`), dans `frontend/src/lib/types.ts` et, si elle doit marcher dans l'aperçu navigateur, dans `browserCommand` de `api.ts`.
+Les champs JSON sont en \`camelCase\), enums en \`snake_case\). Chaque nouvelle commande doit être déclarée dans \`commands.rs\), \`lib.rs\), \`types.ts\` et dans \`api.ts\` pour la démo.
 
-## 9. Schéma SQLite v1 (`PRAGMA user_version = 1`)
+## 8. Séparation comptabilité/fiscalité
+S06-A ne crée pas d'écriture comptable ni de TVA. Une opération réelle peut nécessiter tiers, ventilation multi-lignes, séparation principal/intérêts, traitement des dépôts/garanties et exigibilité TVA. Une couche future doit spécifier et tester ces règles avant de produire une écriture. Lire [ADR-0001](DECISIONS/ADR-0001-flux-previsionnels.md).
 
-`societes` · `accounts` (`is_seed`) · `ecritures` (`statut` limité à `validated`, `total_cents > 0`) · `lignes_ecriture` (`UNIQUE(ecriture_id, ordre)`, `CHECK` anti-débit+crédit simultanés, FK vers `accounts` et `ecritures`) · `journal_audit`. Les plans de comptes sont **globaux** (non filtrés par société) ; il n'existe pas encore de table `exercices` ni `journaux`. Le schéma est créé en une fois par `create_schema` : il n'y a pas encore de mécanisme de migration versionnée.
+## 9. Dette sécurité/technique
+- Triggers SQL pour empêcher la modification/suppression des écritures et de l'audit.
+- Effacement mémoire de la clé dérivée.
+- Tests natifs de mauvaise clé, chiffrement réel, sauvegarde/restauration.
+- Exercices, journaux, clôture, contre-passation, FEC.
+- Audit exhaustif des mutations.
+- \`App.tsx\` à découper.
+- Couverture >80 % non démontrée.
 
-## 10. Évolutions modulaires
-
-Ordre recommandé : noyau et journaux, moteur de tâches persistant, import bancaire et rapprochement, référentiel documentaire, biens/baux/loyers, trésorerie, fiscalité préparatoire, synchronisation mobile, puis stocks si le besoin métier le justifie. Le moteur de tâches devra être choisi et testé avant d'adopter une dépendance tierce telle que `flexiq-core`.
+## 10. Évolutions
+S06-A → import bancaire (03) → gestion locative (05) → projection/alertes (06) → règles comptables et fiscalité préparatoire (07). Le moteur de tâches reste un sujet séparé : choisir une solution seulement après tests de persistance, idempotence et reprise.
