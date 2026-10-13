@@ -511,3 +511,35 @@ body { font-size: 16px; }
   .task-attempt { grid-template-columns: 1fr; }
   .task-attempt span:nth-child(2) { text-align: left; }
 }
+
+
+/* Sprint 02 — calendrier mensuel des tâches. */
+.tasks-heading-controls { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; }
+.tasks-view-toggle { display:inline-flex; align-items:center; gap:5px; padding:3px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2); }
+.tasks-view-toggle .button { min-height:34px; padding:7px 10px; }
+.tasks-calendar-panel { padding:17px; min-width:0; }
+.tasks-calendar-toolbar { display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:15px; }
+.tasks-calendar-toolbar h3 { min-width:180px; margin:0; text-align:center; text-transform:capitalize; font-size:17px; }
+.tasks-calendar-toolbar .button { min-width:36px; min-height:36px; padding:8px; }
+.tasks-calendar-toolbar .button.ghost { min-width:auto; }
+.tasks-calendar-shell { width:100%; overflow-x:auto; }
+.tasks-calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; min-width:690px; }
+.tasks-calendar-weekday { padding:8px 6px; text-align:center; color:var(--muted); font-size:12px; font-weight:750; }
+.tasks-calendar-day { display:flex; flex-direction:column; gap:7px; min-height:108px; min-width:0; padding:8px; border:1px solid var(--border); border-radius:9px; background:var(--surface); }
+.tasks-calendar-day.is-outside-month { background:var(--surface-2); opacity:.62; }
+.tasks-calendar-day.is-today { border-color:color-mix(in srgb,var(--primary) 65%,var(--border)); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 20%,transparent); }
+.tasks-calendar-day-number { width:25px; height:25px; display:grid; place-items:center; border-radius:8px; color:var(--text-2); font-size:12px; font-weight:750; }
+.tasks-calendar-day.is-today .tasks-calendar-day-number { background:var(--primary); color:white; }
+.tasks-calendar-events { display:grid; align-content:start; gap:4px; min-width:0; }
+.tasks-calendar-event { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border-left:3px solid var(--cyan); border-radius:4px; background:color-mix(in srgb,var(--cyan) 9%,var(--surface-2)); padding:4px 5px; color:var(--text-2); font-size:11px; line-height:1.35; }
+.tasks-calendar-event.task-status-paused { border-left-color:var(--orange); background:color-mix(in srgb,var(--orange) 9%,var(--surface-2)); }
+.tasks-calendar-event.task-status-cancelled { border-left-color:var(--muted); background:var(--surface-2); color:var(--muted); }
+.tasks-calendar-overflow { color:var(--muted); font-size:11px; padding:1px 4px; }
+.tasks-calendar-footnote { margin:12px 0 0; color:var(--muted); font-size:12px; line-height:1.5; }
+@media (max-width:760px) {
+  .tasks-heading-controls { width:100%; justify-content:space-between; }
+  .tasks-calendar-panel { padding:12px; }
+  .tasks-calendar-toolbar { gap:6px; }
+  .tasks-calendar-toolbar h3 { min-width:0; flex:1; font-size:15px; }
+  .tasks-calendar-toolbar .button.ghost { padding:6px 8px; }
+}

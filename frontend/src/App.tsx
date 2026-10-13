@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bell, BookOpenCheck,
-  Building2, CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Clock3,
+  Building2, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3,
   Files, House, Landmark, LayoutDashboard, LockKeyhole, LogOut,
   Menu, Pencil, Plus, ReceiptText, ShieldCheck, Sparkles, Trash2, Wallet, X,
 } from 'lucide-react';
@@ -572,6 +572,11 @@ function TasksPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [taskView, setTaskView] = useState<'list' | 'calendar'>('list');
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [showForm, setShowForm] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -761,10 +766,21 @@ function TasksPage() {
       <Field label="Données de la tâche (JSON)"><textarea value={payloadJson} onChange={(event) => setPayloadJson(event.target.value)} rows={3} spellCheck={false} required /></Field>
       <div className="tasks-form-actions"><button type="button" className="button secondary" onClick={() => { setShowForm(false); setEditingTaskId(null); }}>Annuler</button><button className="button primary" type="submit" disabled={submitting || !title.trim() || !taskType.trim() || maxAttempts < 1 || maxAttempts > 100}>{submitting ? 'Enregistrement…' : editingTaskId ? 'Enregistrer les modifications' : 'Enregistrer la tâche'} <ArrowRight size={16} /></button></div>
     </form>}
-    <div className="tasks-list-heading"><div><h2>Liste des tâches</h2><p>{tasks.length} tâche{tasks.length > 1 ? 's' : ''} enregistrée{tasks.length > 1 ? 's' : ''}</p></div><button className="button secondary" onClick={() => void refresh()} disabled={refreshing}><Activity size={15} /> {refreshing ? 'Actualisation…' : 'Actualiser'}</button></div>
+    <div className="tasks-list-heading">
+      <div><h2>{taskView === 'calendar' ? 'Calendrier des tâches' : 'Liste des tâches'}</h2><p>{tasks.length} tâche{tasks.length > 1 ? 's' : ''} enregistrée{tasks.length > 1 ? 's' : ''}</p></div>
+      <div className="tasks-heading-controls">
+        <div className="tasks-view-toggle" role="group" aria-label="Mode d’affichage des tâches">
+          <button type="button" className={taskView === 'list' ? 'button primary' : 'button secondary'} onClick={() => setTaskView('list')}><Menu size={15} /> Liste</button>
+          <button type="button" className={taskView === 'calendar' ? 'button primary' : 'button secondary'} onClick={() => setTaskView('calendar')}><CalendarDays size={15} /> Calendrier</button>
+        </div>
+        <button className="button secondary" onClick={() => void refresh()} disabled={refreshing}><Activity size={15} /> {refreshing ? 'Actualisation…' : 'Actualiser'}</button>
+      </div>
+    </div>
     {loading ? <div className="panel tasks-empty"><p>Chargement des tâches…</p></div> : tasks.length === 0
       ? <EmptyState icon={Clock3} title="Aucune tâche pour le moment" description="Créez une tâche pour commencer à organiser les actions à suivre." action={<button className="button primary" onClick={() => setShowForm(true)}><Plus size={16} /> Créer une tâche</button>} />
-      : <div className="tasks-list">{tasks.map((task) => <article className="panel task-card" key={task.id}>
+      : taskView === 'calendar'
+        ? <TaskCalendar tasks={tasks} month={calendarMonth} onMonthChange={setCalendarMonth} />
+        : <div className="tasks-list">{tasks.map((task) => <article className="panel task-card" key={task.id}>
           <div className="task-card-main">
             <div className="task-card-icon"><Clock3 size={19} /></div>
             <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
@@ -782,6 +798,93 @@ function TasksPage() {
             </div>)}</div>}
         </article>)}</div>}
   </section>;
+}
+
+function TaskCalendar({
+  tasks,
+  month,
+  onMonthChange,
+}: {
+  tasks: Task[];
+  month: Date;
+  onMonthChange: (month: Date) => void;
+}) {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstOfMonth = new Date(year, monthIndex, 1);
+  const mondayOffset = (firstOfMonth.getDay() + 6) % 7;
+  const gridStart = new Date(year, monthIndex, 1 - mondayOffset);
+  const days = Array.from(
+    { length: 42 },
+    (_, index) => new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + index),
+  );
+  const tasksByDay = useMemo(() => {
+    const grouped = new Map<string, Task[]>();
+    for (const task of tasks) {
+      const date = new Date(task.scheduledAt);
+      if (Number.isNaN(date.getTime())) continue;
+      const key = localDateKey(date);
+      const dayTasks = grouped.get(key) ?? [];
+      dayTasks.push(task);
+      grouped.set(key, dayTasks);
+    }
+    for (const dayTasks of grouped.values()) {
+      dayTasks.sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+    }
+    return grouped;
+  }, [tasks]);
+  const todayKey = localDateKey(new Date());
+
+  return <div className="panel tasks-calendar-panel">
+    <div className="tasks-calendar-toolbar">
+      <button className="button secondary" type="button" onClick={() => onMonthChange(new Date(year, monthIndex - 1, 1))} aria-label="Mois précédent"><ChevronLeft size={16} /></button>
+      <h3>{firstOfMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</h3>
+      <button className="button secondary" type="button" onClick={() => onMonthChange(new Date(year, monthIndex + 1, 1))} aria-label="Mois suivant"><ChevronRight size={16} /></button>
+      <button className="button ghost" type="button" onClick={() => {
+        const today = new Date();
+        onMonthChange(new Date(today.getFullYear(), today.getMonth(), 1));
+      }}>Aujourd’hui</button>
+    </div>
+    <div className="tasks-calendar-shell">
+      <div className="tasks-calendar-grid">
+        {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((weekday) =>
+          <div className="tasks-calendar-weekday" key={weekday}>{weekday}</div>
+        )}
+        {days.map((date) => {
+          const key = localDateKey(date);
+          const dayTasks = tasksByDay.get(key) ?? [];
+          const className = [
+            'tasks-calendar-day',
+            date.getMonth() !== monthIndex ? 'is-outside-month' : '',
+            key === todayKey ? 'is-today' : '',
+          ].filter(Boolean).join(' ');
+          return <div className={className} key={key} aria-label={date.toLocaleDateString('fr-FR')}>
+            <span className="tasks-calendar-day-number">{date.getDate()}</span>
+            <div className="tasks-calendar-events">
+              {dayTasks.slice(0, 3).map((task) =>
+                <div
+                  className={'tasks-calendar-event task-status-' + task.status}
+                  key={task.id}
+                  title={task.title + ' · ' + taskStatusLabel(task.status)}
+                >
+                  {task.title}
+                </div>
+              )}
+              {dayTasks.length > 3 && <span className="tasks-calendar-overflow">+{dayTasks.length - 3} autre{dayTasks.length > 4 ? 's' : ''}</span>}
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>
+    <p className="tasks-calendar-footnote">Les dates sont affichées dans le fuseau horaire local de cet ordinateur. Sélectionnez « Liste » pour modifier une tâche ou ouvrir son historique.</p>
+  </div>;
+}
+
+function localDateKey(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return year + '-' + month + '-' + day;
 }
 
 function defaultTaskDateTime(): string {

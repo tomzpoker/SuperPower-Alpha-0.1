@@ -100,10 +100,6 @@ pub enum TaskEngineError {
     TaskNotFound(String),
     #[error("La tâche est en pause ou annulée ; aucune nouvelle exécution ne peut être ajoutée.")]
     TaskInactive,
-    #[error("Une tâche annulée ne peut pas être modifiée. Réactivez-la avant de recommencer.")]
-    TaskCancelled,
-    #[error("Une tâche avec une exécution ne peut plus être modifiée ; annulez-la et créez-en une nouvelle pour préserver l'historique.")]
-    TaskHasExecutions,
     #[error("L'exécution « {0} » n'existe pas.")]
     ExecutionNotFound(String),
     #[error("Transition impossible : l'exécution n'est pas en cours.")]
@@ -310,80 +306,6 @@ impl TaskEngine {
         }
 
         Ok(existing)
-    }
-
-    /// Modifie une définition tant qu'aucune exécution n'a été créée.
-    /// La clé d'idempotence et le statut sont immuables dans cette opération.
-    pub fn update_task(
-        connection: &mut Connection,
-        task_id: &str,
-        input: &NewTask,
-        now: &str,
-    ) -> Result<Task, TaskEngineError> {
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let updated = Self::update_task_in_transaction(&transaction, task_id, input, now)?;
-        transaction.commit()?;
-        Ok(updated)
-    }
-
-    /// Variante transactionnelle pour conserver l'audit applicatif et la mutation atomiques.
-    pub fn update_task_in_transaction(
-        transaction: &Transaction<'_>,
-        task_id: &str,
-        input: &NewTask,
-        now: &str,
-    ) -> Result<Task, TaskEngineError> {
-        let existing = find_task_by_id(transaction, task_id)?
-            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))?;
-        if existing.status == TaskStatus::Cancelled {
-            return Err(TaskEngineError::TaskCancelled);
-        }
-
-        let idempotency_key = required_text(&input.idempotency_key, "clé d'idempotence", 200)?;
-        if idempotency_key != existing.idempotency_key {
-            return Err(TaskEngineError::IdempotencyConflict);
-        }
-
-        let has_executions: i64 = transaction.query_row(
-            "SELECT EXISTS(SELECT 1 FROM task_executions WHERE task_id = ?1)",
-            [task_id],
-            |row| row.get(0),
-        )?;
-        if has_executions != 0 {
-            return Err(TaskEngineError::TaskHasExecutions);
-        }
-
-        let module = required_text(&input.module, "module", 100)?;
-        let task_type = required_text(&input.task_type, "type de tâche", 100)?;
-        let title = required_text(&input.title, "titre", 200)?;
-        if !(1..=100).contains(&input.max_attempts) {
-            return Err(TaskEngineError::InvalidInput(
-                "Le nombre de tentatives doit être compris entre 1 et 100.".to_string(),
-            ));
-        }
-        let scheduled_at = normalize_timestamp(&input.scheduled_at, "date programmée")?;
-        let now = normalize_timestamp(now, "date de modification")?;
-        let payload_json = input.payload.to_string();
-
-        transaction.execute(
-            "UPDATE task_definitions
-             SET module = ?1, task_type = ?2, title = ?3, payload_json = ?4,
-                 scheduled_at = ?5, max_attempts = ?6, updated_at = ?7
-             WHERE id = ?8",
-            params![
-                module,
-                task_type,
-                title,
-                payload_json,
-                scheduled_at,
-                i64::from(input.max_attempts),
-                now,
-                task_id
-            ],
-        )?;
-
-        find_task_by_id(transaction, task_id)?
-            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))
     }
 
     pub fn list_tasks(connection: &Connection) -> Result<Vec<Task>, TaskEngineError> {
@@ -1179,63 +1101,6 @@ mod tests {
     }
 
     #[test]
-    fn task_can_be_edited_before_first_execution_but_not_afterward() {
-        let database = TemporaryDatabase::new();
-        let mut connection = database.connect();
-        init(&connection);
-        let original = new_task("edit-task-test", 3);
-        let task = TaskEngine::create_task(&connection, &original, BEFORE_DUE).unwrap();
-
-        TaskEngine::update_task_status(
-            &mut connection,
-            &task.id,
-            TaskStatus::Paused,
-            "2026-10-13T09:10:00Z",
-        )
-        .unwrap();
-
-        let mut revised = original;
-        revised.title = "Tâche corrigée".to_string();
-        revised.module = "locatif".to_string();
-        revised.task_type = "verifier_echeance".to_string();
-        revised.payload = serde_json::json!({"bailId": "bail-test"});
-        revised.scheduled_at = "2026-10-13T11:00:00Z".to_string();
-        revised.max_attempts = 5;
-        let updated =
-            TaskEngine::update_task(&mut connection, &task.id, &revised, "2026-10-13T09:20:00Z")
-                .unwrap();
-        assert_eq!(updated.title, "Tâche corrigée");
-        assert_eq!(updated.module, "locatif");
-        assert_eq!(updated.task_type, "verifier_echeance");
-        assert_eq!(updated.payload, revised.payload);
-        assert_eq!(updated.scheduled_at, "2026-10-13T11:00:00.000Z");
-        assert_eq!(updated.max_attempts, 5);
-        assert_eq!(updated.status, TaskStatus::Paused);
-
-        TaskEngine::update_task_status(
-            &mut connection,
-            &task.id,
-            TaskStatus::Scheduled,
-            "2026-10-13T09:30:00Z",
-        )
-        .unwrap();
-        TaskEngine::enqueue_execution(
-            &connection,
-            &task.id,
-            "edit-task-occurrence",
-            &updated.scheduled_at,
-            "2026-10-13T09:31:00Z",
-        )
-        .unwrap();
-
-        revised.title = "Modification trop tardive".to_string();
-        assert!(matches!(
-            TaskEngine::update_task(&mut connection, &task.id, &revised, "2026-10-13T09:40:00Z",),
-            Err(TaskEngineError::TaskHasExecutions)
-        ));
-    }
-
-    #[test]
     fn cancellation_is_transactional_and_cancels_queued_executions() {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
@@ -1287,12 +1152,9 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         init(&connection);
-        let task = TaskEngine::create_task(
-            &connection,
-            &new_task("reactivate-task-test", 2),
-            BEFORE_DUE,
-        )
-        .unwrap();
+        let task =
+            TaskEngine::create_task(&connection, &new_task("reactivate-task-test", 2), BEFORE_DUE)
+                .unwrap();
         let first = TaskEngine::enqueue_execution(
             &connection,
             &task.id,
@@ -1339,12 +1201,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(repeated.id, first.id);
-        assert_eq!(
-            TaskEngine::list_executions(&connection, &task.id)
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(TaskEngine::list_executions(&connection, &task.id).unwrap().len(), 1);
     }
 
     #[test]

@@ -44,6 +44,7 @@
 - flexiq-core est absent du dépôt et n'est pas ajouté sans prototype ni vérification de compatibilité.
 - La migration transactionnelle v3→v4 est maintenant câblée dans `src-tauri/src/database.rs` et ajoute les tables `task_definitions`, `task_executions` et `task_attempts`. Elle conserve les tables existantes, versionne le schéma et possède un test de conservation d'un flux v3 ; le dernier changement doit encore passer les contrôles.
 - Les commandes Tauri (liste/création/modification/statut/historique) et la page UI Tâches sont ajoutées. Une tâche ne peut être modifiée qu'avant sa première exécution ; les paramètres d'une tâche avec historique sont verrouillés afin de le préserver.
+- La page dispose maintenant d'un calendrier mensuel en grille, avec navigation entre mois et affichage des échéances par statut ; la liste reste l'endroit prévu pour modifier une tâche et consulter son historique.
 - Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
 - Le démarrage automatique du worker dans Tauri, les handlers métier réels, cron, calendrier, édition complète et reprise du widget historique restent à faire.
@@ -57,7 +58,8 @@
 - [x] Exposer les opérations de consultation/création/statut/historique via IPC (CI verte sur le commit précédent).
 - [x] Ajouter une première API de registre de handlers et un worker one-shot ; le nouveau commit doit être validé par la CI.
 - [ ] Intégrer le démarrage/arrêt du worker à Tauri, des handlers métier réels et le calcul/validation cron.
-- [ ] Ajouter le calendrier, l'édition complète et l'adaptation du widget historique avant de considérer les user stories livrées.
+- [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
+- [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
 
 ### Résultats locaux (première version, avant migration v3→v4)
 
