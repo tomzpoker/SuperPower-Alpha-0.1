@@ -44,7 +44,8 @@
 - flexiq-core est absent du dépôt et n'est pas ajouté sans prototype ni vérification de compatibilité.
 - La migration transactionnelle v3→v4 est maintenant câblée dans `src-tauri/src/database.rs` et ajoute les tables `task_definitions`, `task_executions` et `task_attempts`. Elle conserve les tables existantes, versionne le schéma et possède un test de conservation d'un flux v3 ; le dernier changement doit encore passer les contrôles.
 - Les commandes Tauri (liste/création/statut/historique) et la page UI Tâches sont ajoutées.
-- Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. Le résultat CI de cette tranche doit être confirmé avant intégration.
+- Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
+- Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
 - Le démarrage automatique du worker dans Tauri, les handlers métier réels, cron, calendrier, édition complète et reprise du widget historique restent à faire.
 
 ### Contrôles avant clôture

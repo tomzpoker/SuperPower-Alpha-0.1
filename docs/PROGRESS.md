@@ -10,7 +10,7 @@
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
 | Statut | S06-B est dans `main`. La branche S02 contient la crate `task-engine`, la migration v3→v4, les commandes Tauri, la page UI Tâches, un registre de handlers et un worker one-shot. CI à confirmer pour cette nouvelle tranche ; lancement en arrière-plan et handlers métier réels non livrés. |
-| Prochaine action | Valider le commit du registre et du worker one-shot par toute la CI ; ensuite intégrer le cycle de vie du worker à Tauri avant d'ajouter les handlers métier et cron. |
+| Prochaine action | Valider par CI le correctif de réactivation/historique ; ensuite concevoir le cycle de vie du worker Tauri avec arrêt propre et handlers métier explicites, puis cron. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 

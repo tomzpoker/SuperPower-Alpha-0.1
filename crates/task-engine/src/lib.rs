@@ -340,13 +340,21 @@ impl TaskEngine {
         now: &str,
     ) -> Result<Task, TaskEngineError> {
         let now = normalize_timestamp(now, "date de modification")?;
-        let changed = transaction.execute(
+        let previous_status: Option<String> = transaction
+            .query_row(
+                "SELECT status FROM task_definitions WHERE id = ?1",
+                [task_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(previous_status) = previous_status else {
+            return Err(TaskEngineError::TaskNotFound(task_id.to_string()));
+        };
+
+        transaction.execute(
             "UPDATE task_definitions SET status = ?1, updated_at = ?2 WHERE id = ?3",
             params![status.as_db_str(), now, task_id],
         )?;
-        if changed == 0 {
-            return Err(TaskEngineError::TaskNotFound(task_id.to_string()));
-        }
 
         if status == TaskStatus::Cancelled {
             transaction.execute(
@@ -354,6 +362,17 @@ impl TaskEngine {
                  SET status = 'cancelled', updated_at = ?1, finished_at = ?1,
                      lease_until = NULL
                  WHERE task_id = ?2 AND status = 'queued'",
+                params![now, task_id],
+            )?;
+        } else if previous_status == "cancelled" && status == TaskStatus::Scheduled {
+            // Une tâche annulée peut être réactivée sans créer une seconde occurrence :
+            // seule une exécution annulée avant sa première tentative est remise en file.
+            transaction.execute(
+                "UPDATE task_executions
+                 SET status = 'queued', available_at = scheduled_for,
+                     updated_at = ?1, finished_at = NULL, lease_until = NULL,
+                     last_error = NULL
+                 WHERE task_id = ?2 AND status = 'cancelled' AND attempt_count = 0",
                 params![now, task_id],
             )?;
         }
@@ -1126,6 +1145,63 @@ mod tests {
                 .status,
             TaskStatus::Cancelled
         );
+    }
+
+    #[test]
+    fn reactivating_cancelled_task_requeues_unstarted_execution_without_duplicates() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let task =
+            TaskEngine::create_task(&connection, &new_task("reactivate-task-test", 2), BEFORE_DUE)
+                .unwrap();
+        let first = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "reactivate-task-occurrence",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+
+        TaskEngine::update_task_status(
+            &mut connection,
+            &task.id,
+            TaskStatus::Cancelled,
+            "2026-10-13T09:30:00Z",
+        )
+        .unwrap();
+        let cancelled = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(cancelled.len(), 1);
+        assert_eq!(cancelled[0].id, first.id);
+        assert_eq!(cancelled[0].status, ExecutionStatus::Cancelled);
+        assert!(cancelled[0].finished_at.is_some());
+
+        TaskEngine::update_task_status(
+            &mut connection,
+            &task.id,
+            TaskStatus::Scheduled,
+            "2026-10-13T09:40:00Z",
+        )
+        .unwrap();
+
+        let reactivated = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(reactivated.len(), 1);
+        assert_eq!(reactivated[0].id, first.id);
+        assert_eq!(reactivated[0].status, ExecutionStatus::Queued);
+        assert!(reactivated[0].finished_at.is_none());
+        assert!(reactivated[0].lease_until.is_none());
+
+        let repeated = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "reactivate-task-occurrence",
+            DUE,
+            "2026-10-13T09:41:00Z",
+        )
+        .unwrap();
+        assert_eq!(repeated.id, first.id);
+        assert_eq!(TaskEngine::list_executions(&connection, &task.id).unwrap().len(), 1);
     }
 
     #[test]

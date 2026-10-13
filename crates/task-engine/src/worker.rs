@@ -437,6 +437,42 @@ mod tests {
     }
 
     #[test]
+    fn missing_handler_fails_visibly_and_exhausts_the_attempt_budget() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        TaskEngine::install_schema(&connection).expect("install schema");
+        let task = create_due_task(&connection, "worker-missing-handler", 1);
+        let registry = TaskHandlerRegistry::new();
+
+        let outcome = TaskWorker::run_once(
+            &mut connection,
+            &registry,
+            at("2026-10-13T10:01:00Z"),
+            TaskWorkerConfig::default(),
+        )
+        .expect("persist missing-handler failure");
+
+        assert!(matches!(
+            outcome,
+            WorkerOutcome::Failed {
+                attempt_number: 1,
+                ref error,
+                ..
+            } if error.contains("Aucun gestionnaire")
+        ));
+        let executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(executions.len(), 1);
+        assert_eq!(executions[0].status, ExecutionStatus::Failed);
+        assert!(executions[0]
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("Aucun gestionnaire")));
+        let attempts = TaskEngine::list_attempts(&connection, &executions[0].id).unwrap();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].status, AttemptStatus::Failed);
+    }
+
+    #[test]
     fn registry_rejects_duplicate_handler_registration() {
         let registry = TaskHandlerRegistry::new();
         registry
