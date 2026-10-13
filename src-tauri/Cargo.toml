@@ -24,3 +24,6 @@ rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"]
 argon2 = "0.5"
 rand = "0.8"
 hex = "0.4"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }

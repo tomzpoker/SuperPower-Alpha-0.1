@@ -1866,3 +1866,198 @@ mod cron_preview_tests {
         assert!(build_cron_preview("0 10 * * *", "2026-10-13T09:59:00Z", 11).is_err());
     }
 }
+
+#[cfg(test)]
+mod task_command_tests {
+    use super::*;
+    use crate::database::{AppState, DatabaseStatus};
+    use crate::task_worker::TaskWorkerController;
+    use std::{fs, path::PathBuf};
+    use tauri::{
+        test::{mock_app, MockRuntime},
+        Manager,
+    };
+    use task_engine::TaskRecurrenceFrequency;
+    use uuid::Uuid;
+
+    const TEST_PASSPHRASE: &str = "command-layer temporary vault passphrase";
+
+    struct TemporaryVault(PathBuf);
+
+    impl Drop for TemporaryVault {
+        fn drop(&mut self) {
+            for path in [
+                self.0.clone(),
+                self.0.with_extension("salt"),
+                self.0.with_extension("db-wal"),
+                self.0.with_extension("db-shm"),
+            ] {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+
+    fn test_app() -> (TemporaryVault, tauri::App<MockRuntime>) {
+        let vault = TemporaryVault(std::env::temp_dir().join(format!(
+            "superpower-task-command-{}.db",
+            Uuid::new_v4()
+        )));
+        let state = AppState::new(vault.0.clone());
+        state
+            .initialize(TEST_PASSPHRASE)
+            .expect("initialize temporary SQLCipher vault");
+        let app = mock_app();
+        app.manage(state);
+        (vault, app)
+    }
+
+    fn task_input(key: &str, title: &str) -> NewTask {
+        NewTask {
+            idempotency_key: key.to_string(),
+            module: "general".to_string(),
+            task_type: "reminder".to_string(),
+            title: title.to_string(),
+            payload: serde_json::json!({"message": "Test command layer"}),
+            scheduled_at: "2027-01-31T10:00:00Z".to_string(),
+            recurrence_frequency: TaskRecurrenceFrequency::Monthly,
+            cron_expression: None,
+            max_attempts: 3,
+        }
+    }
+
+    fn audit_count(app: &tauri::App<MockRuntime>, action: &str, task_id: &str) -> i64 {
+        let connection = app
+            .state::<AppState>()
+            .connection()
+            .expect("open temporary vault for audit query");
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM journal_audit
+                 WHERE action = ?1 AND type_entite = 'task_definition' AND entite_id = ?2",
+                [action, task_id],
+                |row| row.get(0),
+            )
+            .expect("read task audit count")
+    }
+
+    #[test]
+    fn task_commands_are_idempotent_audited_and_support_lifecycle_transitions() {
+        let (_vault, app) = test_app();
+
+        let input = task_input("command-lifecycle-key", "Tâche initiale");
+        let created = super::create_task(input.clone(), app.state::<AppState>())
+            .expect("create task through Tauri command");
+        let duplicate = super::create_task(input.clone(), app.state::<AppState>())
+            .expect("repeat an idempotent task command");
+        assert_eq!(created.id, duplicate.id);
+        assert_eq!(super::list_tasks(app.state::<AppState>()).unwrap().len(), 1);
+        assert_eq!(audit_count(&app, "create", &created.id), 1);
+
+        let mut revised_input = input;
+        revised_input.title = "Tâche modifiée".to_string();
+        let revised = super::update_task(
+            created.id.clone(),
+            revised_input,
+            app.state::<AppState>(),
+        )
+        .expect("edit task before its first execution");
+        assert_eq!(revised.title, "Tâche modifiée");
+        assert_eq!(audit_count(&app, "update", &created.id), 1);
+
+        for status in [
+            TaskStatus::Paused,
+            TaskStatus::Scheduled,
+            TaskStatus::Cancelled,
+            TaskStatus::Scheduled,
+        ] {
+            let changed = super::update_task_status(
+                created.id.clone(),
+                status,
+                app.state::<AppState>(),
+            )
+            .expect("apply task status transition");
+            assert_eq!(changed.status, status);
+        }
+
+        assert_eq!(audit_count(&app, "pause", &created.id), 1);
+        assert_eq!(audit_count(&app, "resume", &created.id), 2);
+        assert_eq!(audit_count(&app, "cancel", &created.id), 1);
+
+        super::delete_task(created.id.clone(), app.state::<AppState>())
+            .expect("delete task before the first execution");
+        assert_eq!(super::list_tasks(app.state::<AppState>()).unwrap().len(), 0);
+        assert_eq!(audit_count(&app, "delete", &created.id), 1);
+    }
+
+    #[test]
+    fn task_commands_preserve_definitions_with_execution_history() {
+        let (_vault, app) = test_app();
+        let input = task_input("command-history-key", "Tâche historisée");
+        let created = super::create_task(input.clone(), app.state::<AppState>())
+            .expect("create task before execution");
+
+        {
+            let connection = app
+                .state::<AppState>()
+                .connection()
+                .expect("open temporary vault");
+            TaskEngine::enqueue_execution(
+                &connection,
+                &created.id,
+                "command-history-execution",
+                &created.scheduled_at,
+                "2027-01-01T00:00:00Z",
+            )
+            .expect("record a queued execution");
+        }
+
+        let mut revised_input = input;
+        revised_input.title = "Modification interdite".to_string();
+        let update_error = super::update_task(
+            created.id.clone(),
+            revised_input,
+            app.state::<AppState>(),
+        )
+        .expect_err("a task with history must not be editable");
+        assert!(update_error.contains("ne peut plus être modifiée ou supprimée"));
+
+        let delete_error = super::delete_task(created.id.clone(), app.state::<AppState>())
+            .expect_err("a task with history must not be deletable");
+        assert!(delete_error.contains("ne peut plus être modifiée ou supprimée"));
+
+        assert_eq!(
+            super::list_task_executions(created.id.clone(), app.state::<AppState>())
+                .expect("read execution history")
+                .len(),
+            1
+        );
+        assert_eq!(
+            super::list_tasks(app.state::<AppState>())
+                .expect("read task definitions")
+                .iter()
+                .filter(|task| task.id == created.id)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn lock_database_command_locks_the_vault_and_blocks_new_connections() {
+        let (_vault, app) = test_app();
+        app.manage(TaskWorkerController::default());
+
+        super::lock_database(
+            app.state::<AppState>(),
+            app.state::<TaskWorkerController>(),
+        )
+        .expect("lock temporary SQLCipher vault through Tauri command");
+
+        assert_eq!(app.state::<AppState>().status(), DatabaseStatus::Locked);
+        assert!(
+            app.state::<AppState>()
+                .connection()
+                .expect_err("new connection must be refused while locked")
+                .contains("verrouillée")
+        );
+    }
+}

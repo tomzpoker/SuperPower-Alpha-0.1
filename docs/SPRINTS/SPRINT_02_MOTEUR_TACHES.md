@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; récurrences ancrées, calendrier accessible, filtres de liste et historique enrichi ; CI #38450618601 verte sur le parent `f744b1b`, nouveau calcul de durée en attente de CI ; validation native des commandes Tauri encore ouverte |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; récurrences ancrées, calendrier accessible, filtres et historique avec durées ; CI #38452406857 verte sur `90e22ab` ; tests des commandes Tauri ajoutés dans le prochain commit et en attente de CI ; parcours visuel natif encore ouvert |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -76,7 +76,8 @@
 - [x] Tester l’intégration des occurrences mensuelles dans le worker : 31 janvier → 28 février → 31 mars, ancre d’origine conservée et répétition sans doublon (CI #38442503451).
 - [x] Essai natif sur coffre temporaire : rappel `general/reminder` à échéance, notification visible, exécution `Terminée`, tentative `#1 · Réussie` et historique confirmé par l'utilisateur.
 - [x] Test automatisé SQLCipher AppState : verrouillage/déverrouillage, accès refusé pendant le verrouillage, historique conservé et reprise du worker sans double exécution (CI #38445019655).
-- [ ] Vérifier manuellement dans l’application native les commandes Tauri verrouillage/déverrouillage et la reprise du worker sur un coffre temporaire.
+- [ ] Vérifier manuellement dans l’application native les commandes Tauri de verrouillage/déverrouillage et la reprise du worker sur un coffre temporaire.
+- [ ] Valider par CI les tests de commandes Tauri sur le coffre temporaire : idempotence, audit, cycle de vie, garde-fous d’historique et verrouillage de la base.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [x] Rendre les occurrences du calendrier sélectionnables au clavier et à la souris, avec bascule vers la tâche correspondante et mise en évidence de la date choisie.
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.

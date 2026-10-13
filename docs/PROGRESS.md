@@ -9,7 +9,7 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher, les récurrences ancrées, le calendrier accessible, la recherche/filtres et un historique actualisable. CI #38450618601 est verte sur le parent `f744b1b`; l’ajout d’horodatages/durées dans le widget est en cours de validation. Le parcours natif des commandes Tauri reste à vérifier. |
+| Statut | S06-B est dans `main`. La branche S02 a un calendrier accessible, des filtres de liste et un historique des exécutions enrichi des heures de début/fin et des durées. CI #38452406857 est verte sur `90e22ab`. Des tests d’intégration aux commandes Tauri de tâches et de verrouillage ont été ajoutés, en attente de CI. L’interaction native complète reste à vérifier. |
 | Prochaine action | Vérifier le parcours natif des commandes Tauri de verrouillage/déverrouillage sur coffre temporaire, puis choisir le prochain handler métier à partir d’un cas d’usage existant. Les tests de récurrence et de persistance utilisent des dates déterministes. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
