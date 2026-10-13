@@ -150,6 +150,38 @@ describe('browser demo cashflow behaviour', () => {
     expect(series.filter(flow => flow.datePrevue > '2026-11-13').every(flow => flow.statut === 'annule')).toBe(true);
   });
 
+  it('refuses a retroactive stop that would cancel an occurrence with an active realization', async () => {
+    const company = await createCompany();
+    const first = await api<FluxView>('create_flux', {
+      input: flowInput(company.id, {
+        datePrevue: '2026-10-13',
+        frequenceRecurrence: 'mensuel',
+        dateFinRecurrence: '2027-02-13',
+      }),
+    });
+    const listed = await api<FluxView[]>('list_flux');
+    const later = listed.find(flow => flow.recurrenceId === first.recurrenceId && flow.datePrevue === '2026-12-13');
+    if (!later) throw new Error('Occurrence de décembre manquante dans la série de test.');
+    await api<FluxView>('register_flux_realisation', {
+      fluxId: later.id,
+      input: {
+        dateRealisation: '2026-12-13',
+        montantCents: 10_000,
+        reference: 'PAY-TEST',
+        note: null,
+      },
+    });
+    await expect(api<void>('arreter_flux_recurrence', {
+      recurrenceId: first.recurrenceId,
+      dateFin: '2026-11-13',
+    })).rejects.toThrow('réalisation active');
+    const after = await api<FluxView[]>('list_flux');
+    const preserved = after.find(flow => flow.id === later.id);
+    expect(preserved?.statut).toBe('actif');
+    expect(preserved?.montantRealiseCents).toBe(10_000);
+    expect(after.filter(flow => flow.recurrenceId === first.recurrenceId).every(flow => flow.recurrenceActive)).toBe(true);
+  });
+
   it('only stops a recurrence on an existing occurrence within the visible horizon', async () => {
     const company = await createCompany();
     const first = await api<FluxView>('create_flux', {
