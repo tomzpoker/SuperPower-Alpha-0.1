@@ -527,7 +527,7 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
         <article className="panel cashflow-summary-card"><span>Prévu à payer</span><strong>{formatMoney(planOut)}</strong><small>{active.filter(flow => flow.sens === 'decaissement').length} flux actifs</small></article>
         <article className="panel cashflow-summary-card"><span>Total réalisé enregistré</span><strong>{formatMoney(totalActual)}</strong><small>Somme des réalisations actives, entrées et sorties confondues</small></article>
       </div>
-      <div className="alert warning cashflow-hint"><CircleAlert size={17} /><span>Cette version suit le prévu et le réel. Elle ne crée pas encore d’écriture comptable et ne calcule pas la TVA automatiquement.</span></div>
+      <div className="alert warning cashflow-hint"><CircleAlert size={17} /><span>Sans date de fin, une récurrence affiche les échéances sur 36 mois glissants et les totaux incluent les échéances visibles. Ce module suit le prévu et le réel ; il ne crée pas encore d’écriture comptable et ne calcule pas automatiquement la TVA.</span></div>
       {showForm && <form className="panel form-panel cashflow-form" onSubmit={submitFlow}>
         <div className="form-heading"><div><span className="eyebrow">{editingId ? 'MODIFIER LA PRÉVISION' : 'NOUVELLE PRÉVISION'}</span><h3>{editingId ? 'Mettre à jour l’opération prévue' : 'Décrire une opération attendue'}</h3></div><span className="required-note">* Champs obligatoires</span></div>
         {recurrenceLocked && <div className="alert warning"><CircleAlert size={16} /><span>Vous modifiez uniquement cette échéance. Les autres dates et montants de la série ne changent pas. Pour mettre fin à la série, utilisez « Arrêter la récurrence ».</span></div>}
