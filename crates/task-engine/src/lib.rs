@@ -189,15 +189,54 @@ impl AttemptStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TaskRecurrenceFrequency { Once, Monthly, Quarterly, Yearly, CustomCron }
-impl Default for TaskRecurrenceFrequency { fn default() -> Self { Self::Once } }
-impl TaskRecurrenceFrequency {
-    fn as_db_str(self) -> &'static str { match self { Self::Once => "once", Self::Monthly => "monthly", Self::Quarterly => "quarterly", Self::Yearly => "yearly", Self::CustomCron => "custom_cron" } }
-    fn from_db_str(value: &str) -> Result<Self, String> { match value { "once" => Ok(Self::Once), "monthly" => Ok(Self::Monthly), "quarterly" => Ok(Self::Quarterly), "yearly" => Ok(Self::Yearly), "custom_cron" => Ok(Self::CustomCron), _ => Err(format!("fréquence de récurrence inconnue : {value}")) } }
-    pub fn is_recurring(self) -> bool { self != Self::Once }
-    fn interval_months(self) -> Option<u32> { match self { Self::Once | Self::CustomCron => None, Self::Monthly => Some(1), Self::Quarterly => Some(3), Self::Yearly => Some(12) } }
+pub enum TaskRecurrenceFrequency {
+    Once,
+    Monthly,
+    Quarterly,
+    Yearly,
+    CustomCron,
 }
+impl Default for TaskRecurrenceFrequency {
+    fn default() -> Self {
+        Self::Once
+    }
+}
+impl TaskRecurrenceFrequency {
+    fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Once => "once",
+            Self::Monthly => "monthly",
+            Self::Quarterly => "quarterly",
+            Self::Yearly => "yearly",
+            Self::CustomCron => "custom_cron",
+        }
+    }
+    fn from_db_str(value: &str) -> Result<Self, String> {
+        match value {
+            "once" => Ok(Self::Once),
+            "monthly" => Ok(Self::Monthly),
+            "quarterly" => Ok(Self::Quarterly),
+            "yearly" => Ok(Self::Yearly),
+            "custom_cron" => Ok(Self::CustomCron),
+            _ => Err(format!("fréquence de récurrence inconnue : {value}")),
+        }
+    }
+    pub fn is_recurring(self) -> bool {
+        self != Self::Once
+    }
+    fn interval_months(self) -> Option<u32> {
+        match self {
+            Self::Once | Self::CustomCron => None,
+            Self::Monthly => Some(1),
+            Self::Quarterly => Some(3),
+            Self::Yearly => Some(12),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTask {#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewTask {
     pub idempotency_key: String,
@@ -339,7 +378,8 @@ impl TaskEngine {
             ));
         }
 
-        let (scheduled_at, cron_expression, cron_anchor_at, recurrence_frequency) = normalize_schedule(input)?;
+        let (scheduled_at, cron_expression, cron_anchor_at, recurrence_frequency) =
+            normalize_schedule(input)?;
         let now = normalize_timestamp(now, "date de création")?;
         let payload_json = input.payload.to_string();
         let id = Uuid::new_v4().to_string();
@@ -599,17 +639,52 @@ impl TaskEngine {
     }
 
     /// Calcule la prochaine occurrence depuis l'ancre originale.
-    pub fn next_anchored_occurrence(frequency: TaskRecurrenceFrequency, anchor_at: &str, current_at: &str) -> Result<String, TaskEngineError> {
-        let interval = frequency.interval_months().ok_or_else(|| TaskEngineError::InvalidInput("Une fréquence métier mensuelle, trimestrielle ou annuelle est requise.".to_string()))?;
-        let anchor = DateTime::parse_from_rfc3339(&normalize_timestamp(anchor_at, "ancre de récurrence")?).map_err(|_| TaskEngineError::InvalidInput("Ancre de récurrence invalide.".to_string()))?.with_timezone(&Utc);
-        let current = DateTime::parse_from_rfc3339(&normalize_timestamp(current_at, "échéance actuelle")?).map_err(|_| TaskEngineError::InvalidInput("Échéance actuelle invalide.".to_string()))?.with_timezone(&Utc);
-        let months = ((current.year() - anchor.year()) * 12 + current.month() as i32 - anchor.month() as i32).max(0) as u32;
+    pub fn next_anchored_occurrence(
+        frequency: TaskRecurrenceFrequency,
+        anchor_at: &str,
+        current_at: &str,
+    ) -> Result<String, TaskEngineError> {
+        let interval = frequency.interval_months().ok_or_else(|| {
+            TaskEngineError::InvalidInput(
+                "Une fréquence métier mensuelle, trimestrielle ou annuelle est requise."
+                    .to_string(),
+            )
+        })?;
+        let anchor =
+            DateTime::parse_from_rfc3339(&normalize_timestamp(anchor_at, "ancre de récurrence")?)
+                .map_err(|_| {
+                    TaskEngineError::InvalidInput("Ancre de récurrence invalide.".to_string())
+                })?
+                .with_timezone(&Utc);
+        let current =
+            DateTime::parse_from_rfc3339(&normalize_timestamp(current_at, "échéance actuelle")?)
+                .map_err(|_| {
+                    TaskEngineError::InvalidInput("Échéance actuelle invalide.".to_string())
+                })?
+                .with_timezone(&Utc);
+        let months = ((current.year() - anchor.year()) * 12 + current.month() as i32
+            - anchor.month() as i32)
+            .max(0) as u32;
         let mut index = months / interval;
         loop {
-            let offset = interval.checked_mul(index).ok_or_else(|| TaskEngineError::InvalidInput("La récurrence dépasse la plage de dates prise en charge.".to_string()))?;
-            let candidate = anchored_month_occurrence(&anchor, offset).ok_or_else(|| TaskEngineError::InvalidInput("La prochaine échéance sort de la plage de dates prise en charge.".to_string()))?;
-            if candidate > current { return Ok(candidate.to_rfc3339_opts(SecondsFormat::Millis, true)); }
-            index = index.checked_add(1).ok_or_else(|| TaskEngineError::InvalidInput("La récurrence dépasse la plage de dates prise en charge.".to_string()))?;
+            let offset = interval.checked_mul(index).ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "La récurrence dépasse la plage de dates prise en charge.".to_string(),
+                )
+            })?;
+            let candidate = anchored_month_occurrence(&anchor, offset).ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "La prochaine échéance sort de la plage de dates prise en charge.".to_string(),
+                )
+            })?;
+            if candidate > current {
+                return Ok(candidate.to_rfc3339_opts(SecondsFormat::Millis, true));
+            }
+            index = index.checked_add(1).ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "La récurrence dépasse la plage de dates prise en charge.".to_string(),
+                )
+            })?;
         }
     }
 
@@ -1011,33 +1086,97 @@ fn normalize_timestamp(value: &str, label: &str) -> Result<String, TaskEngineErr
         .to_rfc3339_opts(SecondsFormat::Millis, true))
 }
 
-fn normalize_schedule(input: &NewTask) -> Result<(String, Option<String>, Option<String>, TaskRecurrenceFrequency), TaskEngineError> {
+fn normalize_schedule(
+    input: &NewTask,
+) -> Result<
+    (
+        String,
+        Option<String>,
+        Option<String>,
+        TaskRecurrenceFrequency,
+    ),
+    TaskEngineError,
+> {
     let anchor = normalize_timestamp(&input.scheduled_at, "date programmée")?;
-    let expression = input.cron_expression.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    if expression.is_some() && !matches!(input.recurrence_frequency, TaskRecurrenceFrequency::Once | TaskRecurrenceFrequency::CustomCron) {
-        return Err(TaskEngineError::InvalidInput("Choisissez soit une fréquence métier, soit une expression cron avancée, pas les deux.".to_string()));
+    let expression = input
+        .cron_expression
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if expression.is_some()
+        && !matches!(
+            input.recurrence_frequency,
+            TaskRecurrenceFrequency::Once | TaskRecurrenceFrequency::CustomCron
+        )
+    {
+        return Err(TaskEngineError::InvalidInput(
+            "Choisissez soit une fréquence métier, soit une expression cron avancée, pas les deux."
+                .to_string(),
+        ));
     }
-    let frequency = if expression.is_some() { TaskRecurrenceFrequency::CustomCron } else { input.recurrence_frequency };
-    if frequency == TaskRecurrenceFrequency::Once { return Ok((anchor, None, None, frequency)); }
+    let frequency = if expression.is_some() {
+        TaskRecurrenceFrequency::CustomCron
+    } else {
+        input.recurrence_frequency
+    };
+    if frequency == TaskRecurrenceFrequency::Once {
+        return Ok((anchor, None, None, frequency));
+    }
     if frequency == TaskRecurrenceFrequency::CustomCron {
-        let expression = required_text(expression.ok_or_else(|| TaskEngineError::InvalidInput("Saisissez une expression cron pour utiliser le mode avancé.".to_string()))?, "expression cron", 200)?;
-        let schedule = CronSchedule::parse(&expression).map_err(|error| TaskEngineError::InvalidInput(format!("Expression cron invalide : {error}")))?;
-        let anchor_date = DateTime::parse_from_rfc3339(&anchor).map_err(|_| TaskEngineError::InvalidInput("La date de départ de la tâche récurrente est invalide.".to_string()))?.with_timezone(&Utc);
-        let first = if schedule.matches_at(&anchor_date) { anchor_date } else { schedule.next_after(&anchor_date).ok_or_else(|| TaskEngineError::InvalidInput("L'expression cron ne produit aucune occurrence dans les cinq prochaines années.".to_string()))? };
-        return Ok((first.to_rfc3339_opts(SecondsFormat::Millis, true), Some(expression), Some(anchor), frequency));
+        let expression = required_text(
+            expression.ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "Saisissez une expression cron pour utiliser le mode avancé.".to_string(),
+                )
+            })?,
+            "expression cron",
+            200,
+        )?;
+        let schedule = CronSchedule::parse(&expression).map_err(|error| {
+            TaskEngineError::InvalidInput(format!("Expression cron invalide : {error}"))
+        })?;
+        let anchor_date = DateTime::parse_from_rfc3339(&anchor)
+            .map_err(|_| {
+                TaskEngineError::InvalidInput(
+                    "La date de départ de la tâche récurrente est invalide.".to_string(),
+                )
+            })?
+            .with_timezone(&Utc);
+        let first = if schedule.matches_at(&anchor_date) {
+            anchor_date
+        } else {
+            schedule.next_after(&anchor_date).ok_or_else(|| TaskEngineError::InvalidInput("L'expression cron ne produit aucune occurrence dans les cinq prochaines années.".to_string()))?
+        };
+        return Ok((
+            first.to_rfc3339_opts(SecondsFormat::Millis, true),
+            Some(expression),
+            Some(anchor),
+            frequency,
+        ));
     }
     Ok((anchor.clone(), None, Some(anchor), frequency))
 }
+
 fn anchored_month_occurrence(anchor: &DateTime<Utc>, offset_months: u32) -> Option<DateTime<Utc>> {
     let start = anchor.date_naive();
-    let absolute = i64::from(start.year()).checked_mul(12)?.checked_add(i64::from(start.month0()))?.checked_add(i64::from(offset_months))?;
+    let absolute = i64::from(start.year())
+        .checked_mul(12)?
+        .checked_add(i64::from(start.month0()))?
+        .checked_add(i64::from(offset_months))?;
     let year = i32::try_from(absolute.div_euclid(12)).ok()?;
     let month = u32::try_from(absolute.rem_euclid(12) + 1).ok()?;
-    let (next_year, next_month) = if month == 12 { (year.checked_add(1)?, 1) } else { (year, month + 1) };
+    let (next_year, next_month) = if month == 12 {
+        (year.checked_add(1)?, 1)
+    } else {
+        (year, month + 1)
+    };
     let first_next = NaiveDate::from_ymd_opt(next_year, next_month, 1)?;
     let last_day = (first_next - Duration::days(1)).day();
     let date = NaiveDate::from_ymd_opt(year, month, start.day().min(last_day))?;
-    Some(DateTime::from_naive_utc_and_offset(date.and_time(anchor.time()), Utc))
+    Some(DateTime::from_naive_utc_and_offset(
+        date.and_time(anchor.time()),
+        Utc,
+    ))
 }
 
 fn conversion_error(index: usize, kind: &str, value: &str) -> rusqlite::Error {
@@ -1068,7 +1207,8 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
     })?;
     let status_raw: String = row.get(7)?;
     let frequency_raw: String = row.get(13)?;
-    let recurrence_frequency = TaskRecurrenceFrequency::from_db_str(&frequency_raw).map_err(|message| conversion_error(13, "fréquence de récurrence", &message))?;
+    let recurrence_frequency = TaskRecurrenceFrequency::from_db_str(&frequency_raw)
+        .map_err(|message| conversion_error(13, "fréquence de récurrence", &message))?;
     let max_attempts_raw: i64 = row.get(8)?;
     let max_attempts = u32::try_from(max_attempts_raw).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(8, Type::Integer, Box::new(error))
@@ -1305,7 +1445,10 @@ mod tests {
         let task = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
         assert_eq!(task.scheduled_at, "2026-10-13T10:00:00.000Z");
         assert_eq!(task.cron_expression.as_deref(), Some("0 10 * * 1-5"));
-        assert_eq!(task.recurrence_frequency, TaskRecurrenceFrequency::CustomCron);
+        assert_eq!(
+            task.recurrence_frequency,
+            TaskRecurrenceFrequency::CustomCron
+        );
         assert_eq!(
             task.cron_anchor_at.as_deref(),
             Some("2026-10-13T10:00:00.000Z")
@@ -1331,12 +1474,40 @@ mod tests {
     #[test]
     fn business_recurrence_preserves_month_end_and_leap_day_anchor() {
         let jan = "2026-01-31T10:30:00.000Z";
-        assert_eq!(TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Monthly, jan, jan).unwrap(), "2026-02-28T10:30:00.000Z");
-        assert_eq!(TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Monthly, jan, "2026-02-28T10:30:00.000Z").unwrap(), "2026-03-31T10:30:00.000Z");
-        assert_eq!(TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Quarterly, jan, jan).unwrap(), "2026-04-30T10:30:00.000Z");
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Monthly, jan, jan)
+                .unwrap(),
+            "2026-02-28T10:30:00.000Z"
+        );
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(
+                TaskRecurrenceFrequency::Monthly,
+                jan,
+                "2026-02-28T10:30:00.000Z"
+            )
+            .unwrap(),
+            "2026-03-31T10:30:00.000Z"
+        );
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Quarterly, jan, jan)
+                .unwrap(),
+            "2026-04-30T10:30:00.000Z"
+        );
         let leap = "2024-02-29T10:30:00.000Z";
-        assert_eq!(TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Yearly, leap, leap).unwrap(), "2025-02-28T10:30:00.000Z");
-        assert_eq!(TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Yearly, leap, "2025-02-28T10:30:00.000Z").unwrap(), "2026-02-28T10:30:00.000Z");
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Yearly, leap, leap)
+                .unwrap(),
+            "2025-02-28T10:30:00.000Z"
+        );
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(
+                TaskRecurrenceFrequency::Yearly,
+                leap,
+                "2025-02-28T10:30:00.000Z"
+            )
+            .unwrap(),
+            "2026-02-28T10:30:00.000Z"
+        );
     }
 
     #[test]

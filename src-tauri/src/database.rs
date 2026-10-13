@@ -231,8 +231,15 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
         migrate_v4_to_v5(connection)?;
         version = 5;
     }
-    if version == 5 { migrate_v5_to_v6(connection)?; version = 6; }
-    if version != 6 { return Err(format!("La version de schéma {version} n'est pas prise en charge.")); }
+    if version == 5 {
+        migrate_v5_to_v6(connection)?;
+        version = 6;
+    }
+    if version != 6 {
+        return Err(format!(
+            "La version de schéma {version} n'est pas prise en charge."
+        ));
+    }
     Ok(())
 }
 
@@ -267,10 +274,17 @@ fn migrate_v4_to_v5(connection: &mut Connection) -> Result<(), String> {
 }
 
 fn migrate_v5_to_v6(connection: &mut Connection) -> Result<(), String> {
-    let transaction = connection.transaction().map_err(|error| format!("Démarrage de migration v5 vers v6 impossible : {error}"))?;
-    TaskEngine::install_recurrence_schema(&transaction).map_err(|error| format!("Ajout des fréquences de récurrence impossible : {error}"))?;
-    transaction.execute_batch("PRAGMA user_version = 6;").map_err(|error| format!("Versionnement du schéma de récurrence impossible : {error}"))?;
-    transaction.commit().map_err(|error| format!("Validation de migration v5 vers v6 impossible : {error}"))?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Démarrage de migration v5 vers v6 impossible : {error}"))?;
+    TaskEngine::install_recurrence_schema(&transaction)
+        .map_err(|error| format!("Ajout des fréquences de récurrence impossible : {error}"))?;
+    transaction
+        .execute_batch("PRAGMA user_version = 6;")
+        .map_err(|error| format!("Versionnement du schéma de récurrence impossible : {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("Validation de migration v5 vers v6 impossible : {error}"))?;
     Ok(())
 }
 fn validate_passphrase(passphrase: &str) -> Result<(), String> {
@@ -809,12 +823,28 @@ mod migration_tests {
         TaskEngine::install_cron_schema(&connection).unwrap();
         connection.execute("INSERT INTO task_definitions (id,idempotency_key,module,task_type,title,payload_json,scheduled_at,status,max_attempts,created_at,updated_at,cron_expression,cron_anchor_at) VALUES ('legacy-cron','legacy-cron-key','general','reminder','Cron historique','{}','2026-10-20T10:00:00.000Z','scheduled',3,'2026-10-13T10:00:00.000Z','2026-10-13T10:00:00.000Z','0 10 * * 1-5','2026-10-20T10:00:00.000Z')", []).unwrap();
         connection.execute("INSERT INTO task_definitions (id,idempotency_key,module,task_type,title,payload_json,scheduled_at,status,max_attempts,created_at,updated_at) VALUES ('legacy-once','legacy-once-key','general','reminder','Ponctuelle historique','{}','2026-10-20T10:00:00.000Z','scheduled',3,'2026-10-13T10:00:00.000Z','2026-10-13T10:00:00.000Z')", []).unwrap();
-        connection.execute_batch("PRAGMA user_version = 5;").unwrap();
+        connection
+            .execute_batch("PRAGMA user_version = 5;")
+            .unwrap();
         migrate_schema(&mut connection).unwrap();
-        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(version, 6);
-        let cron: String = connection.query_row("SELECT recurrence_frequency FROM task_definitions WHERE id='legacy-cron'", [], |row| row.get(0)).unwrap();
-        let once: String = connection.query_row("SELECT recurrence_frequency FROM task_definitions WHERE id='legacy-once'", [], |row| row.get(0)).unwrap();
+        let cron: String = connection
+            .query_row(
+                "SELECT recurrence_frequency FROM task_definitions WHERE id='legacy-cron'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let once: String = connection
+            .query_row(
+                "SELECT recurrence_frequency FROM task_definitions WHERE id='legacy-once'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(cron, "custom_cron");
         assert_eq!(once, "once");
     }
