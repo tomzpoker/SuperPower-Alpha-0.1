@@ -789,7 +789,7 @@ function TasksPage() {
         : <div className="tasks-list">{tasks.map((task) => <article className="panel task-card" key={task.id}>
           <div className="task-card-main">
             <div className="task-card-icon"><Clock3 size={19} /></div>
-            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}{task.cronExpression ? \` · Cron UTC : \${task.cronExpression}\` : ''}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
+            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}{task.cronExpression ? <> · Cron UTC : {task.cronExpression}</> : ''}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
           </div>
           <div className="task-card-actions">
             {task.status !== 'cancelled' && <button className="button secondary" onClick={() => void startEditingTask(task)}>Modifier</button>}

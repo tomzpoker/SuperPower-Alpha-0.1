@@ -609,7 +609,9 @@ mod tests {
         )
         .expect("repeat run");
         assert_eq!(
-            TaskEngine::list_executions(&connection, &task.id).unwrap().len(),
+            TaskEngine::list_executions(&connection, &task.id)
+                .unwrap()
+                .len(),
             3,
             "la matérialisation répétée ne doit pas dupliquer les occurrences"
         );

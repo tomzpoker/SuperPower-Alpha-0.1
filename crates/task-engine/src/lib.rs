@@ -262,8 +262,14 @@ impl TaskEngine {
     /// Idempotent afin d'être utilisé aussi dans les tests du moteur isolé.
     pub fn install_cron_schema(connection: &Connection) -> Result<(), TaskEngineError> {
         for (column, sql) in [
-            ("cron_expression", "ALTER TABLE task_definitions ADD COLUMN cron_expression TEXT NULL;"),
-            ("cron_anchor_at", "ALTER TABLE task_definitions ADD COLUMN cron_anchor_at TEXT NULL;"),
+            (
+                "cron_expression",
+                "ALTER TABLE task_definitions ADD COLUMN cron_expression TEXT NULL;",
+            ),
+            (
+                "cron_anchor_at",
+                "ALTER TABLE task_definitions ADD COLUMN cron_anchor_at TEXT NULL;",
+            ),
         ] {
             let has_column: bool = connection.query_row(
                 "SELECT EXISTS(
@@ -1171,7 +1177,10 @@ mod tests {
         let task = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
         assert_eq!(task.scheduled_at, "2026-10-13T10:00:00.000Z");
         assert_eq!(task.cron_expression.as_deref(), Some("0 10 * * 1-5"));
-        assert_eq!(task.cron_anchor_at.as_deref(), Some("2026-10-13T10:00:00.000Z"));
+        assert_eq!(
+            task.cron_anchor_at.as_deref(),
+            Some("2026-10-13T10:00:00.000Z")
+        );
 
         connection
             .execute(
