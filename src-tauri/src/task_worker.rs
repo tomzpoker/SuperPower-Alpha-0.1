@@ -120,6 +120,13 @@ struct RunningWorker {
 impl TaskWorkerController {
     /// Démarre au plus un worker, après l'ouverture réussie du coffre.
     pub(crate) fn start(&self, app: AppHandle) -> Result<(), String> {
+        self.start_with(move |thread_stop| run_worker(app, thread_stop))
+    }
+
+    fn start_with<F>(&self, worker: F) -> Result<(), String>
+    where
+        F: FnOnce(Arc<AtomicBool>) + Send + 'static,
+    {
         let mut slot = self
             .running
             .lock()
@@ -127,7 +134,7 @@ impl TaskWorkerController {
 
         if slot
             .as_ref()
-            .is_some_and(|worker| !worker.join.is_finished())
+            .is_some_and(|running| !running.join.is_finished())
         {
             return Ok(());
         }
@@ -141,7 +148,7 @@ impl TaskWorkerController {
         let thread_stop = Arc::clone(&stop);
         let join = thread::Builder::new()
             .name("superpower-task-worker".to_string())
-            .spawn(move || run_worker(app, thread_stop))
+            .spawn(move || worker(thread_stop))
             .map_err(|error| format!("Démarrage du worker impossible : {error}"))?;
 
         *slot = Some(RunningWorker { stop, join });
@@ -303,5 +310,53 @@ mod tests {
         assert_eq!(ready[0].message, "Contenu réessayé");
         queue.remove("exec-1").unwrap();
         assert!(queue.ready_events().unwrap().is_empty());
+    }
+
+    #[test]
+    fn worker_controller_ignores_duplicate_start_and_can_restart_after_stop() {
+        let controller = TaskWorkerController::default();
+
+        let (first_started_tx, first_started_rx) = std::sync::mpsc::channel();
+        controller
+            .start_with(move |stop| {
+                first_started_tx.send(()).unwrap();
+                while !stop.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(1));
+                }
+            })
+            .unwrap();
+        first_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("le premier worker aurait dû démarrer");
+
+        let (duplicate_tx, duplicate_rx) = std::sync::mpsc::channel();
+        controller
+            .start_with(move |stop| {
+                duplicate_tx.send(()).unwrap();
+                while !stop.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(1));
+                }
+            })
+            .unwrap();
+        assert!(matches!(
+            duplicate_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        ));
+
+        controller.stop().unwrap();
+
+        let (restart_tx, restart_rx) = std::sync::mpsc::channel();
+        controller
+            .start_with(move |stop| {
+                restart_tx.send(()).unwrap();
+                while !stop.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(1));
+                }
+            })
+            .unwrap();
+        restart_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("le worker aurait dû redémarrer après stop");
+        controller.stop().unwrap();
     }
 }
