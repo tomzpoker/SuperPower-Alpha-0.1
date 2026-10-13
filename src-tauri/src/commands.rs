@@ -1,4 +1,4 @@
-use chrono::{Local, NaiveDate};
+use chrono::{Local, Months, NaiveDate};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use superpower_core::{
@@ -7,6 +7,7 @@ use superpower_core::{
         compute_flux_state, validate_flux_input, validate_realisation_input, CategorieFlux,
         FluxInput, FluxRealisationView, FluxView, RealisationFluxInput, SensFlux, StatutFlux,
     },
+    recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux},
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
 use tauri::State;
@@ -87,6 +88,26 @@ struct FluxRecord {
     statut: String,
     created_at: String,
     updated_at: String,
+    recurrence_id: Option<String>,
+    frequence_recurrence: Option<String>,
+    date_fin_recurrence: Option<String>,
+    recurrence_active: Option<i64>,
+}
+
+#[derive(Debug)]
+struct RecurrenceRecord {
+    id: String,
+    societe_id: String,
+    frequence: String,
+    date_debut: String,
+    date_fin: Option<String>,
+    actif: i64,
+    libelle: String,
+    sens: String,
+    categorie: String,
+    montant_prevu_cents: i64,
+    tiers: Option<String>,
+    reference: Option<String>,
 }
 
 #[tauri::command]
@@ -306,12 +327,17 @@ pub fn list_flux(
     societe_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<FluxView>, String> {
-    let connection = state.connection()?;
+    let mut connection = state.connection()?;
+    materialiser_recurrences(&mut connection)?;
     let records = {
         let mut statement = connection.prepare(
-            "SELECT id, societe_id, libelle, sens, categorie, date_prevue, montant_prevu_cents, tiers, reference, statut, created_at, updated_at
-             FROM flux_previsionnels WHERE (?1 IS NULL OR societe_id = ?1)
-             ORDER BY date_prevue ASC, created_at DESC LIMIT 500"
+            "SELECT f.id, f.societe_id, f.libelle, f.sens, f.categorie, f.date_prevue,
+                    f.montant_prevu_cents, f.tiers, f.reference, f.statut, f.created_at, f.updated_at,
+                    f.recurrence_id, r.frequence, r.date_fin, r.actif
+             FROM flux_previsionnels f
+             LEFT JOIN flux_recurrences r ON r.id = f.recurrence_id
+             WHERE (?1 IS NULL OR f.societe_id = ?1)
+             ORDER BY f.date_prevue ASC, f.created_at DESC LIMIT 10000"
         ).map_err(db_error)?;
         let rows = statement
             .query_map([societe_id], |row| {
@@ -328,6 +354,10 @@ pub fn list_flux(
                     statut: row.get(9)?,
                     created_at: row.get(10)?,
                     updated_at: row.get(11)?,
+                    recurrence_id: row.get(12)?,
+                    frequence_recurrence: row.get(13)?,
+                    date_fin_recurrence: row.get(14)?,
+                    recurrence_active: row.get(15)?,
                 })
             })
             .map_err(db_error)?;
@@ -343,14 +373,20 @@ pub fn list_flux(
 pub fn create_flux(input: FluxInput, state: State<'_, AppState>) -> Result<FluxView, String> {
     validate_flux_input(&input).map_err(|error| error.to_string())?;
     let libelle = input.libelle.trim().to_string();
-    let tiers = clean_optional(input.tiers);
-    let reference = clean_optional(input.reference);
+    let tiers = clean_optional(input.tiers.clone());
+    let reference = clean_optional(input.reference.clone());
     let date_prevue = NaiveDate::parse_from_str(&input.date_prevue, "%Y-%m-%d")
         .map_err(|_| "La date prévue doit être au format AAAA-MM-JJ.".to_string())?;
     let sens = enum_name(input.sens)?;
     let categorie = enum_name(input.categorie)?;
     let id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
+    let recurrence_id = if input.frequence_recurrence == FrequenceFlux::Ponctuel {
+        None
+    } else {
+        Some(Uuid::new_v4().to_string())
+    };
+    let dates = dates_pour_input(&input, date_prevue)?;
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
     let company_exists: bool = transaction
@@ -363,23 +399,60 @@ pub fn create_flux(input: FluxInput, state: State<'_, AppState>) -> Result<FluxV
     if !company_exists {
         return Err("La société sélectionnée n'existe pas pour ce flux.".to_string());
     }
-    transaction.execute(
-        "INSERT INTO flux_previsionnels(id, societe_id, libelle, sens, categorie, date_prevue, montant_prevu_cents, tiers, reference, statut, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'actif', ?10, ?10)",
-        params![id, input.societe_id, libelle, sens, categorie, date_prevue.to_string(), input.montant_prevu_cents, tiers, reference, now],
-    ).map_err(db_error)?;
-    audit_tx(
-        &transaction,
-        "create",
-        "flux_previsionnel",
-        &id,
-        serde_json::json!({
-            "societeId": input.societe_id, "libelle": input.libelle.trim(), "sens": sens,
-            "categorie": categorie, "datePrevue": date_prevue.to_string(),
-            "montantPrevuCents": input.montant_prevu_cents,
-        }),
-    )
-    .map_err(db_error)?;
+    if let Some(series_id) = recurrence_id.as_deref() {
+        inserer_serie_recurrence_tx(&transaction, series_id, &input, date_prevue, &now)?;
+        audit_tx(
+            &transaction,
+            "create",
+            "flux_recurrence",
+            series_id,
+            serde_json::json!({
+                "societeId": input.societe_id,
+                "frequence": input.frequence_recurrence,
+                "dateDebut": date_prevue.to_string(),
+                "dateFin": input.date_fin_recurrence,
+                "occurrencesInitiales": dates.len(),
+            }),
+        )
+        .map_err(db_error)?;
+    }
+    for date in &dates {
+        let occurrence_id = if *date == date_prevue {
+            id.clone()
+        } else {
+            Uuid::new_v4().to_string()
+        };
+        inserer_occurrence_flux_tx(
+            &transaction,
+            &occurrence_id,
+            recurrence_id.as_deref(),
+            &input.societe_id,
+            &libelle,
+            &sens,
+            &categorie,
+            date,
+            input.montant_prevu_cents,
+            tiers.as_deref(),
+            reference.as_deref(),
+            &now,
+        )?;
+        audit_tx(
+            &transaction,
+            "create",
+            "flux_previsionnel",
+            &occurrence_id,
+            serde_json::json!({
+                "societeId": input.societe_id,
+                "libelle": libelle,
+                "sens": sens,
+                "categorie": categorie,
+                "datePrevue": date.to_string(),
+                "montantPrevuCents": input.montant_prevu_cents,
+                "recurrenceId": recurrence_id,
+            }),
+        )
+        .map_err(db_error)?;
+    }
     transaction.commit().map_err(db_error)?;
     build_flux_view(&connection, read_flux_record(&connection, &id)?)
 }
@@ -392,8 +465,8 @@ pub fn update_flux(
 ) -> Result<FluxView, String> {
     validate_flux_input(&input).map_err(|error| error.to_string())?;
     let libelle = input.libelle.trim().to_string();
-    let tiers = clean_optional(input.tiers);
-    let reference = clean_optional(input.reference);
+    let tiers = clean_optional(input.tiers.clone());
+    let reference = clean_optional(input.reference.clone());
     let date_prevue = NaiveDate::parse_from_str(&input.date_prevue, "%Y-%m-%d")
         .map_err(|_| "La date prévue doit être au format AAAA-MM-JJ.".to_string())?;
     let sens = enum_name(input.sens)?;
@@ -401,15 +474,15 @@ pub fn update_flux(
     let now = chrono::Utc::now().to_rfc3339();
     let mut connection = state.connection()?;
     let transaction = connection.transaction().map_err(db_error)?;
-    let existing: Option<(String, String)> = transaction
+    let existing: Option<(String, String, Option<String>, String)> = transaction
         .query_row(
-            "SELECT societe_id, statut FROM flux_previsionnels WHERE id = ?1",
+            "SELECT societe_id, statut, recurrence_id, date_prevue FROM flux_previsionnels WHERE id = ?1",
             [&id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(db_error)?;
-    let Some((societe_id, statut)) = existing else {
+    let Some((societe_id, statut, existing_recurrence_id, existing_date_prevue)) = existing else {
         return Err("Ce flux n'existe plus.".to_string());
     };
     if statut != "actif" {
@@ -421,18 +494,88 @@ pub fn update_flux(
     if societe_id != input.societe_id {
         return Err("La société d'un flux existant ne peut pas être changée. Annulez-le puis créez le flux dans la bonne société.".to_string());
     }
-    transaction.execute(
-        "UPDATE flux_previsionnels SET libelle = ?1, sens = ?2, categorie = ?3, date_prevue = ?4, montant_prevu_cents = ?5, tiers = ?6, reference = ?7, updated_at = ?8 WHERE id = ?9 AND statut = 'actif'",
-        params![libelle, sens, categorie, date_prevue.to_string(), input.montant_prevu_cents, tiers, reference, now, id],
-    ).map_err(db_error)?;
+
+    let recurrence_id = if let Some(series_id) = existing_recurrence_id {
+        let series: Option<(String, Option<String>)> = transaction
+            .query_row(
+                "SELECT frequence, date_fin FROM flux_recurrences WHERE id = ?1",
+                [&series_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db_error)?;
+        let Some((stored_frequency, stored_end)) = series else {
+            return Err("La série de récurrence de cette échéance est introuvable ; aucune modification n'a été enregistrée.".to_string());
+        };
+        let stored_frequency: FrequenceFlux = from_enum(&stored_frequency)?;
+        if stored_frequency != input.frequence_recurrence || stored_end != input.date_fin_recurrence
+        {
+            return Err("La fréquence d'une série existante ne se modifie pas depuis une occurrence. Arrêtez la série puis créez une nouvelle prévision récurrente.".to_string());
+        }
+        if input.date_prevue != existing_date_prevue {
+            return Err("La date d'une échéance récurrente est liée au calendrier de sa série ; elle ne peut pas être déplacée individuellement.".to_string());
+        }
+        Some(series_id)
+    } else if input.frequence_recurrence != FrequenceFlux::Ponctuel {
+        let series_id = Uuid::new_v4().to_string();
+        inserer_serie_recurrence_tx(&transaction, &series_id, &input, date_prevue, &now)?;
+        transaction
+            .execute(
+                "UPDATE flux_previsionnels SET recurrence_id = ?1 WHERE id = ?2",
+                params![series_id, id],
+            )
+            .map_err(db_error)?;
+        audit_tx(
+            &transaction,
+            "create",
+            "flux_recurrence",
+            &series_id,
+            serde_json::json!({
+                "societeId": input.societe_id,
+                "frequence": input.frequence_recurrence,
+                "dateDebut": date_prevue.to_string(),
+                "dateFin": input.date_fin_recurrence,
+            }),
+        )
+        .map_err(db_error)?;
+        Some(series_id)
+    } else {
+        None
+    };
+
+    transaction
+        .execute(
+            "UPDATE flux_previsionnels
+         SET libelle = ?1, sens = ?2, categorie = ?3, date_prevue = ?4,
+             montant_prevu_cents = ?5, tiers = ?6, reference = ?7,
+             recurrence_id = ?8, updated_at = ?9
+         WHERE id = ?10 AND statut = 'actif'",
+            params![
+                libelle,
+                sens,
+                categorie,
+                date_prevue.to_string(),
+                input.montant_prevu_cents,
+                tiers,
+                reference,
+                recurrence_id,
+                now,
+                id
+            ],
+        )
+        .map_err(db_error)?;
     audit_tx(
         &transaction,
         "update",
         "flux_previsionnel",
         &id,
         serde_json::json!({
-            "libelle": input.libelle.trim(), "datePrevue": date_prevue.to_string(),
-            "montantPrevuCents": input.montant_prevu_cents, "sens": sens, "categorie": categorie,
+            "libelle": input.libelle.trim(),
+            "datePrevue": date_prevue.to_string(),
+            "montantPrevuCents": input.montant_prevu_cents,
+            "sens": sens,
+            "categorie": categorie,
+            "recurrenceId": recurrence_id,
         }),
     )
     .map_err(db_error)?;
@@ -478,6 +621,135 @@ pub fn cancel_flux(id: String, state: State<'_, AppState>) -> Result<FluxView, S
 }
 
 #[tauri::command]
+pub fn arreter_flux_recurrence(
+    recurrence_id: String,
+    date_fin: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let fin = NaiveDate::parse_from_str(&date_fin, "%Y-%m-%d")
+        .map_err(|_| "La date d'arrêt doit être au format AAAA-MM-JJ.".to_string())?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut connection = state.connection()?;
+    let transaction = connection.transaction().map_err(db_error)?;
+    let serie: Option<(String, Option<String>, i64)> = transaction
+        .query_row(
+            "SELECT date_debut, date_fin, actif FROM flux_recurrences WHERE id = ?1",
+            [&recurrence_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db_error)?;
+    let Some((date_debut, fin_existante, actif)) = serie else {
+        return Err("Cette série de récurrence n'existe plus.".to_string());
+    };
+    if actif != 1 {
+        return Err("Cette récurrence est déjà arrêtée.".to_string());
+    }
+    let debut = NaiveDate::parse_from_str(&date_debut, "%Y-%m-%d")
+        .map_err(|_| "La date de début de la récurrence est invalide.".to_string())?;
+    if fin < debut {
+        return Err("La date d'arrêt ne peut pas précéder la première échéance.".to_string());
+    }
+    if fin_existante
+        .as_deref()
+        .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+        .is_some_and(|existing| fin > existing)
+    {
+        return Err(
+            "La date d'arrêt ne peut pas prolonger une récurrence déjà limitée.".to_string(),
+        );
+    }
+    let fin_est_echeance: bool = transaction
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM flux_previsionnels
+                WHERE recurrence_id = ?1 AND date_prevue = ?2
+            )",
+            params![recurrence_id, fin.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if !fin_est_echeance {
+        return Err(
+            "La date d'arrêt doit correspondre à une échéance réelle de cette série.".to_string(),
+        );
+    }
+    let realisation_apres_fin: bool = transaction
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM flux_previsionnels f
+                JOIN flux_realisations r ON r.flux_id = f.id
+                WHERE f.recurrence_id = ?1
+                  AND f.date_prevue > ?2
+                  AND r.annulee_at IS NULL
+            )",
+            params![recurrence_id, fin.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if realisation_apres_fin {
+        return Err("Impossible d'arrêter la récurrence avant une échéance qui possède déjà une réalisation active. Choisissez une date de fin à cette échéance ou après.".to_string());
+    }
+
+    transaction
+        .execute(
+            "UPDATE flux_recurrences SET actif = 0, date_fin = ?1, updated_at = ?2 WHERE id = ?3 AND actif = 1",
+            params![fin.to_string(), now, recurrence_id],
+        )
+        .map_err(db_error)?;
+
+    let futures = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT id, date_prevue FROM flux_previsionnels
+                 WHERE recurrence_id = ?1 AND statut = 'actif' AND date_prevue > ?2
+                 ORDER BY date_prevue",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map(params![recurrence_id, fin.to_string()], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(db_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?
+    };
+    for (flux_id, date_prevue) in &futures {
+        transaction
+            .execute(
+                "UPDATE flux_previsionnels SET statut = 'annule', updated_at = ?1 WHERE id = ?2 AND statut = 'actif'",
+                params![now, flux_id],
+            )
+            .map_err(db_error)?;
+        audit_tx(
+            &transaction,
+            "cancel",
+            "flux_previsionnel",
+            flux_id,
+            serde_json::json!({
+                "recurrenceId": recurrence_id,
+                "motif": "Échéance postérieure à l'arrêt de la récurrence",
+                "datePrevue": date_prevue,
+            }),
+        )
+        .map_err(db_error)?;
+    }
+    audit_tx(
+        &transaction,
+        "stop",
+        "flux_recurrence",
+        &recurrence_id,
+        serde_json::json!({
+            "dateFin": fin.to_string(),
+            "echeancesAnnulees": futures.len(),
+        }),
+    )
+    .map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn register_flux_realisation(
     flux_id: String,
     input: RealisationFluxInput,
@@ -504,7 +776,6 @@ pub fn register_flux_realisation(
         return Err("Ce flux n'existe plus.".to_string());
     };
     ensure_flux_realisation_allowed(&status)?;
-
     transaction.execute(
         "INSERT INTO flux_realisations(id, flux_id, date_realisation, montant_cents, reference, note, created_at, annulee_at, motif_annulation)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL)",
@@ -579,18 +850,394 @@ fn clean_optional(value: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
-fn read_flux_record(connection: &rusqlite::Connection, id: &str) -> Result<FluxRecord, String> {
-    connection.query_row(
-        "SELECT id, societe_id, libelle, sens, categorie, date_prevue, montant_prevu_cents, tiers, reference, statut, created_at, updated_at
-         FROM flux_previsionnels WHERE id = ?1",
-        [id],
-        |row| Ok(FluxRecord {
-            id: row.get(0)?, societe_id: row.get(1)?, libelle: row.get(2)?, sens: row.get(3)?,
-            categorie: row.get(4)?, date_prevue: row.get(5)?, montant_prevu_cents: row.get(6)?,
-            tiers: row.get(7)?, reference: row.get(8)?, statut: row.get(9)?, created_at: row.get(10)?, updated_at: row.get(11)?,
+fn horizon_recurrence() -> NaiveDate {
+    let aujourd_hui = Local::now().date_naive();
+    aujourd_hui
+        .checked_add_months(Months::new(36))
+        .unwrap_or(aujourd_hui)
+}
+
+fn dates_pour_input(input: &FluxInput, debut: NaiveDate) -> Result<Vec<NaiveDate>, String> {
+    let fin = input
+        .date_fin_recurrence
+        .as_deref()
+        .map(|value| {
+            NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+                "La date de fin de récurrence doit être au format AAAA-MM-JJ.".to_string()
+            })
         })
-    ).optional().map_err(db_error)?
-     .ok_or_else(|| "Ce flux n'existe plus.".to_string())
+        .transpose()?;
+    let mut dates = generer_echeances(
+        input.frequence_recurrence,
+        debut,
+        fin,
+        horizon_recurrence(),
+        1_200,
+    )
+    .map_err(|error: ErreurRecurrence| format!("Génération des échéances impossible : {error}"))?;
+
+    // La première échéance reste enregistrée même si elle se situe au-delà
+    // de la fenêtre ; les échéances suivantes seront générées quand l'horizon avancera.
+    if dates.is_empty() {
+        dates.push(debut);
+    }
+    Ok(dates)
+}
+
+fn inserer_serie_recurrence_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    id: &str,
+    input: &FluxInput,
+    debut: NaiveDate,
+    now: &str,
+) -> Result<(), String> {
+    if input.frequence_recurrence == FrequenceFlux::Ponctuel {
+        return Err("Une prévision ponctuelle ne doit pas créer de série récurrente.".to_string());
+    }
+    let frequence = enum_name(input.frequence_recurrence)?;
+    let sens = enum_name(input.sens)?;
+    let categorie = enum_name(input.categorie)?;
+    transaction
+        .execute(
+            "INSERT INTO flux_recurrences(
+            id, societe_id, frequence, date_debut, date_fin, actif,
+            libelle, sens, categorie, montant_prevu_cents, tiers, reference,
+            created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+            params![
+                id,
+                input.societe_id,
+                frequence,
+                debut.to_string(),
+                input.date_fin_recurrence,
+                input.libelle.trim(),
+                sens,
+                categorie,
+                input.montant_prevu_cents,
+                clean_optional(input.tiers.clone()),
+                clean_optional(input.reference.clone()),
+                now
+            ],
+        )
+        .map_err(db_error)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inserer_occurrence_flux_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    id: &str,
+    recurrence_id: Option<&str>,
+    societe_id: &str,
+    libelle: &str,
+    sens: &str,
+    categorie: &str,
+    date_prevue: &NaiveDate,
+    montant_prevu_cents: i64,
+    tiers: Option<&str>,
+    reference: Option<&str>,
+    now: &str,
+) -> Result<(), String> {
+    transaction
+        .execute(
+            "INSERT INTO flux_previsionnels(
+            id, societe_id, libelle, sens, categorie, date_prevue,
+            montant_prevu_cents, tiers, reference, statut, created_at, updated_at, recurrence_id
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'actif', ?10, ?10, ?11)",
+            params![
+                id,
+                societe_id,
+                libelle,
+                sens,
+                categorie,
+                date_prevue.to_string(),
+                montant_prevu_cents,
+                tiers,
+                reference,
+                now,
+                recurrence_id
+            ],
+        )
+        .map_err(db_error)?;
+    Ok(())
+}
+
+fn materialiser_recurrences(connection: &mut rusqlite::Connection) -> Result<(), String> {
+    let transaction = connection.transaction().map_err(db_error)?;
+    let series = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT id, societe_id, frequence, date_debut, date_fin, actif,
+                        libelle, sens, categorie, montant_prevu_cents, tiers, reference
+                 FROM flux_recurrences WHERE actif = 1 ORDER BY date_debut, created_at",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(RecurrenceRecord {
+                    id: row.get(0)?,
+                    societe_id: row.get(1)?,
+                    frequence: row.get(2)?,
+                    date_debut: row.get(3)?,
+                    date_fin: row.get(4)?,
+                    actif: row.get(5)?,
+                    libelle: row.get(6)?,
+                    sens: row.get(7)?,
+                    categorie: row.get(8)?,
+                    montant_prevu_cents: row.get(9)?,
+                    tiers: row.get(10)?,
+                    reference: row.get(11)?,
+                })
+            })
+            .map_err(db_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?
+    };
+
+    for serie in series {
+        if serie.actif != 1 {
+            continue;
+        }
+        let debut = NaiveDate::parse_from_str(&serie.date_debut, "%Y-%m-%d")
+            .map_err(|_| "La date de début d'une série récurrente est invalide.".to_string())?;
+        let fin = serie
+            .date_fin
+            .as_deref()
+            .map(|value| {
+                NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                    .map_err(|_| "La date de fin d'une série récurrente est invalide.".to_string())
+            })
+            .transpose()?;
+        let frequence: FrequenceFlux = from_enum(&serie.frequence)?;
+        let dates = generer_echeances(frequence, debut, fin, horizon_recurrence(), 1_200)
+            .map_err(|error| format!("Génération d'une série récurrente impossible : {error}"))?;
+
+        for date in dates {
+            let existe: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM flux_previsionnels
+                        WHERE recurrence_id = ?1 AND date_prevue = ?2
+                    )",
+                    params![serie.id, date.to_string()],
+                    |row| row.get(0),
+                )
+                .map_err(db_error)?;
+            if existe {
+                continue;
+            }
+            let id = Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+            transaction.execute(
+                "INSERT INTO flux_previsionnels(
+                    id, societe_id, libelle, sens, categorie, date_prevue,
+                    montant_prevu_cents, tiers, reference, statut, created_at, updated_at, recurrence_id
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'actif', ?10, ?10, ?11)",
+                params![
+                    id,
+                    serie.societe_id,
+                    serie.libelle,
+                    serie.sens,
+                    serie.categorie,
+                    date.to_string(),
+                    serie.montant_prevu_cents,
+                    serie.tiers,
+                    serie.reference,
+                    now,
+                    serie.id
+                ],
+            )
+            .map_err(db_error)?;
+            audit_tx(
+                &transaction,
+                "create",
+                "flux_previsionnel",
+                &id,
+                serde_json::json!({
+                    "recurrenceId": serie.id,
+                    "datePrevue": date.to_string(),
+                    "generationAutomatique": true,
+                    "montantPrevuCents": serie.montant_prevu_cents,
+                }),
+            )
+            .map_err(db_error)?;
+        }
+    }
+    transaction.commit().map_err(db_error)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod recurrence_materialization_tests {
+    use super::materialiser_recurrences;
+    use chrono::{Local, Months};
+    use rusqlite::Connection;
+
+    #[test]
+    fn materialization_is_idempotent_and_keeps_each_occurrence_independent() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE societes (id TEXT PRIMARY KEY NOT NULL);
+                 CREATE TABLE flux_recurrences (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    societe_id TEXT NOT NULL REFERENCES societes(id) ON DELETE RESTRICT,
+                    frequence TEXT NOT NULL,
+                    date_debut TEXT NOT NULL,
+                    date_fin TEXT NULL,
+                    actif INTEGER NOT NULL,
+                    libelle TEXT NOT NULL,
+                    sens TEXT NOT NULL,
+                    categorie TEXT NOT NULL,
+                    montant_prevu_cents INTEGER NOT NULL,
+                    tiers TEXT NULL,
+                    reference TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                 );
+                 CREATE TABLE flux_previsionnels (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    societe_id TEXT NOT NULL REFERENCES societes(id) ON DELETE RESTRICT,
+                    libelle TEXT NOT NULL,
+                    sens TEXT NOT NULL,
+                    categorie TEXT NOT NULL,
+                    date_prevue TEXT NOT NULL,
+                    montant_prevu_cents INTEGER NOT NULL,
+                    tiers TEXT NULL,
+                    reference TEXT NULL,
+                    statut TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    recurrence_id TEXT NULL REFERENCES flux_recurrences(id) ON DELETE RESTRICT
+                 );
+                 CREATE UNIQUE INDEX idx_test_recurrence_date
+                    ON flux_previsionnels(recurrence_id, date_prevue)
+                    WHERE recurrence_id IS NOT NULL;
+                 CREATE TABLE journal_audit (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    action TEXT NOT NULL,
+                    type_entite TEXT NOT NULL,
+                    entite_id TEXT NOT NULL,
+                    horodatage TEXT NOT NULL,
+                    details_json TEXT NOT NULL
+                 );",
+            )
+            .unwrap();
+
+        let today = Local::now().date_naive();
+        let date_debut = today.format("%Y-%m-%d").to_string();
+        let expected_horizon = today
+            .checked_add_months(Months::new(36))
+            .unwrap()
+            .format("%Y-%m-%d")
+            .to_string();
+
+        connection
+            .execute("INSERT INTO societes(id) VALUES ('soc-test')", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flux_recurrences(
+                    id, societe_id, frequence, date_debut, date_fin, actif,
+                    libelle, sens, categorie, montant_prevu_cents, tiers, reference,
+                    created_at, updated_at
+                 ) VALUES (
+                    'series-test', 'soc-test', 'mensuel', ?1, NULL, 1,
+                    'Loyer mensuel', 'encaissement', 'loyer', 140000, 'Locataire test',
+                    NULL, '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z'
+                 )",
+                [date_debut.clone()],
+            )
+            .unwrap();
+
+        materialiser_recurrences(&mut connection).unwrap();
+        let (first_count, first_date, last_date): (i64, String, String) = connection
+            .query_row(
+                "SELECT COUNT(*), MIN(date_prevue), MAX(date_prevue)
+                 FROM flux_previsionnels WHERE recurrence_id = 'series-test'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(first_count, 37);
+        assert_eq!(first_date, date_debut);
+        assert_eq!(last_date, expected_horizon);
+
+        let first_audit_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM journal_audit WHERE type_entite = 'flux_previsionnel'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(first_audit_count, first_count);
+
+        materialiser_recurrences(&mut connection).unwrap();
+        let (second_count, second_audit_count): (i64, i64) = connection
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM flux_previsionnels WHERE recurrence_id = 'series-test'),
+                    (SELECT COUNT(*) FROM journal_audit WHERE type_entite = 'flux_previsionnel')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            second_count, first_count,
+            "aucune échéance ne doit être dupliquée"
+        );
+        assert_eq!(
+            second_audit_count, first_audit_count,
+            "la matérialisation répétée ne doit pas produire de faux événements d'audit"
+        );
+
+        let (distinct_ids, distinct_dates): (i64, i64) = connection
+            .query_row(
+                "SELECT COUNT(DISTINCT id), COUNT(DISTINCT date_prevue)
+                 FROM flux_previsionnels WHERE recurrence_id = 'series-test'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(distinct_ids, first_count);
+        assert_eq!(distinct_dates, first_count);
+    }
+}
+
+fn read_flux_record(connection: &rusqlite::Connection, id: &str) -> Result<FluxRecord, String> {
+    connection
+        .query_row(
+            "SELECT f.id, f.societe_id, f.libelle, f.sens, f.categorie, f.date_prevue,
+                    f.montant_prevu_cents, f.tiers, f.reference, f.statut, f.created_at, f.updated_at,
+                    f.recurrence_id, r.frequence, r.date_fin, r.actif
+             FROM flux_previsionnels f
+             LEFT JOIN flux_recurrences r ON r.id = f.recurrence_id
+             WHERE f.id = ?1",
+            [id],
+            |row| {
+                Ok(FluxRecord {
+                    id: row.get(0)?,
+                    societe_id: row.get(1)?,
+                    libelle: row.get(2)?,
+                    sens: row.get(3)?,
+                    categorie: row.get(4)?,
+                    date_prevue: row.get(5)?,
+                    montant_prevu_cents: row.get(6)?,
+                    tiers: row.get(7)?,
+                    reference: row.get(8)?,
+                    statut: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                    recurrence_id: row.get(12)?,
+                    frequence_recurrence: row.get(13)?,
+                    date_fin_recurrence: row.get(14)?,
+                    recurrence_active: row.get(15)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or_else(|| "Ce flux n'existe plus.".to_string())
 }
 
 fn build_flux_view(
@@ -632,6 +1279,10 @@ fn build_flux_view(
     let statut: StatutFlux = from_enum(&record.statut)?;
     let sens: SensFlux = from_enum(&record.sens)?;
     let categorie: CategorieFlux = from_enum(&record.categorie)?;
+    let frequence_recurrence = match record.frequence_recurrence.as_deref() {
+        Some(frequence) => from_enum(frequence)?,
+        None => FrequenceFlux::Ponctuel,
+    };
     let date = NaiveDate::parse_from_str(&record.date_prevue, "%Y-%m-%d").map_err(|_| {
         "Une date prévue enregistrée est invalide ; vérifiez la base et sa sauvegarde.".to_string()
     })?;
@@ -657,6 +1308,10 @@ fn build_flux_view(
         montant_realise_cents,
         reste_cents: record.montant_prevu_cents - montant_realise_cents,
         realisations,
+        recurrence_id: record.recurrence_id,
+        frequence_recurrence,
+        date_fin_recurrence: record.date_fin_recurrence,
+        recurrence_active: record.recurrence_active == Some(1),
         created_at: record.created_at,
         updated_at: record.updated_at,
     })
@@ -874,6 +1529,35 @@ fn from_enum<T: for<'de> Deserialize<'de>>(value: &str) -> Result<T, String> {
 
 fn db_error(error: rusqlite::Error) -> String {
     format!("Erreur de base de données : {error}")
+}
+
+#[cfg(test)]
+mod recurrence_input_horizon_tests {
+    use super::dates_pour_input;
+    use chrono::{Local, Months};
+    use superpower_core::{CategorieFlux, FluxInput, FrequenceFlux, SensFlux};
+
+    #[test]
+    fn first_occurrence_is_kept_when_series_starts_outside_the_36_month_window() {
+        let debut = Local::now()
+            .date_naive()
+            .checked_add_months(Months::new(48))
+            .unwrap();
+        let input = FluxInput {
+            societe_id: "soc-test".to_string(),
+            libelle: "Loyer futur".to_string(),
+            sens: SensFlux::Encaissement,
+            categorie: CategorieFlux::Loyer,
+            date_prevue: debut.format("%Y-%m-%d").to_string(),
+            montant_prevu_cents: 100_000,
+            tiers: None,
+            reference: None,
+            frequence_recurrence: FrequenceFlux::Mensuel,
+            date_fin_recurrence: None,
+        };
+
+        assert_eq!(dates_pour_input(&input, debut), Ok(vec![debut]));
+    }
 }
 
 #[cfg(test)]

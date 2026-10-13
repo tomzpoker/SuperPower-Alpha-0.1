@@ -1,12 +1,13 @@
 # HANDOFF — reprise de SuperPower Alpha
 
-> Dernière mise à jour : 2026-10-13. Toujours distinguer `main` de la branche S06-A et une compilation CI d'un test métier réel.
+> Dernière mise à jour : 2026-10-13. S06-A est fusionné ; S06-B est en cours dans la PR #5. Distinguer compilation CI, test unitaire et essai natif SQLCipher.
 
 ## 1. État du dépôt
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
-- `main` de référence : `41d26e6ae10f382e20df8fbc9adfe0e3dfadb09c`.
-- Branche de travail : `feat/guided-cash-flows`, pull request [#1 — Sprint 06](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/1).
-- Le run [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762) est vert sur le commit de code `b65085c` : Rust, frontend, build Tauri Windows et tests workspace passent. La mise à jour documentaire qui consigne le retour manuel doit déclencher une nouvelle CI.
+- `main` de référence : `7f87caf9d878db0ae2e254fcbd4f01b7acc48a2c`.
+- S06-A est fusionné ; les PR #3 (spécification S06-B) et #4 (test du garde-fou des flux annulés) sont également fusionnées.
+- PR de travail : [#5 — S06-B, flux prévisionnels récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5), branche `feat/s06b-recurrence-domain`.
+- Le run [#94](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332295125) a passé frontend et Rust sur `0102103`; build Tauri Windows et tests workspace restent à confirmer. La dernière correction conserve une prévision ponctuelle même au-delà de trois ans et n'affiche la suite d'une récurrence que dans l'horizon glissant de 36 mois. Ne pas fusionner avant CI verte sur le dernier SHA.
 
 Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une saisie comptable technique. S06-A ajoute le suivi des flux de trésorerie prévisionnels et réalisés sans choix de comptes comptables.
 
@@ -19,9 +20,11 @@ Résultats manuels signalés le 2026-10-13 :
 - Copie de `superpower.db` et `superpower.salt` dans un dossier temporaire : l'application s'est déverrouillée, les données existantes ont été signalées présentes et la réouverture de cette même copie a fonctionné.
 - Aucun test n'a utilisé le coffre habituel comme cible de migration ; il a servi uniquement de source pour copier les fichiers.
 
-S06-A est fusionné ; cette fusion ne prouve pas à elle seule une migration native complète. Deux contrôles restent ouverts :
-1. Relever la version de schéma d'une copie de test avant ouverture, puis vérifier après migration `PRAGMA user_version = 2` et les tables `flux_previsionnels` / `flux_realisations`.
-2. Le refus métier d'une nouvelle réalisation sur une prévision annulée est maintenant couvert par un test unitaire de la fonction appelée par la commande, dans la PR [#4](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/4). La CI doit confirmer cette couverture.
+S06-A est fusionné et ses scénarios manuels de base sont documentés. Deux contrôles natifs restent à distinguer :
+1. Sur une copie isolée connue en v2, vérifier qu'une ouverture avec le code S06-B migre vers `PRAGMA user_version = 3`, crée `flux_recurrences` et `recurrence_id`, et conserve les flux/réalisations v2.
+2. Le garde-fou « refus d'une réalisation sur prévision annulée » a un test unitaire sur la fonction appelée par la commande dans la PR #4, passé en CI ; un test d'intégration invoquant cette commande avec une base native annulée reste souhaitable.
+
+Ne jamais faire ces essais sur le coffre habituel comme cible : copier la paire SQLCipher dans un dossier temporaire distinct et conserver l'original intact.
 
 Ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ». L'application de développement reconnaît `SUPERPOWER_TEST_DATA_DIR` uniquement si elle pointe vers un chemin absolu distinct du coffre habituel ; cette variable est ignorée dans les builds release. Le test décrit plus bas doit être lancé avec cette variable définie afin que la copie, et non le coffre habituel, soit ouverte.
 
@@ -68,40 +71,39 @@ L'utilisateur confirme avoir vu l'état « Réalisé au-delà du prévu » lors 
 
 Le mode navigateur est uniquement une démo volatile/non chiffrée ; il ne valide ni le coffre ni la persistance native.
 
-## 5. Test manuel de migration SQLCipher v1 → v2
-À effectuer seulement avec une base v1 de test (ou une copie locale d'une base v1, si tu es certain de pouvoir y conserver les données sur la machine). Garder le fichier d'origine intact. La variable de développement `SUPERPOWER_TEST_DATA_DIR` permet de lancer la build debug sur un dossier séparé ; elle n'est pas honorée par les builds release.
+## 5. Test manuel de migration SQLCipher v2 → v3 (S06-B)
 
-**Préparer le dossier isolé dans PowerShell depuis la racine du dépôt** (fermer d'abord SuperPower). Cette commande s'arrête si la paire de fichiers n'est pas trouvée :
+À effectuer seulement sur une **copie** d'une base v2 de test. Ne jamais lancer une migration de test sur la base habituelle. Il faut copier ensemble le fichier SQLCipher et son fichier de sel ; `SUPERPOWER_TEST_DATA_DIR` est pris en compte en build debug et pas dans les builds release.
+
+**Préparer une copie isolée dans PowerShell depuis la racine du dépôt** (fermer d'abord SuperPower) :
 
 ```powershell
-$source=Join-Path $env:APPDATA 'fr.superpower.alpha'; $db=Join-Path $source 'superpower.db'; $salt=Join-Path $source 'superpower.salt'; if (!(Test-Path $db) -or !(Test-Path $salt)) { throw "Base ou fichier de sel introuvable dans $source. Stoppe ici et localise la paire correcte." }; $testDir=Join-Path $env:TEMP ('SuperPower-S06A-migration-'+(Get-Date -Format 'yyyyMMdd-HHmmss')); New-Item -ItemType Directory -Path $testDir | Out-Null; Copy-Item $db (Join-Path $testDir 'superpower.db'); Copy-Item $salt (Join-Path $testDir 'superpower.salt'); Write-Output "Dossier isolé : $testDir"
+$source=Join-Path $env:APPDATA 'fr.superpower.alpha'; $db=Join-Path $source 'superpower.db'; $salt=Join-Path $source 'superpower.salt'; if (!(Test-Path $db) -or !(Test-Path $salt)) { throw "Base ou fichier de sel introuvable dans $source. Stoppe ici et localise la paire correcte." }; $testDir=Join-Path $env:TEMP ('SuperPower-S06B-migration-'+(Get-Date -Format 'yyyyMMdd-HHmmss')); New-Item -ItemType Directory -Path $testDir | Out-Null; Copy-Item $db (Join-Path $testDir 'superpower.db'); Copy-Item $salt (Join-Path $testDir 'superpower.salt'); Write-Output "Dossier isolé : $testDir"
 ```
 
-Vérifie que la source est bien une base v1 non encore migrée par S06-A. Si l'application a déjà été ouverte avec cette branche, la base source peut être passée en v2 ; dans ce cas, ne prétends pas avoir testé une migration v1 → v2. Utilise une sauvegarde v1 connue. Ne prends pas une base contenant des données que tu n'as pas le droit d'utiliser dans un test.
+Avant d'ouvrir la copie avec la branche S06-B, lire son `PRAGMA user_version` au moyen d'un outil compatible SQLCipher et confirmer que la source est en v2. Si la version ne peut pas être relevée, documenter le résultat comme un simple test de démarrage, pas comme une preuve formelle de migration v2→v3. Ne pas utiliser une sauvegarde inconnue pour conclure à une migration précise.
 
-Lance ensuite l'application en utilisant **le chemin isolé qui vient d'être créé** :
+Lancer l'application en pointant vers le dossier temporaire exact affiché par la commande :
 
 ```powershell
 $env:SUPERPOWER_TEST_DATA_DIR=$testDir; npm run tauri:dev
 ```
 
-1. Déverrouiller avec la phrase secrète associée au fichier copié. Le déverrouillage déclenche la migration transactionnelle de ce dossier uniquement.
-2. Vérifier que le déverrouillage réussit et que l'application arrive à l'état prêt.
-3. Vérifier que les sociétés, écritures, lignes et entrées d'audit préexistantes sont toujours présentes avec les mêmes valeurs.
-4. Vérifier que les tables `flux_previsionnels` et `flux_realisations` existent et que `PRAGMA user_version` vaut `2`, avec un outil compatible SQLCipher si disponible.
-5. Fermer puis rouvrir l'application en conservant la même variable `SUPERPOWER_TEST_DATA_DIR` ; confirmer que le deuxième déverrouillage fonctionne sans duplication.
-6. Créer un flux de test, fermer l'application, puis la relancer pour vérifier que le flux persiste.
-7. En cas d'échec, arrêter les essais, conserver la copie et les journaux. Ne jamais remettre le dossier temporaire à la place du dossier original.
+1. Déverrouiller la copie avec sa phrase secrète. Seul le dossier temporaire peut être modifié par ce test.
+2. Vérifier que l'application s'ouvre et que la société et les données v2 préexistantes (prévisions et réalisations) sont conservées.
+3. Avec un outil compatible SQLCipher, vérifier après migration `PRAGMA user_version = 3`, la table `flux_recurrences` et la colonne nullable `flux_previsionnels.recurrence_id`.
+4. Vérifier que chaque flux v2 existant reste ponctuel : `recurrence_id IS NULL`, montant/libellé/date prévus préservés et réalisations intactes.
+5. Créer un flux récurrent mensuel de test et vérifier que les échéances futures s'affichent, que les dates de fin de mois ne dérivent pas et que chaque occurrence a son propre historique.
+6. Fermer puis rouvrir l'application en gardant le même `SUPERPOWER_TEST_DATA_DIR`. Vérifier la persistance et l'absence de doublons après le rechargement.
+7. En cas d'échec, arrêter les essais, garder la copie et les journaux pour diagnostic. Ne jamais remplacer la base habituelle avec cette copie.
 
-Pour revenir au fonctionnement normal dans cette fenêtre PowerShell : `Remove-Item Env:SUPERPOWER_TEST_DATA_DIR`. La variable n'a aucun effet sur un build release.
+Pour revenir au fonctionnement normal dans cette fenêtre PowerShell : `Remove-Item Env:SUPERPOWER_TEST_DATA_DIR`.
 
-### Résultat de l'essai sur copie native (2026-10-13)
+### Historique du précédent essai (2026-10-13)
 
-L'utilisateur a copié `superpower.db` et `superpower.salt` dans un dossier temporaire, lancé la branche avec `SUPERPOWER_TEST_DATA_DIR`, puis confirmé que l'application s'ouvrait, que les données existantes étaient visibles et que le deuxième lancement avec la même copie fonctionnait. Le dossier de l'application habituelle n'a pas été utilisé comme cible de migration.
+L'utilisateur a précédemment copié `superpower.db` et `superpower.salt` vers un dossier temporaire, confirmé que le coffre s'ouvrait et que les données restaient visibles après réouverture. La version source n'a pas été relevée indépendamment ; cet essai ne constitue pas une preuve de migration v1→v2 ni v2→v3.
 
-**Réserve importante :** la version initiale du fichier source n'a pas été relevée indépendamment. Ne pas présenter cet essai comme preuve définitive d'une migration v1 → v2 tant que `PRAGMA user_version` de la source et de la copie migrée n'a pas été confirmé, ainsi que la présence des tables S06-A.
-
-Le test automatisé utilise SQLite en mémoire et le schéma v1 complet représentatif ; il augmente la confiance en la conservation des données, mais ne prouve pas l'ouverture, le déchiffrement et la migration d'un fichier SQLCipher existant sur Windows.
+Les tests automatisés utilisent des bases en mémoire ; ils ne prouvent pas à eux seuls le déchiffrement et la migration d'un fichier SQLCipher existant sur Windows.
 
 ## 6. Conventions de développement
 - Montants en centimes entiers côté Rust (`i64`) ; frontend via `parseAmountToCents`.
@@ -113,11 +115,11 @@ Le test automatisé utilise SQLite en mémoire et le schéma v1 complet représe
 - Un contrôle non exécuté reste « non vérifié ».
 
 ## 7. Limites fonctionnelles
-S06-A ne génère ni écritures comptables ni TVA. Les récurrences, projections 12/24/36 mois, alertes, import/rapprochement bancaire, baux, règles PCG multi-lignes, fiscalité et FEC restent à concevoir/livrer dans leurs lots dédiés.
+S06-A et S06-B ne génèrent ni écritures comptables ni TVA. Les occurrences récurrentes sont en cours d'implémentation sous PR #5 ; la projection de trésorerie dédiée au-delà des échéances, les alertes, l'import/rapprochement bancaire, les baux, les règles PCG multi-lignes, la fiscalité et le FEC restent des lots séparés.
 
 ## 8. Suite après validation
 
-S06-A est fusionné sur main. La CI #40 est verte sur le commit 41d26e6. Les contrôles résiduels sont la vérification indépendante de la version de schéma sur une copie isolée et le test ciblé du refus métier d'une réalisation sur une prévision annulée.
-
-La suite fonctionnelle est S06-B, flux récurrents ponctuels/mensuels/trimestriels/annuels, spécifiés dans [l'issue #2](https://github.com/tomzpoker/SuperPower-Alpha-0.1/issues/2) et dans `SPRINTS/SPRINT_06B_RECURRENCE.md`.
-Une fois les tests manuels consignés, fusionner la PR si les contrôles sont verts, puis prioriser les tests d'intégration des commandes/audit. Les prochains choix métier à spécifier sont la génération PCG/TVA, les emprunts (principal/intérêts), les apports/CCA, les dépôts/garanties, les paiements partiels, les avoirs et les contre-passations.
+1. Obtenir le résultat vert de la CI sur le dernier SHA de la [PR #5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5) avant de la fusionner.
+2. Après fusion, exécuter le test manuel de la migration v2→v3 sur une copie isolée SQLCipher et vérifier `user_version = 3`, les tables/colonnes attendues et la conservation de flux/réalisations.
+3. Tester dans l'interface native les quatre choix (ponctuel, mensuel, trimestriel, annuel), l'ancrage des fins de mois, l'arrêt d'une série et l'indépendance de chaque occurrence. Le navigateur reste un mode démo volatil, pas une preuve du coffre chiffré.
+4. Maintenir la comptabilisation PCG/TVA dans un lot séparé ; S06-B ne génère aucune écriture comptable.

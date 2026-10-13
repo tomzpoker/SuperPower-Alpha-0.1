@@ -75,6 +75,7 @@ export type SensFlux = 'encaissement' | 'decaissement';
 export type CategorieFlux = 'loyer' | 'charge_courante' | 'travaux' | 'impot_taxe' | 'emprunt' | 'apport_associe' | 'autre';
 export type StatutFlux = 'actif' | 'annule';
 export type EtatFlux = 'a_prevoir' | 'en_retard' | 'partiellement_realise' | 'realise' | 'depasse' | 'annule';
+export type FrequenceFlux = 'ponctuel' | 'mensuel' | 'trimestriel' | 'annuel';
 
 export interface FluxInput {
   societeId: string;
@@ -85,6 +86,8 @@ export interface FluxInput {
   montantPrevuCents: number;
   tiers: string | null;
   reference: string | null;
+  frequenceRecurrence: FrequenceFlux;
+  dateFinRecurrence: string | null;
 }
 export interface RealisationFluxInput {
   dateRealisation: string;
@@ -110,6 +113,8 @@ export interface FluxView extends FluxInput {
   montantRealiseCents: number;
   resteCents: number;
   realisations: FluxRealisationView[];
+  recurrenceId: string | null;
+  recurrenceActive: boolean;
   createdAt: string;
   updatedAt: string;
 }

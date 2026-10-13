@@ -138,7 +138,7 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
     let mut version = connection
         .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .map_err(|error| format!("Lecture de version de base impossible : {error}"))?;
-    if version > 2 {
+    if version > 3 {
         return Err(format!(
             "Cette base est en version {version}, plus récente que celle prise en charge."
         ));
@@ -186,7 +186,43 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
             .map_err(|error| format!("Validation de migration v1 vers v2 impossible : {error}"))?;
         version = 2;
     }
-    if version != 2 {
+    if version == 2 {
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("Démarrage de migration v2 vers v3 impossible : {error}"))?;
+        transaction.execute_batch(
+            "CREATE TABLE IF NOT EXISTS flux_recurrences (
+               id TEXT PRIMARY KEY NOT NULL,
+               societe_id TEXT NOT NULL REFERENCES societes(id) ON DELETE RESTRICT,
+               frequence TEXT NOT NULL CHECK (frequence IN ('mensuel', 'trimestriel', 'annuel')),
+               date_debut TEXT NOT NULL,
+               date_fin TEXT NULL,
+               actif INTEGER NOT NULL DEFAULT 1 CHECK (actif IN (0, 1)),
+               libelle TEXT NOT NULL CHECK (length(trim(libelle)) > 0 AND length(libelle) <= 160),
+               sens TEXT NOT NULL CHECK (sens IN ('encaissement', 'decaissement')),
+               categorie TEXT NOT NULL CHECK (categorie IN ('loyer', 'charge_courante', 'travaux', 'impot_taxe', 'emprunt', 'apport_associe', 'autre')),
+               montant_prevu_cents INTEGER NOT NULL CHECK (montant_prevu_cents > 0),
+               tiers TEXT NULL,
+               reference TEXT NULL,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               CHECK (date_fin IS NULL OR date_fin >= date_debut)
+             );
+             ALTER TABLE flux_previsionnels
+               ADD COLUMN recurrence_id TEXT NULL REFERENCES flux_recurrences(id) ON DELETE RESTRICT;
+             CREATE INDEX IF NOT EXISTS idx_flux_recurrence_id ON flux_previsionnels(recurrence_id);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_flux_recurrence_date_unique
+               ON flux_previsionnels(recurrence_id, date_prevue)
+               WHERE recurrence_id IS NOT NULL;
+             PRAGMA user_version = 3;"
+        )
+        .map_err(|error| format!("Migration v2 vers v3 impossible : {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("Validation de migration v2 vers v3 impossible : {error}"))?;
+        version = 3;
+    }
+    if version != 3 {
         return Err(format!(
             "La version de schéma {version} n'est pas prise en charge."
         ));
@@ -321,7 +357,7 @@ mod migration_tests {
     use super::*;
 
     #[test]
-    fn migrates_v1_to_v2_preserves_existing_data_and_is_idempotent() {
+    fn migrates_v1_to_v3_preserves_existing_data_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch("PRAGMA foreign_keys = ON;")
@@ -424,8 +460,12 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
-        for table in ["flux_previsionnels", "flux_realisations"] {
+        assert_eq!(version, 3);
+        for table in [
+            "flux_previsionnels",
+            "flux_realisations",
+            "flux_recurrences",
+        ] {
             let count: i64 = connection
                 .query_row(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -435,6 +475,18 @@ mod migration_tests {
                 .unwrap();
             assert_eq!(count, 1, "la table {table} doit être créée");
         }
+
+        let recurrence_column_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('flux_previsionnels') WHERE name = 'recurrence_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            recurrence_column_count, 1,
+            "le lien facultatif vers une série doit être ajouté"
+        );
 
         let company_name: String = connection
             .query_row(
@@ -474,7 +526,7 @@ mod migration_tests {
         let final_version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(final_version, 2);
+        assert_eq!(final_version, 3);
         let final_entry_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM ecritures WHERE id = 'entry-legacy'",
@@ -486,6 +538,100 @@ mod migration_tests {
             final_entry_count, 1,
             "la migration répétée ne doit rien dupliquer"
         );
+    }
+
+    #[test]
+    fn migrates_v2_to_v3_preserving_existing_forecasts_and_realizations() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE societes (id TEXT PRIMARY KEY NOT NULL);
+                 CREATE TABLE flux_previsionnels (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    societe_id TEXT NOT NULL REFERENCES societes(id) ON DELETE RESTRICT,
+                    libelle TEXT NOT NULL,
+                    sens TEXT NOT NULL,
+                    categorie TEXT NOT NULL,
+                    date_prevue TEXT NOT NULL,
+                    montant_prevu_cents INTEGER NOT NULL,
+                    tiers TEXT NULL,
+                    reference TEXT NULL,
+                    statut TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                 );
+                 CREATE TABLE flux_realisations (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    flux_id TEXT NOT NULL REFERENCES flux_previsionnels(id) ON DELETE RESTRICT,
+                    date_realisation TEXT NOT NULL,
+                    montant_cents INTEGER NOT NULL,
+                    reference TEXT NULL,
+                    note TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    annulee_at TEXT NULL,
+                    motif_annulation TEXT NULL
+                 );
+                 PRAGMA user_version = 2;",
+            )
+            .unwrap();
+        connection
+            .execute("INSERT INTO societes(id) VALUES ('soc-v2')", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flux_previsionnels(
+                    id, societe_id, libelle, sens, categorie, date_prevue,
+                    montant_prevu_cents, tiers, reference, statut, created_at, updated_at
+                 ) VALUES (
+                    'flux-v2', 'soc-v2', 'Assurance annuelle', 'decaissement',
+                    'charge_courante', '2026-12-01', 24000, 'AssurTest', 'ASS-01',
+                    'actif', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+                 )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flux_realisations(
+                    id, flux_id, date_realisation, montant_cents, reference, note,
+                    created_at, annulee_at, motif_annulation
+                 ) VALUES (
+                    'real-v2', 'flux-v2', '2026-10-13', 30000, 'PAY-01', 'Paiement test',
+                    '2026-10-13T10:00:00Z', NULL, NULL
+                 )",
+                [],
+            )
+            .unwrap();
+
+        migrate_schema(&mut connection).unwrap();
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 3);
+
+        let (label, amount, recurrence_id): (String, i64, Option<String>) = connection
+            .query_row(
+                "SELECT libelle, montant_prevu_cents, recurrence_id
+                 FROM flux_previsionnels WHERE id = 'flux-v2'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(label, "Assurance annuelle");
+        assert_eq!(amount, 24_000);
+        assert_eq!(recurrence_id, None);
+
+        let (actual_amount, actual_note): (i64, String) = connection
+            .query_row(
+                "SELECT montant_cents, note FROM flux_realisations WHERE id = 'real-v2'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(actual_amount, 30_000);
+        assert_eq!(actual_note, "Paiement test");
     }
 
     #[test]
