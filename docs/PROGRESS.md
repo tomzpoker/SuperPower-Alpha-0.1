@@ -9,7 +9,7 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher, le worker natif et les fréquences métier ancrées. CI #38445019655 verte sur `2c13cc8` (formatage/tests Rust, frontend, build Tauri Windows, workspace/migrations). Le test mensuel simule janvier → février → mars sans dérive ni doublon. Le test SQLCipher couvre le verrouillage/déverrouillage AppState, l’historique conservé et la reprise du worker sans double exécution. Le test manuel natif des commandes Tauri reste ouvert. |
+| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher, le worker natif et les fréquences métier ancrées. CI #38445019655 verte sur `2c13cc8` (formatage/tests Rust, frontend, build Tauri Windows, workspace/migrations). Le test mensuel simule janvier → février → mars sans dérive ni doublon. Le test SQLCipher couvre le verrouillage/déverrouillage AppState, l’historique conservé et la reprise du worker sans double exécution. Le calendrier permet aussi de sélectionner une occurrence et de retrouver sa tâche dans la liste ; les commandes Tauri natives restent à vérifier. |
 | Prochaine action | Vérifier le parcours natif des commandes Tauri de verrouillage/déverrouillage sur coffre temporaire, puis choisir le prochain handler métier à partir d’un cas d’usage existant. Les tests de récurrence et de persistance utilisent des dates déterministes. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Migration v3→v6, liste/calendrier projetant les occurrences métier à partir de l’ancre, cron UTC avancé, worker natif et handler local `general/reminder` ; handlers métier des autres modules restant à faire |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Liste et calendrier récurrent ancré avec sélection clavier/souris vers la tâche, moteur SQLCipher, worker natif et handler `general/reminder` ; handlers métier des autres modules restant à faire |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |

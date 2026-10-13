@@ -676,6 +676,7 @@ function TasksPage() {
   const [executionHistory, setExecutionHistory] = useState<Record<string, TaskExecution[]>>({});
   const [attemptHistory, setAttemptHistory] = useState<Record<string, TaskAttempt[]>>({});
   const [openAttemptId, setOpenAttemptId] = useState<string | null>(null);
+  const [selectedCalendarOccurrence, setSelectedCalendarOccurrence] = useState<{ taskId: string; scheduledAt: string } | null>(null);
 
   const refresh = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
@@ -695,6 +696,11 @@ function TasksPage() {
   useEffect(() => {
     void refresh(true);
   }, [refresh]);
+
+  useEffect(() => {
+    if (taskView !== 'list' || !selectedCalendarOccurrence) return;
+    document.getElementById('task-card-' + selectedCalendarOccurrence.taskId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [taskView, selectedCalendarOccurrence]);
 
   function reminderMessageFromPayloadJson(): string {
     try {
@@ -914,6 +920,13 @@ function TasksPage() {
     }
   }
 
+  function selectCalendarOccurrence(taskId: string, scheduledAt: string) {
+    setSelectedCalendarOccurrence({ taskId, scheduledAt });
+    setTaskView('list');
+    setError('');
+    setNotice(`Occurrence du ${new Date(scheduledAt).toLocaleString('fr-FR')} sélectionnée : la tâche correspondante est mise en évidence dans la liste.`);
+  }
+
   async function toggleExecutionHistory(taskId: string) {
     if (historyTaskId === taskId) {
       setHistoryTaskId(null);
@@ -1000,11 +1013,11 @@ function TasksPage() {
     {loading ? <div className="panel tasks-empty"><p>Chargement des tâches…</p></div> : tasks.length === 0
       ? <EmptyState icon={Clock3} title="Aucune tâche pour le moment" description="Créez une tâche pour commencer à organiser les actions à suivre." action={<button className="button primary" onClick={() => setShowForm(true)}><Plus size={16} /> Créer une tâche</button>} />
       : taskView === 'calendar'
-        ? <TaskCalendar tasks={tasks} month={calendarMonth} onMonthChange={setCalendarMonth} />
-        : <div className="tasks-list">{tasks.map((task) => <article className="panel task-card" key={task.id}>
+        ? <TaskCalendar tasks={tasks} month={calendarMonth} onMonthChange={setCalendarMonth} selectedOccurrence={selectedCalendarOccurrence} onSelectOccurrence={selectCalendarOccurrence} />
+        : <div className="tasks-list">{tasks.map((task) => <article id={'task-card-' + task.id} className={'panel task-card' + (selectedCalendarOccurrence?.taskId === task.id ? ' is-calendar-selected' : '')} key={task.id}>
           <div className="task-card-main">
             <div className="task-card-icon"><Clock3 size={19} /></div>
-            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}{(task.recurrenceFrequency ?? (task.cronExpression ? 'custom_cron' : 'once')) === 'custom_cron' && task.cronExpression ? <> · Cron UTC : {task.cronExpression}</> : (task.recurrenceFrequency ?? 'once') !== 'once' ? <> · {taskRecurrenceLabels[task.recurrenceFrequency ?? 'once']}</> : ''}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
+            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span>{selectedCalendarOccurrence?.taskId === task.id && <span className="task-calendar-selection">Occurrence sélectionnée : {new Date(selectedCalendarOccurrence.scheduledAt).toLocaleString('fr-FR')}</span>}</div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}{(task.recurrenceFrequency ?? (task.cronExpression ? 'custom_cron' : 'once')) === 'custom_cron' && task.cronExpression ? <> · Cron UTC : {task.cronExpression}</> : (task.recurrenceFrequency ?? 'once') !== 'once' ? <> · {taskRecurrenceLabels[task.recurrenceFrequency ?? 'once']}</> : ''}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
           </div>
           <div className="task-card-actions">
             {task.status !== 'cancelled' && <button className="button secondary" onClick={() => void startEditingTask(task)}>Modifier</button>}
@@ -1028,10 +1041,14 @@ function TaskCalendar({
   tasks,
   month,
   onMonthChange,
+  selectedOccurrence,
+  onSelectOccurrence,
 }: {
   tasks: Task[];
   month: Date;
   onMonthChange: (month: Date) => void;
+  selectedOccurrence: { taskId: string; scheduledAt: string } | null;
+  onSelectOccurrence: (taskId: string, scheduledAt: string) => void;
 }) {
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
@@ -1097,13 +1114,17 @@ function TaskCalendar({
             <span className="tasks-calendar-day-number">{date.getDate()}</span>
             <div className="tasks-calendar-events">
               {dayTasks.slice(0, 3).map(({ task, scheduledAt }) =>
-                <div
-                  className={'tasks-calendar-event task-status-' + task.status}
+                <button
+                  type="button"
+                  className={'tasks-calendar-event task-status-' + task.status + (selectedOccurrence?.taskId === task.id && selectedOccurrence.scheduledAt === scheduledAt ? ' is-selected' : '')}
                   key={task.id + '-' + scheduledAt}
                   title={task.title + ' · ' + new Date(scheduledAt).toLocaleString('fr-FR') + ' · ' + taskStatusLabel(task.status)}
+                  aria-label={'Sélectionner ' + task.title + ', occurrence du ' + new Date(scheduledAt).toLocaleString('fr-FR')}
+                  aria-pressed={selectedOccurrence?.taskId === task.id && selectedOccurrence.scheduledAt === scheduledAt}
+                  onClick={() => onSelectOccurrence(task.id, scheduledAt)}
                 >
                   {task.title}
-                </div>
+                </button>
               )}
               {dayTasks.length > 3 && <span className="tasks-calendar-overflow">+{dayTasks.length - 3} autre{dayTasks.length > 4 ? 's' : ''}</span>}
             </div>
@@ -1111,7 +1132,7 @@ function TaskCalendar({
         })}
       </div>
     </div>
-    <p className="tasks-calendar-footnote">Les tâches ponctuelles et les récurrences mensuelles, trimestrielles et annuelles s’affichent aux dates prévues dans la grille. Le mode cron personnalisé affiche seulement son échéance courante ; son aperçu détaillé est disponible dans l’édition. Les dates sont affichées dans le fuseau horaire local de cet ordinateur. Sélectionnez « Liste » pour modifier une tâche ou ouvrir son historique.</p>
+    <p className="tasks-calendar-footnote">Les tâches ponctuelles et les récurrences mensuelles, trimestrielles et annuelles s’affichent aux dates prévues dans la grille. Le mode cron personnalisé affiche seulement son échéance courante ; son aperçu détaillé est disponible dans l’édition. Choisissez une occurrence pour passer à la liste, mettre en évidence la tâche et consulter son historique ou la modifier. Les dates sont affichées dans le fuseau horaire local de cet ordinateur.</p>
   </div>;
 }
 
