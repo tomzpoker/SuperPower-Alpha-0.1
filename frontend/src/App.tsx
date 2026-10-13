@@ -813,8 +813,8 @@ function TasksPage() {
         <Field label="Nombre maximal de tentatives"><input type="number" value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} min={1} max={100} required /></Field>
       </div>
       {cronPreview && <div className="cron-preview-results" aria-live="polite">
-        <p><strong>Départ initial :</strong> {formatUtcDateTime(cronPreview.anchor)} UTC.</p>
-        <p><strong>Occurrences calculées ensuite</strong> pour <code>{cronPreview.expression}</code> :</p>
+        <p><strong>Ancre choisie :</strong> {formatUtcDateTime(cronPreview.anchor)} UTC.</p>
+        <p><strong>Échéances prévues</strong> pour <code>{cronPreview.expression}</code> :</p>
         <ol>{cronPreview.occurrences.map((occurrence) => <li key={occurrence}>{formatUtcDateTime(occurrence)} UTC</li>)}</ol>
       </div>}
       <Field label="Données de la tâche (JSON)"><textarea value={payloadJson} onChange={(event) => setPayloadJson(event.target.value)} rows={3} spellCheck={false} required /></Field>

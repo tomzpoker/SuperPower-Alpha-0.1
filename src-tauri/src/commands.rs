@@ -1486,11 +1486,17 @@ fn build_cron_preview(expression: &str, after: &str, count: u8) -> Result<Vec<St
         .with_timezone(&Utc);
     let mut occurrences = Vec::with_capacity(usize::from(count));
 
-    for _ in 0..count {
-        let next = schedule.next_after(&cursor).ok_or_else(|| {
-            "Aucune occurrence suivante trouvée dans la fenêtre de recherche de cinq ans."
-                .to_string()
-        })?;
+    for index in 0..count {
+        // Comme lors de la création d'une tâche, l'ancre compte comme première
+        // occurrence uniquement si elle correspond exactement à l'expression cron.
+        let next = if index == 0 && schedule.matches_at(&cursor) {
+            cursor.clone()
+        } else {
+            schedule.next_after(&cursor).ok_or_else(|| {
+                "Aucune occurrence suivante trouvée dans la fenêtre de recherche de cinq ans."
+                    .to_string()
+            })?
+        };
         occurrences.push(next.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
         cursor = next;
     }
@@ -1774,6 +1780,18 @@ mod cron_preview_tests {
     fn previews_weekday_occurrences_in_utc_after_the_selected_anchor() {
         assert_eq!(
             build_cron_preview("0 10 * * 1-5", "2026-10-13T09:59:00Z", 3).unwrap(),
+            vec![
+                "2026-10-13T10:00:00.000Z",
+                "2026-10-14T10:00:00.000Z",
+                "2026-10-15T10:00:00.000Z",
+            ]
+        );
+    }
+
+    #[test]
+    fn includes_the_anchor_when_it_matches_the_cron_schedule() {
+        assert_eq!(
+            build_cron_preview("0 10 * * 1-5", "2026-10-13T10:00:00Z", 3).unwrap(),
             vec![
                 "2026-10-13T10:00:00.000Z",
                 "2026-10-14T10:00:00.000Z",
