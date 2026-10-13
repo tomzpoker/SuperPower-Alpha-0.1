@@ -4,6 +4,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use rand::{rngs::OsRng, RngCore};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use superpower_core::accounting::starter_accounts;
+use task_engine::TaskEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -138,7 +139,7 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
     let mut version = connection
         .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .map_err(|error| format!("Lecture de version de base impossible : {error}"))?;
-    if version > 3 {
+    if version > 4 {
         return Err(format!(
             "Cette base est en version {version}, plus récente que celle prise en charge."
         ));
@@ -222,11 +223,30 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
             .map_err(|error| format!("Validation de migration v2 vers v3 impossible : {error}"))?;
         version = 3;
     }
-    if version != 3 {
+    if version == 3 {
+        migrate_v3_to_v4(connection)?;
+        version = 4;
+    }
+    if version != 4 {
         return Err(format!(
             "La version de schéma {version} n'est pas prise en charge."
         ));
     }
+    Ok(())
+}
+
+fn migrate_v3_to_v4(connection: &mut Connection) -> Result<(), String> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Démarrage de migration v3 vers v4 impossible : {error}"))?;
+    TaskEngine::install_schema(&transaction)
+        .map_err(|error| format!("Installation du moteur de tâches impossible : {error}"))?;
+    transaction
+        .execute_batch("PRAGMA user_version = 4;")
+        .map_err(|error| format!("Versionnement du moteur de tâches impossible : {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("Validation de migration v3 vers v4 impossible : {error}"))?;
     Ok(())
 }
 
@@ -357,7 +377,7 @@ mod migration_tests {
     use super::*;
 
     #[test]
-    fn migrates_v1_to_v3_preserves_existing_data_and_is_idempotent() {
+    fn migrates_v1_to_v4_preserves_existing_data_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch("PRAGMA foreign_keys = ON;")
@@ -460,11 +480,14 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
         for table in [
             "flux_previsionnels",
             "flux_realisations",
             "flux_recurrences",
+            "task_definitions",
+            "task_executions",
+            "task_attempts",
         ] {
             let count: i64 = connection
                 .query_row(
@@ -526,7 +549,7 @@ mod migration_tests {
         let final_version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(final_version, 3);
+        assert_eq!(final_version, 4);
         let final_entry_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM ecritures WHERE id = 'entry-legacy'",
@@ -541,7 +564,7 @@ mod migration_tests {
     }
 
     #[test]
-    fn migrates_v2_to_v3_preserving_existing_forecasts_and_realizations() {
+    fn migrates_v2_to_v4_preserving_existing_forecasts_and_realizations() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch(
@@ -609,7 +632,18 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
+
+        for table in ["task_definitions", "task_executions", "task_attempts"] {
+            let count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "la table {table} doit être créée");
+        }
 
         let (label, amount, recurrence_id): (String, i64, Option<String>) = connection
             .query_row(
@@ -632,6 +666,75 @@ mod migration_tests {
             .unwrap();
         assert_eq!(actual_amount, 30_000);
         assert_eq!(actual_note, "Paiement test");
+    }
+
+    #[test]
+    fn migrates_v3_to_v4_installs_task_tables_and_preserves_existing_data() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE societes (id TEXT PRIMARY KEY NOT NULL, nom TEXT NOT NULL);
+                 CREATE TABLE flux_previsionnels (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    societe_id TEXT NOT NULL REFERENCES societes(id),
+                    libelle TEXT NOT NULL,
+                    date_prevue TEXT NOT NULL,
+                    montant_prevu_cents INTEGER NOT NULL
+                 );
+                 INSERT INTO societes(id, nom) VALUES ('soc-v3', 'SCI v3');
+                 INSERT INTO flux_previsionnels(id, societe_id, libelle, date_prevue, montant_prevu_cents)
+                    VALUES ('flux-v3', 'soc-v3', 'Loyer existant', '2026-11-01', 140000);
+                 PRAGMA user_version = 3;",
+            )
+            .unwrap();
+
+        migrate_schema(&mut connection).unwrap();
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 4);
+
+        let (company_name, flow_label, flow_amount): (String, String, i64) = connection
+            .query_row(
+                "SELECT s.nom, f.libelle, f.montant_prevu_cents
+                 FROM societes s JOIN flux_previsionnels f ON f.societe_id = s.id
+                 WHERE f.id = 'flux-v3'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(company_name, "SCI v3");
+        assert_eq!(flow_label, "Loyer existant");
+        assert_eq!(flow_amount, 140000);
+
+        for table in ["task_definitions", "task_executions", "task_attempts"] {
+            let count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "la table {table} doit être créée");
+        }
+
+        migrate_schema(&mut connection).unwrap();
+        let final_version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(final_version, 4);
+        let task_tables_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table'
+                   AND name IN ('task_definitions', 'task_executions', 'task_attempts')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(task_tables_count, 3);
     }
 
     #[test]
