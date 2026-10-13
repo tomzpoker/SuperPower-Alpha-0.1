@@ -25,5 +25,3 @@ argon2 = "0.5"
 rand = "0.8"
 hex = "0.4"
 
-[dev-dependencies]
-tauri = { version = "2", features = ["test"] }

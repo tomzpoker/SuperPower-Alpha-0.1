@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; récurrences ancrées, calendrier accessible, filtres et historique avec durées ; CI #38452406857 verte sur `90e22ab` ; tests des commandes Tauri ajoutés dans le prochain commit et en attente de CI ; parcours visuel natif encore ouvert |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; récurrences ancrées, calendrier accessible, filtres et historique avec durées ; CI #38452406857 verte sur `90e22ab` ; tests SQLCipher des fonctions partagées avec les commandes ajoutés, validation CI en cours ; parcours visuel natif encore ouvert |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -77,7 +77,7 @@
 - [x] Essai natif sur coffre temporaire : rappel `general/reminder` à échéance, notification visible, exécution `Terminée`, tentative `#1 · Réussie` et historique confirmé par l'utilisateur.
 - [x] Test automatisé SQLCipher AppState : verrouillage/déverrouillage, accès refusé pendant le verrouillage, historique conservé et reprise du worker sans double exécution (CI #38445019655).
 - [ ] Vérifier manuellement dans l’application native les commandes Tauri de verrouillage/déverrouillage et la reprise du worker sur un coffre temporaire.
-- [ ] Valider par CI les tests de commandes Tauri sur le coffre temporaire : idempotence, audit, cycle de vie, garde-fous d’historique et verrouillage de la base.
+- [ ] Valider par CI les tests SQLCipher des fonctions partagées avec les commandes : idempotence, audit, cycle de vie, garde-fous d’historique et verrouillage de la base. Ces tests ne lancent pas le runtime graphique Tauri.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [x] Rendre les occurrences du calendrier sélectionnables au clavier et à la souris, avec bascule vers la tâche correspondante et mise en évidence de la date choisie.
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.

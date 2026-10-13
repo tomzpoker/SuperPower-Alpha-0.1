@@ -11,8 +11,7 @@ use superpower_core::{
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
 use task_engine::{
-    CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskRecurrenceFrequency,
-    TaskStatus,
+    CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus,
 };
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -150,14 +149,18 @@ pub fn unlock_database(
     Ok(())
 }
 
+fn lock_database_with_state(state: &AppState, worker: &TaskWorkerController) -> Result<(), String> {
+    let stop_result = worker.stop();
+    state.lock();
+    stop_result
+}
+
 #[tauri::command]
 pub fn lock_database(
     state: State<'_, AppState>,
     worker: State<'_, TaskWorkerController>,
 ) -> Result<(), String> {
-    let stop_result = worker.stop();
-    state.lock();
-    stop_result
+    lock_database_with_state(state.inner(), worker.inner())
 }
 
 #[tauri::command]
@@ -1541,12 +1544,20 @@ pub fn preview_cron_schedule(
 
 #[tauri::command]
 pub fn list_tasks(state: State<'_, AppState>) -> Result<Vec<Task>, String> {
+    list_tasks_with_state(state.inner())
+}
+
+fn list_tasks_with_state(state: &AppState) -> Result<Vec<Task>, String> {
     let connection = state.connection()?;
     TaskEngine::list_tasks(&connection).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn create_task(input: NewTask, state: State<'_, AppState>) -> Result<Task, String> {
+    create_task_with_state(input, state.inner())
+}
+
+fn create_task_with_state(input: NewTask, state: &AppState) -> Result<Task, String> {
     let mut connection = state.connection()?;
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -1578,6 +1589,10 @@ pub fn create_task(input: NewTask, state: State<'_, AppState>) -> Result<Task, S
 
 #[tauri::command]
 pub fn delete_task(task_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    delete_task_with_state(task_id, state.inner())
+}
+
+fn delete_task_with_state(task_id: String, state: &AppState) -> Result<(), String> {
     let mut connection = state.connection()?;
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -1609,6 +1624,14 @@ pub fn update_task(
     task_id: String,
     input: NewTask,
     state: State<'_, AppState>,
+) -> Result<Task, String> {
+    update_task_with_state(task_id, input, state.inner())
+}
+
+fn update_task_with_state(
+    task_id: String,
+    input: NewTask,
+    state: &AppState,
 ) -> Result<Task, String> {
     let mut connection = state.connection()?;
     let transaction = connection
@@ -1663,6 +1686,14 @@ pub fn update_task_status(
     status: TaskStatus,
     state: State<'_, AppState>,
 ) -> Result<Task, String> {
+    update_task_status_with_state(task_id, status, state.inner())
+}
+
+fn update_task_status_with_state(
+    task_id: String,
+    status: TaskStatus,
+    state: &AppState,
+) -> Result<Task, String> {
     let mut connection = state.connection()?;
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -1704,6 +1735,13 @@ pub fn list_task_executions(
     task_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<TaskExecution>, String> {
+    list_task_executions_with_state(task_id, state.inner())
+}
+
+fn list_task_executions_with_state(
+    task_id: String,
+    state: &AppState,
+) -> Result<Vec<TaskExecution>, String> {
     let connection = state.connection()?;
     TaskEngine::list_executions(&connection, &task_id).map_err(|error| error.to_string())
 }
@@ -1712,6 +1750,13 @@ pub fn list_task_executions(
 pub fn list_task_attempts(
     execution_id: String,
     state: State<'_, AppState>,
+) -> Result<Vec<TaskAttempt>, String> {
+    list_task_attempts_with_state(execution_id, state.inner())
+}
+
+fn list_task_attempts_with_state(
+    execution_id: String,
+    state: &AppState,
 ) -> Result<Vec<TaskAttempt>, String> {
     let connection = state.connection()?;
     TaskEngine::list_attempts(&connection, &execution_id).map_err(|error| error.to_string())
@@ -1874,10 +1919,7 @@ mod task_command_tests {
     use crate::database::{AppState, DatabaseStatus};
     use crate::task_worker::TaskWorkerController;
     use std::{fs, path::PathBuf};
-    use tauri::{
-        test::{mock_app, MockRuntime},
-        Manager,
-    };
+    use task_engine::TaskRecurrenceFrequency;
     use uuid::Uuid;
 
     const TEST_PASSPHRASE: &str = "command-layer temporary vault passphrase";
@@ -1897,7 +1939,7 @@ mod task_command_tests {
         }
     }
 
-    fn test_app() -> (TemporaryVault, tauri::App<MockRuntime>) {
+    fn test_state() -> (TemporaryVault, AppState) {
         let vault = TemporaryVault(
             std::env::temp_dir().join(format!("superpower-task-command-{}.db", Uuid::new_v4())),
         );
@@ -1905,9 +1947,7 @@ mod task_command_tests {
         state
             .initialize(TEST_PASSPHRASE)
             .expect("initialize temporary SQLCipher vault");
-        let app = mock_app();
-        app.manage(state);
-        (vault, app)
+        (vault, state)
     }
 
     fn task_input(key: &str, title: &str) -> NewTask {
@@ -1924,9 +1964,8 @@ mod task_command_tests {
         }
     }
 
-    fn audit_count(app: &tauri::App<MockRuntime>, action: &str, task_id: &str) -> i64 {
-        let connection = app
-            .state::<AppState>()
+    fn audit_count(state: &AppState, action: &str, task_id: &str) -> i64 {
+        let connection = state
             .connection()
             .expect("open temporary vault for audit query");
         connection
@@ -1940,25 +1979,24 @@ mod task_command_tests {
     }
 
     #[test]
-    fn task_commands_are_idempotent_audited_and_support_lifecycle_transitions() {
-        let (_vault, app) = test_app();
-
+    fn task_command_logic_is_idempotent_audited_and_supports_lifecycle_transitions() {
+        let (_vault, state) = test_state();
         let input = task_input("command-lifecycle-key", "Tâche initiale");
-        let created = super::create_task(input.clone(), app.state::<AppState>())
-            .expect("create task through Tauri command");
-        let duplicate = super::create_task(input.clone(), app.state::<AppState>())
+
+        let created = create_task_with_state(input.clone(), &state)
+            .expect("create task through shared command logic");
+        let duplicate = create_task_with_state(input.clone(), &state)
             .expect("repeat an idempotent task command");
         assert_eq!(created.id, duplicate.id);
-        assert_eq!(super::list_tasks(app.state::<AppState>()).unwrap().len(), 1);
-        assert_eq!(audit_count(&app, "create", &created.id), 1);
+        assert_eq!(list_tasks_with_state(&state).unwrap().len(), 1);
+        assert_eq!(audit_count(&state, "create", &created.id), 1);
 
         let mut revised_input = input;
         revised_input.title = "Tâche modifiée".to_string();
-        let revised =
-            super::update_task(created.id.clone(), revised_input, app.state::<AppState>())
-                .expect("edit task before its first execution");
+        let revised = update_task_with_state(created.id.clone(), revised_input, &state)
+            .expect("edit task before its first execution");
         assert_eq!(revised.title, "Tâche modifiée");
-        assert_eq!(audit_count(&app, "update", &created.id), 1);
+        assert_eq!(audit_count(&state, "update", &created.id), 1);
 
         for status in [
             TaskStatus::Paused,
@@ -1967,33 +2005,30 @@ mod task_command_tests {
             TaskStatus::Scheduled,
         ] {
             let changed =
-                super::update_task_status(created.id.clone(), status, app.state::<AppState>())
+                update_task_status_with_state(created.id.clone(), status, &state)
                     .expect("apply task status transition");
             assert_eq!(changed.status, status);
         }
 
-        assert_eq!(audit_count(&app, "pause", &created.id), 1);
-        assert_eq!(audit_count(&app, "resume", &created.id), 2);
-        assert_eq!(audit_count(&app, "cancel", &created.id), 1);
+        assert_eq!(audit_count(&state, "pause", &created.id), 1);
+        assert_eq!(audit_count(&state, "resume", &created.id), 2);
+        assert_eq!(audit_count(&state, "cancel", &created.id), 1);
 
-        super::delete_task(created.id.clone(), app.state::<AppState>())
+        delete_task_with_state(created.id.clone(), &state)
             .expect("delete task before the first execution");
-        assert_eq!(super::list_tasks(app.state::<AppState>()).unwrap().len(), 0);
-        assert_eq!(audit_count(&app, "delete", &created.id), 1);
+        assert_eq!(list_tasks_with_state(&state).unwrap().len(), 0);
+        assert_eq!(audit_count(&state, "delete", &created.id), 1);
     }
 
     #[test]
-    fn task_commands_preserve_definitions_with_execution_history() {
-        let (_vault, app) = test_app();
+    fn task_command_logic_preserves_definitions_with_execution_history() {
+        let (_vault, state) = test_state();
         let input = task_input("command-history-key", "Tâche historisée");
-        let created = super::create_task(input.clone(), app.state::<AppState>())
+        let created = create_task_with_state(input.clone(), &state)
             .expect("create task before execution");
 
         {
-            let connection = app
-                .state::<AppState>()
-                .connection()
-                .expect("open temporary vault");
+            let connection = state.connection().expect("open temporary vault");
             TaskEngine::enqueue_execution(
                 &connection,
                 &created.id,
@@ -2007,22 +2042,22 @@ mod task_command_tests {
         let mut revised_input = input;
         revised_input.title = "Modification interdite".to_string();
         let update_error =
-            super::update_task(created.id.clone(), revised_input, app.state::<AppState>())
+            update_task_with_state(created.id.clone(), revised_input, &state)
                 .expect_err("a task with history must not be editable");
         assert!(update_error.contains("ne peut plus être modifiée ou supprimée"));
 
-        let delete_error = super::delete_task(created.id.clone(), app.state::<AppState>())
+        let delete_error = delete_task_with_state(created.id.clone(), &state)
             .expect_err("a task with history must not be deletable");
         assert!(delete_error.contains("ne peut plus être modifiée ou supprimée"));
 
         assert_eq!(
-            super::list_task_executions(created.id.clone(), app.state::<AppState>())
+            list_task_executions_with_state(created.id.clone(), &state)
                 .expect("read execution history")
                 .len(),
             1
         );
         assert_eq!(
-            super::list_tasks(app.state::<AppState>())
+            list_tasks_with_state(&state)
                 .expect("read task definitions")
                 .iter()
                 .filter(|task| task.id == created.id)
@@ -2032,16 +2067,15 @@ mod task_command_tests {
     }
 
     #[test]
-    fn lock_database_command_locks_the_vault_and_blocks_new_connections() {
-        let (_vault, app) = test_app();
-        app.manage(TaskWorkerController::default());
+    fn lock_database_logic_locks_the_vault_and_blocks_new_connections() {
+        let (_vault, state) = test_state();
+        let worker = TaskWorkerController::default();
 
-        super::lock_database(app.state::<AppState>(), app.state::<TaskWorkerController>())
-            .expect("lock temporary SQLCipher vault through Tauri command");
+        lock_database_with_state(&state, &worker)
+            .expect("lock temporary SQLCipher vault through shared command logic");
 
-        assert_eq!(app.state::<AppState>().status(), DatabaseStatus::Locked);
-        assert!(app
-            .state::<AppState>()
+        assert_eq!(state.status(), DatabaseStatus::Locked);
+        assert!(state
             .connection()
             .expect_err("new connection must be refused while locked")
             .contains("verrouillée"));
