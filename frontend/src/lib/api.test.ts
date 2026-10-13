@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CreateSocieteInput, FluxInput, FluxView, RealisationFluxInput, Societe } from './types';
+import type { CreateSocieteInput, FluxInput, FluxView, NewTask, RealisationFluxInput, Societe, Task } from './types';
 
 type Api = typeof import('./api')['api'];
 let api: Api;
@@ -212,6 +212,27 @@ describe('browser demo cashflow behaviour', () => {
         dateFinRecurrence: '2026-11-30',
       }),
     })).rejects.toThrow('ne peut pas précéder');
+  });
+
+  it('deletes a task from the browser demo when it has no execution history', async () => {
+    const input: NewTask = {
+      idempotencyKey: 'delete-demo-task',
+      module: 'general',
+      taskType: 'manual',
+      title: 'Tâche de test supprimable',
+      payload: { test: true },
+      scheduledAt: '2026-12-01T10:00:00.000Z',
+      cronExpression: null,
+      maxAttempts: 3,
+    };
+    const task = await api<Task>('create_task', { input });
+    expect((await api<Task[]>('list_tasks')).some(item => item.id === task.id)).toBe(true);
+
+    await api<void>('delete_task', { taskId: task.id });
+
+    expect((await api<Task[]>('list_tasks')).some(item => item.id === task.id)).toBe(false);
+    await expect(api<void>('delete_task', { taskId: task.id }))
+      .rejects.toThrow('Cette tâche n’existe plus.');
   });
 
   it('rejects values that exceed the native field limits', async () => {
