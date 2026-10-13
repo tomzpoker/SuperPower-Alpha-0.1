@@ -1046,12 +1046,9 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         init(&connection);
-        let task = TaskEngine::create_task(
-            &connection,
-            &new_task("cancel-task-test", 2),
-            BEFORE_DUE,
-        )
-        .unwrap();
+        let task =
+            TaskEngine::create_task(&connection, &new_task("cancel-task-test", 2), BEFORE_DUE)
+                .unwrap();
         let execution = TaskEngine::enqueue_execution(
             &connection,
             &task.id,
