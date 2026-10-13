@@ -6,7 +6,7 @@
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
 - `main` de référence : `17966e1009daca10b8daa53cc6c937fdc22073d3`.
 - S06-A et S06-B sont fusionnés dans `main`; la PR [#5 — S06-B, flux prévisionnels récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5) a été fusionnée le 13 octobre 2026.
-- Le Sprint 02 se poursuit sur `sprint/02-moteur-taches-prototype` (PR #8, brouillon, non fusionnée) : crate `task-engine`, migrations SQLCipher v3→v5, commandes Tauri, page Tâches avec calendrier, cron UTC et worker supervisé. La CI #151 est entièrement verte sur `8b8c0b5` : contrôles Rust, tests du moteur, frontend, build Windows/Tauri et tests workspace/migrations. Le lot courant durcit le verrouillage du coffre après incident worker, expose les erreurs de connexion inattendues et met les toasts en file pour préserver les rappels groupés ; cette tranche doit repasser la CI.
+- Le Sprint 02 se poursuit sur `sprint/02-moteur-taches-prototype` (PR #8, brouillon, non fusionnée) : moteur persistant SQLCipher, migrations v3→v5, calendrier, aperçu cron UTC et worker natif supervisé. La CI #152 est entièrement verte sur `8ac4417` : Rust, frontend, build Windows/Tauri et tests workspace/migrations. Le formulaire du handler `general/reminder` gagne un champ de message dédié, synchronisé avec le payload JSON sans supprimer ses autres propriétés ; cette tranche doit repasser la CI.
 - Le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb`, y compris build Tauri Windows et tests workspace. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est en cours sur `17966e1`; frontend et Rust sont verts, build Windows encore en cours au dernier relevé.
 - S06-B conserve les prévisions ponctuelles au-delà de trois ans ; pour les récurrences, l'horizon glissant de 36 mois part d'aujourd'hui.
 
@@ -14,7 +14,7 @@ Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une 
 
 ## 2. État de validation et contrôles encore ouverts
 
-État de validation au 2026-10-13 : la CI [#151](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38419639661) est entièrement verte sur `8b8c0b51d1121a3f06a16f91078a1e9ae110bf2c`, y compris les tests du moteur, le build Windows/Tauri et les tests workspace/migrations. Le lot courant durcit les cas de verrouillage/démarrage worker et met les rappels en file dans l'interface ; il doit repasser la CI complète. Les migrations restent testées sur des bases temporaires, pas vers le coffre habituel.
+État de validation au 2026-10-13 : la CI [#152](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38421312477) est entièrement verte sur `8ac44177b8fb6fccbf47b77827fa15d29db92a49`, y compris les contrôles Rust, le frontend, le build Windows/Tauri et les tests du workspace/migrations. Le commit courant rend le message du rappel éditable sans avoir à toucher au JSON ; une nouvelle CI doit valider cette évolution.
 
 Résultats manuels signalés le 2026-10-13 :
 - Parcours natif du 2026-10-13 confirmé par l'utilisateur : prévision de loyer modifiée à 1 400 € avec 400 € réalisés conservés ; prévision d'assurance de 240 € ; réalisation de 300 € enregistrée puis annulée via l'historique ; historique conservé avec motif d'annulation ; prévision assurance annulée et affichée via le filtre ; totaux observés : 1 400 € prévus à encaisser, 0 € prévus à payer, 400 € réalisés actifs.

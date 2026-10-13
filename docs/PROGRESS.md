@@ -9,8 +9,8 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le moteur persistant, les migrations v3→v5, la page Tâches, cron UTC, worker natif stoppable et handler local `general/reminder`. La CI #151 est verte sur `8b8c0b5` ; ce lot durcit les erreurs de verrouillage et la file de notifications, avec CI à repasser. |
-| Prochaine action | Valider les durcissements dans la CI puis faire un essai natif isolé : rappel à échéance, historique réussi, verrouillage et déverrouillage. Ensuite, ajouter un handler idempotent pour les documents ou échéances locatives. |
+| Statut | S06-B est dans `main`. La branche S02 contient le moteur persistant, cron UTC, worker natif stoppable et handler local `general/reminder`. La CI #152 est verte sur `8ac4417`. Le lot courant ajoute un champ de message accessible pour les rappels, avec conservation des autres données JSON ; CI à repasser. |
+| Prochaine action | Valider le champ de message et ses tests, puis effectuer un essai natif isolé : rappel à échéance, historique réussi, verrouillage/déverrouillage. Ensuite, traiter un handler métier idempotent pour documents ou échéances locatives. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -71,7 +71,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Sur la branche S02, la CI #151 valide le mode sûr filtré par handlers, les migrations v3→v5, le worker natif et le handler local `general/reminder` sur `8b8c0b5`. Le commit courant durcit le verrouillage après incident worker, remonte les erreurs de connexion inattendues et place les rappels en file dans l'interface. Les handlers documents/import bancaire/locatif, le fuseau cron configurable, le widget historique et l'essai natif restent à faire.
+- Sur la branche S02, la CI #152 valide le worker local `general/reminder` sur `8ac4417`, ainsi que Rust, frontend, build Windows et migrations. Le champ de message accessible et ses tests sont dans le lot courant ; nouvelle validation requise. Les handlers documents/import bancaire/locatif, le fuseau cron configurable, l'adaptation du widget et l'essai natif restent à faire.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -96,6 +96,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 | 2026-10-13 | 02 | Migrations v3→v5, cron UTC, worker one-shot et suppression contrôlée | CI #149 entièrement verte sur `5d249e8` |
 | 2026-10-13 | 02 | Worker natif stoppable et handler local `general/reminder` | CI #151 entièrement verte sur `8b8c0b5` |
 
-| 2026-10-13 | 02 | Durcissement des erreurs worker/coffre et mise en file des rappels UI | Commit courant : CI requise |
+| 2026-10-13 | 02 | Durcissement des erreurs worker/coffre et mise en file des rappels UI | CI #152 entièrement verte sur `8ac4417` |
+| 2026-10-13 | 02 | Champ de message dédié pour les rappels et tests de transformation du payload | Commit courant : CI requise |
 
 | 2026-10-13 | 02 | Ajout des commandes Tauri de création/liste/statut/historique et d'une page UI Tâches | Branche non fusionnée ; CI du dernier commit à confirmer |

@@ -24,7 +24,7 @@ La crate fournit l'installation des tables sans modifier elle-même `PRAGMA user
 
 ## Seconde tranche — registre et exécuteur piloté
 
-La branche ajoute un registre de handlers indexé par module/type, un worker one-shot persistant et un mode sûr qui ignore les tâches sans handler. La CI #151 est entièrement verte sur `8b8c0b5`, y compris le worker natif, le handler local `general/reminder`, le build Windows et les tests workspace. Le lot courant remonte les erreurs de connexion hors verrouillage, garantit le verrouillage UI après incident d'arrêt worker et sérialise les messages toast pour ne pas perdre les rappels échus. Nouvelle validation CI requise.
+La branche ajoute un registre de handlers indexé par module/type, un worker one-shot persistant et un mode sûr qui ignore les tâches sans handler. La CI #152 est entièrement verte sur `8ac4417`, y compris le worker natif, le handler local `general/reminder`, le build Windows et les tests workspace. Le lot courant ajoute un champ de message dédié pour les rappels et des tests unitaires de transformation du payload, en conservant les autres propriétés JSON. Nouvelle validation CI requise.
 
 ## Points explicitement différés
 

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { api, isDesktopRuntime } from './lib/api';
 import { formatDate, formatMoney, parseAmountToCents } from './lib/money';
+import { readReminderMessage, withReminderMessage } from './lib/task-payload';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DashboardSummary, DatabaseStatus,
   EntryView, ExigibiliteTva, FluxInput, FluxRealisationView, FluxView, FormeJuridique,
@@ -664,6 +665,9 @@ function TasksPage() {
   const [cronPreviewLoading, setCronPreviewLoading] = useState(false);
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [payloadJson, setPayloadJson] = useState('{}');
+  const [reminderMessage, setReminderMessage] = useState('');
+  const isReminderTask = moduleName.trim().toLowerCase() === 'general'
+    && taskType.trim().toLowerCase() === 'reminder';
   const [historyTaskId, setHistoryTaskId] = useState<string | null>(null);
   const [executionHistory, setExecutionHistory] = useState<Record<string, TaskExecution[]>>({});
   const [attemptHistory, setAttemptHistory] = useState<Record<string, TaskAttempt[]>>({});
@@ -688,11 +692,57 @@ function TasksPage() {
     void refresh(true);
   }, [refresh]);
 
+  function reminderMessageFromPayloadJson(): string {
+    try {
+      return readReminderMessage(JSON.parse(payloadJson) as unknown);
+    } catch {
+      return '';
+    }
+  }
+
+  function changeTaskModule(nextModule: string) {
+    if (!isReminderTask && nextModule.trim().toLowerCase() === 'general'
+      && taskType.trim().toLowerCase() === 'reminder') {
+      setReminderMessage(reminderMessageFromPayloadJson());
+    }
+    setModuleName(nextModule);
+  }
+
+  function changeTaskType(nextType: string) {
+    if (!isReminderTask && moduleName.trim().toLowerCase() === 'general'
+      && nextType.trim().toLowerCase() === 'reminder') {
+      setReminderMessage(reminderMessageFromPayloadJson());
+    }
+    setTaskType(nextType);
+  }
+
+  function changeReminderMessage(nextMessage: string) {
+    setReminderMessage(nextMessage);
+    try {
+      const payload: unknown = JSON.parse(payloadJson);
+      setPayloadJson(JSON.stringify(withReminderMessage(payload, nextMessage), null, 2));
+    } catch {
+      // Keep the JSON editor visible; save will report malformed/non-object payloads.
+    }
+  }
+
+  function changePayloadJson(nextJson: string) {
+    setPayloadJson(nextJson);
+    if (isReminderTask) {
+      try {
+        setReminderMessage(readReminderMessage(JSON.parse(nextJson) as unknown));
+      } catch {
+        // Leave the draft message visible until the JSON is valid again.
+      }
+    }
+  }
+
   function startNewTask() {
     setEditingTaskId(null);
     setTitle('');
     setModuleName('general');
     setTaskType('reminder');
+    setReminderMessage('');
     setScheduledAt(defaultTaskDateTime());
     setCronExpression('');
     setCronPreview(null);
@@ -747,6 +797,7 @@ function TasksPage() {
       setTitle(task.title);
       setModuleName(task.module);
       setTaskType(task.taskType);
+      setReminderMessage(readReminderMessage(task.payload));
       setScheduledAt(toLocalDateTimeInput(task.cronExpression ? task.cronAnchorAt ?? task.scheduledAt : task.scheduledAt));
       setCronExpression(task.cronExpression ?? '');
       setMaxAttempts(task.maxAttempts);
@@ -774,6 +825,11 @@ function TasksPage() {
     const wasEditing = editingTaskId !== null;
     try {
       const parsedPayload: unknown = JSON.parse(payloadJson);
+      const usesReminderHandler = moduleName.trim().toLowerCase() === 'general'
+        && taskType.trim().toLowerCase() === 'reminder';
+      const taskPayload = usesReminderHandler
+        ? withReminderMessage(parsedPayload, reminderMessage)
+        : parsedPayload;
       const plannedDate = new Date(scheduledAt);
       if (Number.isNaN(plannedDate.getTime())) throw new Error('Choisissez une date de planification valide.');
       const existingTask = editingTaskId ? tasks.find((task) => task.id === editingTaskId) : undefined;
@@ -783,7 +839,7 @@ function TasksPage() {
         module: moduleName,
         taskType,
         title: title.trim(),
-        payload: parsedPayload,
+        payload: taskPayload,
         scheduledAt: plannedDate.toISOString(),
         cronExpression: cronExpression.trim() || null,
         maxAttempts,
@@ -795,6 +851,7 @@ function TasksPage() {
         .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)));
       setTitle('');
       setTaskType('reminder');
+      setReminderMessage('');
       setScheduledAt(defaultTaskDateTime());
       setCronExpression('');
       setCronPreview(null);
@@ -896,8 +953,8 @@ function TasksPage() {
       <div className="tasks-form-heading"><div><h2>{editingTaskId ? 'Modifier la tâche' : 'Nouvelle tâche'}</h2><p>{editingTaskId ? 'Modification possible avant la première exécution, sans altérer l’historique.' : 'Un rappel « Général / reminder » s’affichera dans l’application si elle reste ouverte à l’échéance.'}</p></div><button type="button" className="icon-button" onClick={() => { setShowForm(false); setEditingTaskId(null); }} aria-label="Fermer le formulaire"><X size={17} /></button></div>
       <div className="tasks-form-grid">
         <Field label="Titre"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required placeholder="Ex. Vérifier les pièces de novembre" /></Field>
-        <Field label="Module"><select value={moduleName} onChange={(event) => setModuleName(event.target.value)}><option value="general">Général</option><option value="documents">Documents</option><option value="import_bancaire">Import bancaire</option><option value="locatif">Gestion locative</option><option value="fiscalite">Fiscalité</option></select></Field>
-        <Field label="Type technique"><input value={taskType} onChange={(event) => setTaskType(event.target.value)} maxLength={100} required placeholder="Ex. reminder" /><small>Seul « Général / reminder » est exécuté automatiquement. Dans le JSON, la propriété « message » est facultative ; à défaut, le titre du rappel est affiché.</small></Field>
+        <Field label="Module"><select value={moduleName} onChange={(event) => changeTaskModule(event.target.value)}><option value="general">Général</option><option value="documents">Documents</option><option value="import_bancaire">Import bancaire</option><option value="locatif">Gestion locative</option><option value="fiscalite">Fiscalité</option></select></Field>
+        <Field label="Type technique"><input value={taskType} onChange={(event) => changeTaskType(event.target.value)} maxLength={100} required placeholder="Ex. reminder" /><small>Seul « Général / reminder » est exécuté automatiquement ; les autres types restent en attente.</small></Field>
         <Field label={cronExpression.trim() ? 'Date de départ de la récurrence' : 'Date et heure prévues'}><input type="datetime-local" value={scheduledAt} onChange={(event) => { setScheduledAt(event.target.value); setCronPreview(null); }} required /></Field>
         <Field label="Expression cron (facultative, UTC)"><input value={cronExpression} onChange={(event) => { setCronExpression(event.target.value); setCronPreview(null); }} maxLength={200} placeholder="*/15 9-17 * * 1-5" /><div className="cron-preview-actions"><button type="button" className="button secondary small" onClick={() => void previewCronSchedule()} disabled={!isDesktopRuntime() || cronPreviewLoading || !cronExpression.trim() || !scheduledAt}>{cronPreviewLoading ? 'Calcul des occurrences…' : 'Prévisualiser les prochaines échéances'}</button>{!isDesktopRuntime() && <span>Disponible dans l’application de bureau.</span>}</div></Field>
         <Field label="Nombre maximal de tentatives"><input type="number" value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} min={1} max={100} required /></Field>
@@ -907,7 +964,14 @@ function TasksPage() {
         <p><strong>Échéances prévues</strong> pour <code>{cronPreview.expression}</code> :</p>
         <ol>{cronPreview.occurrences.map((occurrence) => <li key={occurrence}>{formatUtcDateTime(occurrence)} UTC</li>)}</ol>
       </div>}
-      <Field label="Données de la tâche (JSON)"><textarea value={payloadJson} onChange={(event) => setPayloadJson(event.target.value)} rows={3} spellCheck={false} required /></Field>
+      {isReminderTask && <Field label="Message du rappel (facultatif)">
+        <textarea value={reminderMessage} onChange={(event) => changeReminderMessage(event.target.value)} rows={2} maxLength={300} placeholder="Ex. Relancer le locataire pour le loyer de novembre" />
+        <small>Maximum 300 caractères. Si le champ est vide, le titre de la tâche sera affiché.</small>
+      </Field>}
+      <Field label={isReminderTask ? 'Données avancées (JSON)' : 'Données de la tâche (JSON)'}>
+        <textarea value={payloadJson} onChange={(event) => changePayloadJson(event.target.value)} rows={3} spellCheck={false} required />
+        {isReminderTask && <small>Le message ci-dessus est synchronisé avec la propriété JSON « message ». Les autres propriétés sont conservées.</small>}
+      </Field>
       <div className="tasks-form-actions"><button type="button" className="button secondary" onClick={() => { setShowForm(false); setEditingTaskId(null); }}>Annuler</button><button className="button primary" type="submit" disabled={submitting || !title.trim() || !taskType.trim() || maxAttempts < 1 || maxAttempts > 100}>{submitting ? 'Enregistrement…' : editingTaskId ? 'Enregistrer les modifications' : 'Enregistrer la tâche'} <ArrowRight size={16} /></button></div>
     </form>}
     <div className="tasks-list-heading">
