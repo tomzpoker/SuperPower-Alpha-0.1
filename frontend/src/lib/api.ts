@@ -332,6 +332,7 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
     case 'list_tasks': return [...demoTasks] as T;
     case 'create_task': {
       const input = args.input as NewTask;
+      const cronExpression = input.cronExpression?.trim() || null;
       const idempotencyKey = input.idempotencyKey?.trim();
       if (!idempotencyKey || idempotencyKey.length > 200) throw new Error('La clé d’idempotence doit comporter de 1 à 200 caractères.');
       if (!input.module?.trim() || input.module.trim().length > 100) throw new Error('Le module doit comporter de 1 à 100 caractères.');
@@ -347,6 +348,7 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
           && existing.title === input.title.trim()
           && JSON.stringify(existing.payload) === JSON.stringify(input.payload)
           && existing.scheduledAt === scheduledDate.toISOString()
+          && (existing.cronExpression ?? null) === cronExpression
           && existing.maxAttempts === input.maxAttempts;
         if (!same) throw new Error('Cette clé d’idempotence est déjà utilisée pour une demande différente.');
         return existing as T;
@@ -360,6 +362,7 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
         taskType: input.taskType.trim(),
         title: input.title.trim(),
         scheduledAt: scheduledDate.toISOString(),
+        cronExpression,
         status: 'scheduled',
         createdAt: now,
         updatedAt: now,
@@ -370,6 +373,7 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
     case 'update_task': {
       const taskId = String(args.taskId ?? '');
       const input = args.input as NewTask;
+      const cronExpression = input.cronExpression?.trim() || null;
       const current = demoTasks.find(item => item.id === taskId);
       if (!current) throw new Error('Cette tâche n’existe plus.');
       if (current.status === 'cancelled') throw new Error('Réactivez la tâche avant de la modifier.');
@@ -392,6 +396,7 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
         taskType: input.taskType.trim(),
         title: input.title.trim(),
         scheduledAt: scheduledDate.toISOString(),
+        cronExpression,
         updatedAt: new Date().toISOString(),
       };
       demoTasks = demoTasks.map(item => item.id === taskId ? updated : item);

@@ -13,7 +13,9 @@ use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::Connection;
 use thiserror::Error;
 
-use crate::{ExecutionStatus, Task, TaskEngine, TaskEngineError, TaskExecution, TaskStatus};
+use crate::{
+    CronSchedule, ExecutionStatus, Task, TaskEngine, TaskEngineError, TaskExecution, TaskStatus,
+};
 
 type Handler = dyn Fn(&Task, &TaskExecution) -> Result<(), String> + Send + Sync + 'static;
 type HandlerKey = (String, String);
@@ -171,9 +173,87 @@ impl TaskWorker {
         let now_text = timestamp(&now);
         let lease_until = timestamp(&(now.clone() + config.lease_duration));
 
-        // Une clé stable garantit l'idempotence si la matérialisation est répétée.
+        // Les occurrences cron utilisent une clé stable liée à l'instant prévu.
+        // Le plafond borne le rattrapage d'un coffre resté fermé longtemps ; un appel
+        // ultérieur reprend où le précédent s'est arrêté.
         for task in TaskEngine::list_tasks(connection)? {
-            if task.status != TaskStatus::Scheduled || task.scheduled_at > now_text {
+            if task.status != TaskStatus::Scheduled {
+                continue;
+            }
+
+            if let Some(expression) = task.cron_expression.as_deref() {
+                if task.scheduled_at > now_text {
+                    continue;
+                }
+                let schedule = CronSchedule::parse(expression).map_err(|error| {
+                    TaskEngineError::InvalidInput(format!(
+                        "Expression cron persistée invalide pour la tâche « {} » : {error}",
+                        task.id
+                    ))
+                })?;
+                let mut scheduled_for = task.scheduled_at.clone();
+
+                for _ in 0..MAX_CRON_CATCH_UP_PER_TASK {
+                    if scheduled_for > now_text {
+                        break;
+                    }
+                    let transaction = connection
+                        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                        .map_err(TaskEngineError::from)?;
+                    let key = format!("cron:{}:{}", task.id, scheduled_for);
+                    match TaskEngine::enqueue_execution(
+                        &transaction,
+                        &task.id,
+                        &key,
+                        &scheduled_for,
+                        &now_text,
+                    ) {
+                        Ok(_) => {}
+                        Err(TaskEngineError::TaskInactive) => {
+                            transaction.rollback().map_err(TaskEngineError::from)?;
+                            break;
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+
+                    let scheduled_time = DateTime::parse_from_rfc3339(&scheduled_for)
+                        .map_err(|_| {
+                            TaskEngineError::InvalidInput(
+                                "Une échéance cron persistée n'est pas une date ISO 8601 valide."
+                                    .to_string(),
+                            )
+                        })?
+                        .with_timezone(&Utc);
+                    let next = schedule.next_after(&scheduled_time).ok_or_else(|| {
+                        TaskEngineError::InvalidInput(
+                            "L'expression cron ne produit aucune occurrence suivante dans les cinq prochaines années."
+                                .to_string(),
+                        )
+                    })?;
+                    let next_scheduled_for = timestamp(&next);
+
+                    match TaskEngine::advance_cron_occurrence_in_transaction(
+                        &transaction,
+                        &task.id,
+                        &scheduled_for,
+                        &next_scheduled_for,
+                        &now_text,
+                    ) {
+                        Ok(()) => {}
+                        Err(TaskEngineError::StaleSchedule) => {
+                            transaction.rollback().map_err(TaskEngineError::from)?;
+                            break;
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                    transaction.commit().map_err(TaskEngineError::from)?;
+                    scheduled_for = next_scheduled_for;
+                }
+                continue;
+            }
+
+            // Tâche ponctuelle : matérialisation idempotente unique.
+            if task.scheduled_at > now_text {
                 continue;
             }
             let key = format!("one-off:{}", task.id);
@@ -328,6 +408,7 @@ mod tests {
             title: "Classer un document".to_string(),
             payload: serde_json::json!({"documentId": "document-test"}),
             scheduled_at: DUE.to_string(),
+            cron_expression: None,
             max_attempts,
         };
         TaskEngine::create_task(connection, &input, BEFORE_DUE).expect("create task")
@@ -338,6 +419,7 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         TaskEngine::install_schema(&connection).expect("install schema");
+        TaskEngine::install_cron_schema(&connection).expect("install cron schema");
         let task = create_due_task(&connection, "worker-success", 3);
 
         let registry = TaskHandlerRegistry::new();
@@ -396,6 +478,7 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         TaskEngine::install_schema(&connection).expect("install schema");
+        TaskEngine::install_cron_schema(&connection).expect("install cron schema");
         let task = create_due_task(&connection, "worker-retry", 2);
         let registry = TaskHandlerRegistry::new();
         registry
@@ -441,6 +524,7 @@ mod tests {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
         TaskEngine::install_schema(&connection).expect("install schema");
+        TaskEngine::install_cron_schema(&connection).expect("install cron schema");
         let task = create_due_task(&connection, "worker-missing-handler", 1);
         let registry = TaskHandlerRegistry::new();
 
@@ -470,6 +554,65 @@ mod tests {
         let attempts = TaskEngine::list_attempts(&connection, &executions[0].id).unwrap();
         assert_eq!(attempts.len(), 1);
         assert_eq!(attempts[0].status, AttemptStatus::Failed);
+    }
+
+    #[test]
+    fn worker_materializes_due_cron_occurrences_idempotently_and_advances_next_date() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        TaskEngine::install_schema(&connection).expect("install schema");
+        TaskEngine::install_cron_schema(&connection).expect("install cron schema");
+
+        let input = NewTask {
+            idempotency_key: "worker-cron".to_string(),
+            module: "documents".to_string(),
+            task_type: "classify_document".to_string(),
+            title: "Contrôler les documents chaque matin".to_string(),
+            payload: serde_json::json!({"documentId": "document-test"}),
+            scheduled_at: "2026-10-13T10:00:00Z".to_string(),
+            cron_expression: Some("0 10 * * 1-5".to_string()),
+            max_attempts: 2,
+        };
+        let task = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
+
+        let registry = TaskHandlerRegistry::new();
+        registry
+            .register_handler("documents", "classify_document", |_task, _execution| Ok(()))
+            .unwrap();
+
+        TaskWorker::run_once(
+            &mut connection,
+            &registry,
+            at("2026-10-15T10:01:00Z"),
+            TaskWorkerConfig::default(),
+        )
+        .expect("materialize and run the earliest due occurrence");
+
+        let mut executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        executions.sort_by(|left, right| left.scheduled_for.cmp(&right.scheduled_for));
+        assert_eq!(executions.len(), 3);
+        assert_eq!(executions[0].scheduled_for, "2026-10-13T10:00:00.000Z");
+        assert_eq!(executions[0].status, ExecutionStatus::Succeeded);
+        assert_eq!(executions[1].scheduled_for, "2026-10-14T10:00:00.000Z");
+        assert_eq!(executions[2].scheduled_for, "2026-10-15T10:00:00.000Z");
+
+        let updated = TaskEngine::get_task_by_id(&connection, &task.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.scheduled_at, "2026-10-16T10:00:00.000Z");
+
+        TaskWorker::run_once(
+            &mut connection,
+            &registry,
+            at("2026-10-15T10:01:00Z"),
+            TaskWorkerConfig::default(),
+        )
+        .expect("repeat run");
+        assert_eq!(
+            TaskEngine::list_executions(&connection, &task.id).unwrap().len(),
+            3,
+            "la matérialisation répétée ne doit pas dupliquer les occurrences"
+        );
     }
 
     #[test]

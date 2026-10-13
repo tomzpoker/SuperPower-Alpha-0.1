@@ -584,6 +584,7 @@ function TasksPage() {
   const [moduleName, setModuleName] = useState('general');
   const [taskType, setTaskType] = useState('manual');
   const [scheduledAt, setScheduledAt] = useState(() => defaultTaskDateTime());
+  const [cronExpression, setCronExpression] = useState('');
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [payloadJson, setPayloadJson] = useState('{}');
   const [historyTaskId, setHistoryTaskId] = useState<string | null>(null);
@@ -616,6 +617,7 @@ function TasksPage() {
     setModuleName('general');
     setTaskType('manual');
     setScheduledAt(defaultTaskDateTime());
+    setCronExpression('');
     setMaxAttempts(3);
     setPayloadJson('{}');
     setShowForm(true);
@@ -639,6 +641,7 @@ function TasksPage() {
       setModuleName(task.module);
       setTaskType(task.taskType);
       setScheduledAt(toLocalDateTimeInput(task.scheduledAt));
+      setCronExpression(task.cronExpression ?? '');
       setMaxAttempts(task.maxAttempts);
       setPayloadJson(JSON.stringify(task.payload, null, 2) ?? '{}');
       setShowForm(true);
@@ -675,6 +678,7 @@ function TasksPage() {
         title: title.trim(),
         payload: parsedPayload,
         scheduledAt: plannedDate.toISOString(),
+        cronExpression: cronExpression.trim() || null,
         maxAttempts,
       };
       const saved = existingTask
@@ -685,6 +689,7 @@ function TasksPage() {
       setTitle('');
       setTaskType('manual');
       setScheduledAt(defaultTaskDateTime());
+      setCronExpression('');
       setMaxAttempts(3);
       setPayloadJson('{}');
       setEditingTaskId(null);
@@ -749,7 +754,7 @@ function TasksPage() {
     />
     <div className="panel tasks-notice">
       <ShieldCheck size={18} />
-      <div><strong>Persistance locale chiffrée</strong><p>Les tâches et leur état sont enregistrés dans le coffre SQLCipher. Le lancement automatique des tâches, les handlers métier et les règles cron restent à activer dans la suite du Sprint 02.</p></div>
+      <div><strong>Persistance locale chiffrée</strong><p>Les expressions cron sont conservées dans le coffre et leurs occurrences échues peuvent être matérialisées par le worker one-shot. L’exécution automatique en arrière-plan et les handlers métier restent désactivés.</p></div>
     </div>
     {!isDesktopRuntime() && <div className="alert warning"><CircleAlert size={16} /><span>Mode aperçu : les tâches restent en mémoire et disparaissent au rechargement. Le coffre natif est nécessaire pour valider la persistance chiffrée.</span></div>}
     {error && <div className="alert error"><CircleAlert size={17} /><span>{error}</span><button onClick={() => setError('')} aria-label="Fermer l’erreur"><X size={16} /></button></div>}
@@ -760,7 +765,8 @@ function TasksPage() {
         <Field label="Titre"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required placeholder="Ex. Vérifier les pièces de novembre" /></Field>
         <Field label="Module"><select value={moduleName} onChange={(event) => setModuleName(event.target.value)}><option value="general">Général</option><option value="documents">Documents</option><option value="import_bancaire">Import bancaire</option><option value="locatif">Gestion locative</option><option value="fiscalite">Fiscalité</option></select></Field>
         <Field label="Type technique"><input value={taskType} onChange={(event) => setTaskType(event.target.value)} maxLength={100} required placeholder="Ex. verifier_piece" /></Field>
-        <Field label="Date et heure prévues"><input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} required /></Field>
+        <Field label={cronExpression.trim() ? 'Date de départ de la récurrence' : 'Date et heure prévues'}><input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} required /></Field>
+        <Field label="Expression cron (facultative, UTC)"><input value={cronExpression} onChange={(event) => setCronExpression(event.target.value)} maxLength={200} placeholder="*/15 9-17 * * 1-5" /></Field>
         <Field label="Nombre maximal de tentatives"><input type="number" value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} min={1} max={100} required /></Field>
       </div>
       <Field label="Données de la tâche (JSON)"><textarea value={payloadJson} onChange={(event) => setPayloadJson(event.target.value)} rows={3} spellCheck={false} required /></Field>
@@ -783,7 +789,7 @@ function TasksPage() {
         : <div className="tasks-list">{tasks.map((task) => <article className="panel task-card" key={task.id}>
           <div className="task-card-main">
             <div className="task-card-icon"><Clock3 size={19} /></div>
-            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
+            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}{task.cronExpression ? \` · Cron UTC : \${task.cronExpression}\` : ''}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
           </div>
           <div className="task-card-actions">
             {task.status !== 'cancelled' && <button className="button secondary" onClick={() => void startEditingTask(task)}>Modifier</button>}
@@ -791,7 +797,7 @@ function TasksPage() {
             {task.status === 'cancelled' ? <button className="button secondary" onClick={() => void changeStatus(task, 'scheduled')}>Réactiver</button> : <button className="button danger-ghost" onClick={() => void changeStatus(task, 'cancelled')}>Annuler</button>}
             <button className="button ghost" onClick={() => void toggleExecutionHistory(task.id)}>{historyTaskId === task.id ? 'Masquer l’historique' : 'Historique'}</button>
           </div>
-          {historyTaskId === task.id && <div className="task-history"><h4>Historique d’exécution</h4>{(executionHistory[task.id] ?? []).length === 0 ? <p>Aucune exécution enregistrée pour cette tâche. Le déclenchement automatique sera ajouté dans la prochaine tranche.</p> : (executionHistory[task.id] ?? []).map((execution) => <div className="task-execution" key={execution.id}>
+          {historyTaskId === task.id && <div className="task-history"><h4>Historique d’exécution</h4>{(executionHistory[task.id] ?? []).length === 0 ? <p>Aucune exécution enregistrée. Le worker de fond n’est pas encore lancé automatiquement.</p> : (executionHistory[task.id] ?? []).map((execution) => <div className="task-execution" key={execution.id}>
               <div><strong>{new Date(execution.scheduledFor).toLocaleString('fr-FR')}</strong><span>{taskExecutionStatusLabel(execution.status)} · {execution.attemptCount}/{execution.maxAttempts} tentative(s)</span>{execution.lastError && <p className="task-error-detail">{execution.lastError}</p>}</div>
               <button className="button ghost" onClick={() => void toggleAttempts(execution.id)}>{openAttemptId === execution.id ? 'Masquer les tentatives' : 'Tentatives'}</button>
               {openAttemptId === execution.id && <div className="task-attempts">{(attemptHistory[execution.id] ?? []).length === 0 ? <p>Aucune tentative historisée.</p> : (attemptHistory[execution.id] ?? []).map((attempt) => <div className="task-attempt" key={attempt.id}><span>#{attempt.attemptNumber} · {taskAttemptStatusLabel(attempt.status)}</span><span>{new Date(attempt.startedAt).toLocaleString('fr-FR')}</span>{attempt.errorMessage && <p>{attempt.errorMessage}</p>}</div>)}</div>}

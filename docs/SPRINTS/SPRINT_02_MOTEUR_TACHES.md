@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — persistance, IPC/UI, calendrier, worker one-shot et parseur cron UTC présents ; persistance des récurrences et runtime de fond restent à faire |
+| **Statut** | IN_PROGRESS — tâches ponctuelles et récurrentes persistées, parseur cron UTC et matérialisation idempotente dans le worker one-shot ; runtime de fond et handlers métier restent à faire |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -47,8 +47,8 @@
 - La page dispose maintenant d'un calendrier mensuel en grille, avec navigation entre mois et affichage des échéances par statut ; la liste reste l'endroit prévu pour modifier une tâche et consulter son historique.
 - Une nouvelle tranche ajoute un registre de handlers thread-safe et un worker one-shot : matérialisation idempotente des tâches à échéance, exécution hors transaction, historisation du résultat et planification des nouvelles tentatives. La CI #127 est verte sur cette tranche.
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
-- Le parseur cron numérique à cinq champs est ajouté : listes, plages, pas, validation stricte, alias dimanche 0/7, sémantique jour du mois/jour de semaine et recherche de prochaine occurrence UTC bornée. Il n'est pas encore branché à la définition persistée d'une tâche.
-- Le démarrage automatique du worker dans Tauri, les handlers métier réels, la persistance des expressions cron, l'édition complète du cycle de vie et la reprise du widget historique restent à faire.
+- Les tâches peuvent conserver une expression cron numérique à cinq champs et son ancre d'origine ; la migration v4→v5 ajoute les colonnes sans perdre les définitions existantes. Le worker one-shot matérialise les occurrences échues avec une clé idempotente par occurrence, avance l'échéance dans la même transaction et borne le rattrapage à 1 000 occurrences par appel et par tâche.
+- Le démarrage automatique du worker dans Tauri et les handlers métier réels restent à faire. Les expressions cron sont évaluées en UTC (pas encore de fuseau local configurable) et le worker n'est invoqué que par appel explicite ; aucune exécution automatique en arrière-plan n'est activée.
 
 ### Contrôles avant clôture
 
@@ -58,8 +58,9 @@
 - [ ] Vérifier les tests sur fichiers SQLCipher réouverts : idempotence, reprise sur expiration de bail et historique des erreurs.
 - [x] Exposer les opérations de consultation/création/statut/historique via IPC (CI verte sur le commit précédent).
 - [x] Ajouter une première API de registre de handlers et un worker one-shot ; le nouveau commit doit être validé par la CI.
-- [x] Ajouter un parseur cron à cinq champs avec validation stricte et tests unitaires ; il reste à le brancher aux tâches récurrentes persistées.
-- [ ] Intégrer le démarrage/arrêt du worker à Tauri avec arrêt propre et handlers métier explicites.
+- [x] Persister l'expression et l'ancre cron dans la migration v4→v5, puis matérialiser idempotemment les occurrences échues dans le worker one-shot.
+- [x] Ajouter un parseur cron à cinq champs avec validation stricte et tests unitaires.
+- [ ] Intégrer le démarrage/arrêt du worker à Tauri avec arrêt propre et handlers métier explicites ; enregistrer les handlers métier avant le premier lancement.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
 

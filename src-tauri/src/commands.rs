@@ -1495,7 +1495,9 @@ pub fn create_task(input: NewTask, state: State<'_, AppState>) -> Result<Task, S
             serde_json::json!({
                 "module": task.module,
                 "taskType": task.task_type,
-                "scheduledAt": task.scheduled_at
+                "scheduledAt": task.scheduled_at,
+                "cronExpression": task.cron_expression,
+                "cronAnchorAt": task.cron_anchor_at
             }),
         )
         .map_err(db_error)?;
@@ -1535,6 +1537,8 @@ pub fn update_task(
                 "taskType": &previous.task_type,
                 "title": &previous.title,
                 "scheduledAt": &previous.scheduled_at,
+                "cronExpression": &previous.cron_expression,
+                "cronAnchorAt": &previous.cron_anchor_at,
                 "maxAttempts": previous.max_attempts
             },
             "after": {
@@ -1542,6 +1546,8 @@ pub fn update_task(
                 "taskType": &updated.task_type,
                 "title": &updated.title,
                 "scheduledAt": &updated.scheduled_at,
+                "cronExpression": &updated.cron_expression,
+                "cronAnchorAt": &updated.cron_anchor_at,
                 "maxAttempts": updated.max_attempts
             }
         }),

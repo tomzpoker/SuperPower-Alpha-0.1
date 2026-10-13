@@ -81,6 +81,7 @@ export interface NewTask {
   title: string;
   payload: unknown;
   scheduledAt: string;
+  cronExpression?: string | null;
   maxAttempts: number;
 }
 

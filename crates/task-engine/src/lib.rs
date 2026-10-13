@@ -112,6 +112,8 @@ pub enum TaskEngineError {
     InvalidExecutionState,
     #[error("Cette tentative a expiré ou a été remplacée par une tentative plus récente.")]
     StaleAttempt,
+    #[error("L'échéance cron a changé avant sa matérialisation ; la tâche doit être relue.")]
+    StaleSchedule,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +194,8 @@ pub struct NewTask {
     pub title: String,
     pub payload: Value,
     pub scheduled_at: String,
+    #[serde(default)]
+    pub cron_expression: Option<String>,
     pub max_attempts: u32,
 }
 
@@ -205,6 +209,8 @@ pub struct Task {
     pub title: String,
     pub payload: Value,
     pub scheduled_at: String,
+    pub cron_expression: Option<String>,
+    pub cron_anchor_at: Option<String>,
     pub status: TaskStatus,
     pub max_attempts: u32,
     pub created_at: String,
@@ -252,8 +258,29 @@ impl TaskEngine {
         Ok(())
     }
 
-    /// Crée une tâche ponctuelle. Une même clé réutilisée à l'identique retourne
-    /// la tâche existante ; réutilisée pour des paramètres différents, elle échoue.
+    /// Ajoute les colonnes des expressions cron (migration v4 → v5).
+    /// Idempotent afin d'être utilisé aussi dans les tests du moteur isolé.
+    pub fn install_cron_schema(connection: &Connection) -> Result<(), TaskEngineError> {
+        for (column, sql) in [
+            ("cron_expression", "ALTER TABLE task_definitions ADD COLUMN cron_expression TEXT NULL;"),
+            ("cron_anchor_at", "ALTER TABLE task_definitions ADD COLUMN cron_anchor_at TEXT NULL;"),
+        ] {
+            let has_column: bool = connection.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM pragma_table_info('task_definitions') WHERE name = ?1
+                 )",
+                [column],
+                |row| row.get(0),
+            )?;
+            if !has_column {
+                connection.execute_batch(sql)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Crée une tâche ponctuelle ou récurrente. Une même clé réutilisée à l'identique
+    /// retourne la tâche existante ; réutilisée pour des paramètres différents, elle échoue.
     pub fn create_task(
         connection: &Connection,
         input: &NewTask,
@@ -269,7 +296,7 @@ impl TaskEngine {
             ));
         }
 
-        let scheduled_at = normalize_timestamp(&input.scheduled_at, "date programmée")?;
+        let (scheduled_at, cron_expression, cron_anchor_at) = normalize_schedule(input)?;
         let now = normalize_timestamp(now, "date de création")?;
         let payload_json = input.payload.to_string();
         let id = Uuid::new_v4().to_string();
@@ -277,8 +304,9 @@ impl TaskEngine {
         connection.execute(
             "INSERT INTO task_definitions (
                 id, idempotency_key, module, task_type, title, payload_json,
-                scheduled_at, status, max_attempts, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9, ?9)
+                scheduled_at, status, max_attempts, created_at, updated_at,
+                cron_expression, cron_anchor_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9, ?9, ?10, ?11)
              ON CONFLICT(idempotency_key) DO NOTHING",
             params![
                 id,
@@ -289,7 +317,9 @@ impl TaskEngine {
                 payload_json,
                 scheduled_at,
                 i64::from(input.max_attempts),
-                now
+                now,
+                cron_expression,
+                cron_anchor_at
             ],
         )?;
 
@@ -300,11 +330,17 @@ impl TaskEngine {
                 )
             })?;
 
+        let same_schedule = if cron_expression.is_some() {
+            existing.cron_anchor_at == cron_anchor_at
+        } else {
+            existing.scheduled_at == scheduled_at
+        };
         let same_request = existing.module == module
             && existing.task_type == task_type
             && existing.title == title
             && existing.payload == input.payload
-            && existing.scheduled_at == scheduled_at
+            && existing.cron_expression == cron_expression
+            && same_schedule
             && existing.max_attempts == input.max_attempts;
 
         if !same_request {
@@ -363,15 +399,16 @@ impl TaskEngine {
                 "Le nombre de tentatives doit être compris entre 1 et 100.".to_string(),
             ));
         }
-        let scheduled_at = normalize_timestamp(&input.scheduled_at, "date programmée")?;
+        let (scheduled_at, cron_expression, cron_anchor_at) = normalize_schedule(input)?;
         let now = normalize_timestamp(now, "date de modification")?;
         let payload_json = input.payload.to_string();
 
         transaction.execute(
             "UPDATE task_definitions
              SET module = ?1, task_type = ?2, title = ?3, payload_json = ?4,
-                 scheduled_at = ?5, max_attempts = ?6, updated_at = ?7
-             WHERE id = ?8",
+                 scheduled_at = ?5, max_attempts = ?6, updated_at = ?7,
+                 cron_expression = ?8, cron_anchor_at = ?9
+             WHERE id = ?10",
             params![
                 module,
                 task_type,
@@ -380,6 +417,8 @@ impl TaskEngine {
                 scheduled_at,
                 i64::from(input.max_attempts),
                 now,
+                cron_expression,
+                cron_anchor_at,
                 task_id
             ],
         )?;
@@ -391,7 +430,8 @@ impl TaskEngine {
     pub fn list_tasks(connection: &Connection) -> Result<Vec<Task>, TaskEngineError> {
         let mut statement = connection.prepare(
             "SELECT id, idempotency_key, module, task_type, title, payload_json,
-                    scheduled_at, status, max_attempts, created_at, updated_at
+                    scheduled_at, status, max_attempts, created_at, updated_at,
+                    cron_expression, cron_anchor_at
              FROM task_definitions
              ORDER BY scheduled_at, created_at, id",
         )?;
@@ -459,6 +499,31 @@ impl TaskEngine {
 
         find_task_by_id(transaction, task_id)?
             .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))
+    }
+
+    /// Avance l'échéance d'une tâche cron dans la transaction qui matérialise
+    /// l'occurrence, sans écraser une mise à jour concurrente.
+    pub fn advance_cron_occurrence_in_transaction(
+        transaction: &Transaction<'_>,
+        task_id: &str,
+        expected_scheduled_at: &str,
+        next_scheduled_at: &str,
+        now: &str,
+    ) -> Result<(), TaskEngineError> {
+        let expected = normalize_timestamp(expected_scheduled_at, "échéance cron attendue")?;
+        let next = normalize_timestamp(next_scheduled_at, "prochaine échéance cron")?;
+        let now = normalize_timestamp(now, "date de matérialisation")?;
+        let changed = transaction.execute(
+            "UPDATE task_definitions
+             SET scheduled_at = ?1, updated_at = ?2
+             WHERE id = ?3 AND status = 'scheduled'
+               AND cron_expression IS NOT NULL AND scheduled_at = ?4",
+            params![next, now, task_id, expected],
+        )?;
+        if changed != 1 {
+            return Err(TaskEngineError::StaleSchedule);
+        }
+        Ok(())
     }
 
     pub fn get_task_by_id(
@@ -825,6 +890,41 @@ fn normalize_timestamp(value: &str, label: &str) -> Result<String, TaskEngineErr
         .to_rfc3339_opts(SecondsFormat::Millis, true))
 }
 
+fn normalize_schedule(
+    input: &NewTask,
+) -> Result<(String, Option<String>, Option<String>), TaskEngineError> {
+    let anchor = normalize_timestamp(&input.scheduled_at, "date programmée")?;
+    let Some(raw_expression) = input.cron_expression.as_deref() else {
+        return Ok((anchor, None, None));
+    };
+    let expression = required_text(raw_expression, "expression cron", 200)?;
+    let schedule = CronSchedule::parse(&expression).map_err(|error| {
+        TaskEngineError::InvalidInput(format!("Expression cron invalide : {error}"))
+    })?;
+    let anchor_date = DateTime::parse_from_rfc3339(&anchor)
+        .map_err(|_| {
+            TaskEngineError::InvalidInput(
+                "La date de départ de la tâche récurrente est invalide.".to_string(),
+            )
+        })?
+        .with_timezone(&Utc);
+    let first_occurrence = if schedule.matches_at(&anchor_date) {
+        anchor_date
+    } else {
+        schedule.next_after(&anchor_date).ok_or_else(|| {
+            TaskEngineError::InvalidInput(
+                "L'expression cron ne produit aucune occurrence dans les cinq prochaines années."
+                    .to_string(),
+            )
+        })?
+    };
+    Ok((
+        first_occurrence.to_rfc3339_opts(SecondsFormat::Millis, true),
+        Some(expression),
+        Some(anchor),
+    ))
+}
+
 fn conversion_error(index: usize, kind: &str, value: &str) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(
         index,
@@ -868,6 +968,8 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         max_attempts,
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
+        cron_expression: row.get(11)?,
+        cron_anchor_at: row.get(12)?,
     })
 }
 
@@ -924,7 +1026,8 @@ fn find_task_by_idempotency_key(
     connection
         .query_row(
             "SELECT id, idempotency_key, module, task_type, title, payload_json,
-                    scheduled_at, status, max_attempts, created_at, updated_at
+                    scheduled_at, status, max_attempts, created_at, updated_at,
+                    cron_expression, cron_anchor_at
              FROM task_definitions WHERE idempotency_key = ?1",
             [idempotency_key],
             task_from_row,
@@ -939,7 +1042,8 @@ fn find_task_by_id(
     connection
         .query_row(
             "SELECT id, idempotency_key, module, task_type, title, payload_json,
-                    scheduled_at, status, max_attempts, created_at, updated_at
+                    scheduled_at, status, max_attempts, created_at, updated_at,
+                    cron_expression, cron_anchor_at
              FROM task_definitions WHERE id = ?1",
             [task_id],
             task_from_row,
@@ -1045,12 +1149,45 @@ mod tests {
             title: "Classer un document".to_string(),
             payload: serde_json::json!({"documentId": "document-test"}),
             scheduled_at: DUE.to_string(),
+            cron_expression: None,
             max_attempts,
         }
     }
 
     fn init(connection: &Connection) {
         TaskEngine::install_schema(connection).expect("install schema");
+        TaskEngine::install_cron_schema(connection).expect("install cron schema");
+    }
+
+    #[test]
+    fn recurring_task_persists_expression_and_keeps_idempotency_anchor_after_advancing() {
+        let database = TemporaryDatabase::new();
+        let connection = database.connect();
+        init(&connection);
+        let mut input = new_task("cron-anchor-test", 2);
+        input.scheduled_at = "2026-10-13T10:00:00Z".to_string();
+        input.cron_expression = Some("0 10 * * 1-5".to_string());
+
+        let task = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
+        assert_eq!(task.scheduled_at, "2026-10-13T10:00:00.000Z");
+        assert_eq!(task.cron_expression.as_deref(), Some("0 10 * * 1-5"));
+        assert_eq!(task.cron_anchor_at.as_deref(), Some("2026-10-13T10:00:00.000Z"));
+
+        connection
+            .execute(
+                "UPDATE task_definitions SET scheduled_at = '2026-10-14T10:00:00.000Z' WHERE id = ?1",
+                [&task.id],
+            )
+            .unwrap();
+        let repeated = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
+        assert_eq!(repeated.id, task.id);
+        assert_eq!(repeated.scheduled_at, "2026-10-14T10:00:00.000Z");
+
+        input.cron_expression = Some("60 10 * * 1-5".to_string());
+        assert!(matches!(
+            TaskEngine::create_task(&connection, &input, BEFORE_DUE),
+            Err(TaskEngineError::InvalidInput(_))
+        ));
     }
 
     #[test]
