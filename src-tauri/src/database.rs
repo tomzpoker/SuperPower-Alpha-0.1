@@ -541,6 +541,103 @@ mod migration_tests {
     }
 
     #[test]
+    fn migrates_v2_to_v3_preserving_existing_forecasts_and_realizations() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE societes (id TEXT PRIMARY KEY NOT NULL);
+                 CREATE TABLE flux_previsionnels (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    societe_id TEXT NOT NULL REFERENCES societes(id) ON DELETE RESTRICT,
+                    libelle TEXT NOT NULL,
+                    sens TEXT NOT NULL,
+                    categorie TEXT NOT NULL,
+                    date_prevue TEXT NOT NULL,
+                    montant_prevu_cents INTEGER NOT NULL,
+                    tiers TEXT NULL,
+                    reference TEXT NULL,
+                    statut TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                 );
+                 CREATE TABLE flux_realisations (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    flux_id TEXT NOT NULL REFERENCES flux_previsionnels(id) ON DELETE RESTRICT,
+                    date_realisation TEXT NOT NULL,
+                    montant_cents INTEGER NOT NULL,
+                    reference TEXT NULL,
+                    note TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    annulee_at TEXT NULL,
+                    motif_annulation TEXT NULL
+                 );
+                 PRAGMA user_version = 2;",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO societes(id) VALUES ('soc-v2')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flux_previsionnels(
+                    id, societe_id, libelle, sens, categorie, date_prevue,
+                    montant_prevu_cents, tiers, reference, statut, created_at, updated_at
+                 ) VALUES (
+                    'flux-v2', 'soc-v2', 'Assurance annuelle', 'decaissement',
+                    'charge_courante', '2026-12-01', 24000, 'AssurTest', 'ASS-01',
+                    'actif', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+                 )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flux_realisations(
+                    id, flux_id, date_realisation, montant_cents, reference, note,
+                    created_at, annulee_at, motif_annulation
+                 ) VALUES (
+                    'real-v2', 'flux-v2', '2026-10-13', 30000, 'PAY-01', 'Paiement test',
+                    '2026-10-13T10:00:00Z', NULL, NULL
+                 )",
+                [],
+            )
+            .unwrap();
+
+        migrate_schema(&mut connection).unwrap();
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 3);
+
+        let (label, amount, recurrence_id): (String, i64, Option<String>) = connection
+            .query_row(
+                "SELECT libelle, montant_prevu_cents, recurrence_id
+                 FROM flux_previsionnels WHERE id = 'flux-v2'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(label, "Assurance annuelle");
+        assert_eq!(amount, 24_000);
+        assert_eq!(recurrence_id, None);
+
+        let (actual_amount, actual_note): (i64, String) = connection
+            .query_row(
+                "SELECT montant_cents, note FROM flux_realisations WHERE id = 'real-v2'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(actual_amount, 30_000);
+        assert_eq!(actual_note, "Paiement test");
+    }
+
+    #[test]
     fn refuses_a_database_from_an_unknown_future_version() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
