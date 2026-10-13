@@ -18,6 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 superpower-core = { path = "../crates/core" }
+task-engine = { path = "../crates/task-engine" }
 tauri = { version = "2", features = [] }
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 argon2 = "0.5"
