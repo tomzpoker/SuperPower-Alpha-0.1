@@ -11,10 +11,11 @@ import { formatDate, formatMoney, parseAmountToCents } from './lib/money';
 import type {
   Account, CreateEntryInput, CreateSocieteInput, DashboardSummary, DatabaseStatus,
   EntryView, ExigibiliteTva, FluxInput, FluxRealisationView, FluxView, FormeJuridique,
-  CategorieFlux, FrequenceFlux, PeriodiciteTva, RealisationFluxInput, RegimeFiscal, RegimeTva, SensFlux, Societe,
+  CategorieFlux, FrequenceFlux, NewTask, PeriodiciteTva, RealisationFluxInput, RegimeFiscal, RegimeTva, SensFlux, Societe,
+  Task, TaskAttempt, TaskExecution, TaskStatus,
 } from './lib/types';
 
-type PageKey = 'dashboard' | 'societes' | 'ecritures' | 'documents' | 'tresorerie' | 'locatif' | 'fiscalite' | 'parametres';
+type PageKey = 'dashboard' | 'societes' | 'ecritures' | 'documents' | 'taches' | 'tresorerie' | 'locatif' | 'fiscalite' | 'parametres';
 type ThemeKey = 'aurora' | 'sakura' | 'mint' | 'sunset' | 'midnight';
 
 const navigation: Array<{ key: PageKey; label: string; icon: typeof LayoutDashboard; group: string }> = [
@@ -22,6 +23,7 @@ const navigation: Array<{ key: PageKey; label: string; icon: typeof LayoutDashbo
   { key: 'societes', label: 'Sociétés', icon: Building2, group: 'ESPACE DE TRAVAIL' },
   { key: 'ecritures', label: 'Comptabilité', icon: BookOpenCheck, group: 'ESPACE DE TRAVAIL' },
   { key: 'documents', label: 'Documents', icon: Files, group: 'OPÉRATIONS' },
+  { key: 'taches', label: 'Tâches', icon: Clock3, group: 'OPÉRATIONS' },
   { key: 'locatif', label: 'Gestion locative', icon: House, group: 'OPÉRATIONS' },
   { key: 'tresorerie', label: 'Trésorerie', icon: Wallet, group: 'PILOTAGE' },
   { key: 'fiscalite', label: 'Fiscalité', icon: ReceiptText, group: 'PILOTAGE' },
@@ -330,8 +332,9 @@ function App() {
         {page === 'dashboard' && <Dashboard summary={summary} societes={societes} entries={entries} flux={flux} onNavigate={setPage} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onNewFlow={() => setPage('tresorerie')} />}
         {page === 'societes' && <CompaniesPage onNew={() => { setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} editingSocieteId={editingSocieteId} onEdit={handleEditCompany} onDelete={handleDeleteCompany} societes={societes} showForm={showCompanyForm} setShowForm={setShowCompanyForm} form={companyForm} setForm={setCompanyForm} onSubmit={handleCreateCompany} />}
         {page === 'ecritures' && <EntriesPage entries={entries.filter((entry) => !selectedSocieteId || entry.societeId === selectedSocieteId)} societes={societes} accounts={accounts} activeCompany={activeCompany} setSelectedSocieteId={setSelectedSocieteId} showForm={showEntryForm} setShowForm={setShowEntryForm} onSubmit={handleCreateEntry} entryDate={entryDate} setEntryDate={setEntryDate} entryLabel={entryLabel} setEntryLabel={setEntryLabel} entryReference={entryReference} setEntryReference={setEntryReference} debitAccount={debitAccount} setDebitAccount={setDebitAccount} creditAccount={creditAccount} setCreditAccount={setCreditAccount} entryAmount={entryAmount} setEntryAmount={setEntryAmount} busy={entryBusy} onRefresh={refreshEntries} />}
+        {page === 'taches' && <TasksPage />}
         {page === 'tresorerie' && <CashflowPage societes={societes} selectedSocieteId={selectedSocieteId} flux={flux.filter(flow => !selectedSocieteId || flow.societeId === selectedSocieteId)} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} onCreate={createFlow} onUpdate={updateFlow} onRealise={realiseFlow} onCancel={cancelFlow} onCancelRealisation={cancelRealisation} onStopRecurrence={stopRecurrence} />}
-        {page !== 'dashboard' && page !== 'societes' && page !== 'ecritures' && page !== 'tresorerie' && <PlannedPage page={page} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} />}
+        {page !== 'dashboard' && page !== 'societes' && page !== 'ecritures' && page !== 'tresorerie' && page !== 'taches' && <PlannedPage page={page} onNewCompany={() => { setPage('societes'); setEditingSocieteId(null); setCompanyForm(defaultCompanyForm); setShowCompanyForm(true); }} />}
         <footer className="page-footer"><span>SuperPower Alpha 0.1</span><span><span className="footer-dot" /> Coffre local {isDesktopRuntime() ? 'chiffré' : 'démo volatile'}</span><span>Conçu pour garder le contrôle.</span></footer>
       </div>
     </main>
@@ -561,6 +564,187 @@ function CashflowPage({ societes, selectedSocieteId, flux, onNewCompany, onCreat
       </article>)}</div> : <EmptyState icon={Wallet} title="Aucun flux prévisionnel" description="Ajoutez une entrée attendue (loyer) ou une sortie (facture, emprunt). Enregistrez ensuite les montants réels sans choisir de comptes." action={<button className="button primary" onClick={openNew}><Plus size={16} /> Créer une première prévision</button>} />}
     </>}
   </section>;
+}
+
+function TasksPage() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [title, setTitle] = useState('');
+  const [moduleName, setModuleName] = useState('general');
+  const [taskType, setTaskType] = useState('manual');
+  const [scheduledAt, setScheduledAt] = useState(() => defaultTaskDateTime());
+  const [maxAttempts, setMaxAttempts] = useState(3);
+  const [payloadJson, setPayloadJson] = useState('{}');
+  const [historyTaskId, setHistoryTaskId] = useState<string | null>(null);
+  const [executionHistory, setExecutionHistory] = useState<Record<string, TaskExecution[]>>({});
+  const [attemptHistory, setAttemptHistory] = useState<Record<string, TaskAttempt[]>>({});
+  const [openAttemptId, setOpenAttemptId] = useState<string | null>(null);
+
+  const refresh = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
+    else setRefreshing(true);
+    setError('');
+    try {
+      const result = await api<Task[]>('list_tasks');
+      setTasks(result);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh(true);
+  }, [refresh]);
+
+  async function createTask(event: FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError('');
+    setNotice('');
+    try {
+      const parsedPayload: unknown = JSON.parse(payloadJson);
+      const plannedDate = new Date(scheduledAt);
+      if (Number.isNaN(plannedDate.getTime())) throw new Error('Choisissez une date de planification valide.');
+      const input: NewTask = {
+        idempotencyKey: `manual-${crypto.randomUUID()}`,
+        module: moduleName,
+        taskType,
+        title: title.trim(),
+        payload: parsedPayload,
+        scheduledAt: plannedDate.toISOString(),
+        maxAttempts,
+      };
+      const created = await api<Task>('create_task', { input });
+      setTasks((current) => [created, ...current.filter((task) => task.id !== created.id)].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)));
+      setTitle('');
+      setTaskType('manual');
+      setScheduledAt(defaultTaskDateTime());
+      setMaxAttempts(3);
+      setPayloadJson('{}');
+      setShowForm(false);
+      setNotice('Tâche enregistrée dans le coffre local.');
+    } catch (reason) {
+      setError(reason instanceof SyntaxError ? 'Le contenu JSON est invalide.' : errorMessage(reason));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function changeStatus(task: Task, status: TaskStatus) {
+    setError('');
+    setNotice('');
+    try {
+      const updated = await api<Task>('update_task_status', { taskId: task.id, status });
+      setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setNotice(status === 'cancelled' ? 'Tâche annulée ; son historique est conservé.' : status === 'paused' ? 'Tâche mise en pause.' : 'Tâche réactivée.');
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
+
+  async function toggleExecutionHistory(taskId: string) {
+    if (historyTaskId === taskId) {
+      setHistoryTaskId(null);
+      return;
+    }
+    setError('');
+    try {
+      const rows = await api<TaskExecution[]>('list_task_executions', { taskId });
+      setExecutionHistory((current) => ({ ...current, [taskId]: rows }));
+      setHistoryTaskId(taskId);
+      setOpenAttemptId(null);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
+
+  async function toggleAttempts(executionId: string) {
+    if (openAttemptId === executionId) {
+      setOpenAttemptId(null);
+      return;
+    }
+    setError('');
+    try {
+      const rows = await api<TaskAttempt[]>('list_task_attempts', { executionId });
+      setAttemptHistory((current) => ({ ...current, [executionId]: rows }));
+      setOpenAttemptId(executionId);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
+
+  return <section className="module-page tasks-page">
+    <PageHeading
+      eyebrow="ORGANISATION ET SUIVI"
+      title="Tâches"
+      description="Des actions planifiées, conservées dans votre coffre, avec un historique consultable."
+      action={<button className="button primary" onClick={() => setShowForm((value) => !value)}><Plus size={16} /> Nouvelle tâche</button>}
+    />
+    <div className="panel tasks-notice">
+      <ShieldCheck size={18} />
+      <div><strong>Persistance locale chiffrée</strong><p>Les tâches et leur état sont enregistrés dans le coffre SQLCipher. Le lancement automatique des tâches, les handlers métier et les règles cron restent à activer dans la suite du Sprint 02.</p></div>
+    </div>
+    {!isDesktopRuntime() && <div className="alert warning"><CircleAlert size={16} /><span>Mode aperçu : les tâches restent en mémoire et disparaissent au rechargement. Le coffre natif est nécessaire pour valider la persistance chiffrée.</span></div>}
+    {error && <div className="alert error"><CircleAlert size={17} /><span>{error}</span><button onClick={() => setError('')} aria-label="Fermer l’erreur"><X size={16} /></button></div>}
+    {notice && <div className="alert success"><CheckCircle2 size={17} /><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Fermer le message"><X size={16} /></button></div>}
+    {showForm && <form className="panel tasks-form" onSubmit={createTask}>
+      <div className="tasks-form-heading"><div><h2>Nouvelle tâche</h2><p>Les tentatives sont historisées ; les exécutions automatiques seront activées ultérieurement.</p></div><button type="button" className="icon-button" onClick={() => setShowForm(false)} aria-label="Fermer le formulaire"><X size={17} /></button></div>
+      <div className="tasks-form-grid">
+        <Field label="Titre"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required placeholder="Ex. Vérifier les pièces de novembre" /></Field>
+        <Field label="Module"><select value={moduleName} onChange={(event) => setModuleName(event.target.value)}><option value="general">Général</option><option value="documents">Documents</option><option value="import_bancaire">Import bancaire</option><option value="locatif">Gestion locative</option><option value="fiscalite">Fiscalité</option></select></Field>
+        <Field label="Type technique"><input value={taskType} onChange={(event) => setTaskType(event.target.value)} maxLength={100} required placeholder="Ex. verifier_piece" /></Field>
+        <Field label="Date et heure prévues"><input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} required /></Field>
+        <Field label="Nombre maximal de tentatives"><input type="number" value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} min={1} max={100} required /></Field>
+      </div>
+      <Field label="Données de la tâche (JSON)"><textarea value={payloadJson} onChange={(event) => setPayloadJson(event.target.value)} rows={3} spellCheck={false} required /></Field>
+      <div className="tasks-form-actions"><button type="button" className="button secondary" onClick={() => setShowForm(false)}>Annuler</button><button className="button primary" type="submit" disabled={submitting || !title.trim() || !taskType.trim() || maxAttempts < 1 || maxAttempts > 100}>{submitting ? 'Enregistrement…' : 'Enregistrer la tâche'} <ArrowRight size={16} /></button></div>
+    </form>}
+    <div className="tasks-list-heading"><div><h2>Liste des tâches</h2><p>{tasks.length} tâche{tasks.length > 1 ? 's' : ''} enregistrée{tasks.length > 1 ? 's' : ''}</p></div><button className="button secondary" onClick={() => void refresh()} disabled={refreshing}><Activity size={15} /> {refreshing ? 'Actualisation…' : 'Actualiser'}</button></div>
+    {loading ? <div className="panel tasks-empty"><p>Chargement des tâches…</p></div> : tasks.length === 0
+      ? <EmptyState icon={Clock3} title="Aucune tâche pour le moment" description="Créez une tâche pour commencer à organiser les actions à suivre." action={<button className="button primary" onClick={() => setShowForm(true)}><Plus size={16} /> Créer une tâche</button>} />
+      : <div className="tasks-list">{tasks.map((task) => <article className="panel task-card" key={task.id}>
+          <div className="task-card-main">
+            <div className="task-card-icon"><Clock3 size={19} /></div>
+            <div className="task-card-copy"><div className="task-card-title-row"><h3>{task.title}</h3><span className={`task-status task-status-${task.status}`}>{taskStatusLabel(task.status)}</span></div><p>{new Date(task.scheduledAt).toLocaleString('fr-FR')} · {task.module} / {task.taskType}</p><div className="task-card-meta"><span>Jusqu’à {task.maxAttempts} tentatives</span><span>Créée le {new Date(task.createdAt).toLocaleDateString('fr-FR')}</span></div></div>
+          </div>
+          <div className="task-card-actions">
+            {task.status !== 'cancelled' && <button className="button secondary" onClick={() => void changeStatus(task, task.status === 'paused' ? 'scheduled' : 'paused')}>{task.status === 'paused' ? 'Reprendre' : 'Mettre en pause'}</button>}
+            {task.status === 'cancelled' ? <button className="button secondary" onClick={() => void changeStatus(task, 'scheduled')}>Réactiver</button> : <button className="button danger-ghost" onClick={() => void changeStatus(task, 'cancelled')}>Annuler</button>}
+            <button className="button ghost" onClick={() => void toggleExecutionHistory(task.id)}>{historyTaskId === task.id ? 'Masquer l’historique' : 'Historique'}</button>
+          </div>
+          {historyTaskId === task.id && <div className="task-history"><h4>Historique d’exécution</h4>{(executionHistory[task.id] ?? []).length === 0 ? <p>Aucune exécution enregistrée pour cette tâche. Le déclenchement automatique sera ajouté dans la prochaine tranche.</p> : (executionHistory[task.id] ?? []).map((execution) => <div className="task-execution" key={execution.id}>
+              <div><strong>{new Date(execution.scheduledFor).toLocaleString('fr-FR')}</strong><span>{taskExecutionStatusLabel(execution.status)} · {execution.attemptCount}/{execution.maxAttempts} tentative(s)</span>{execution.lastError && <p className="task-error-detail">{execution.lastError}</p>}</div>
+              <button className="button ghost" onClick={() => void toggleAttempts(execution.id)}>{openAttemptId === execution.id ? 'Masquer les tentatives' : 'Tentatives'}</button>
+              {openAttemptId === execution.id && <div className="task-attempts">{(attemptHistory[execution.id] ?? []).length === 0 ? <p>Aucune tentative historisée.</p> : (attemptHistory[execution.id] ?? []).map((attempt) => <div className="task-attempt" key={attempt.id}><span>#{attempt.attemptNumber} · {taskAttemptStatusLabel(attempt.status)}</span><span>{new Date(attempt.startedAt).toLocaleString('fr-FR')}</span>{attempt.errorMessage && <p>{attempt.errorMessage}</p>}</div>)}</div>}
+            </div>)}</div>}
+        </article>)}</div>}
+  </section>;
+}
+
+function defaultTaskDateTime(): string {
+  const value = new Date(Date.now() + 5 * 60_000);
+  value.setSeconds(0, 0);
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function taskStatusLabel(status: TaskStatus): string {
+  return ({ scheduled: 'Planifiée', paused: 'En pause', cancelled: 'Annulée' })[status];
+}
+
+function taskExecutionStatusLabel(status: TaskExecution['status']): string {
+  return ({ queued: 'En attente', running: 'En cours', succeeded: 'Terminée', failed: 'Échouée', cancelled: 'Annulée' })[status];
+}
+
+function taskAttemptStatusLabel(status: TaskAttempt['status']): string {
+  return ({ running: 'En cours', succeeded: 'Réussie', failed: 'Échouée' })[status];
 }
 
 function PlannedPage({ page, onNewCompany }: { page: PageKey; onNewCompany: () => void }) {
