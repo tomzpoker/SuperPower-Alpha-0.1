@@ -14,7 +14,7 @@ use rusqlite::Connection;
 use thiserror::Error;
 
 use crate::{
-    CronSchedule, ExecutionStatus, Task, TaskEngine, TaskEngineError, TaskExecution, TaskStatus,
+    CronSchedule, ExecutionStatus, Task, TaskEngine, TaskEngineError, TaskExecution, TaskRecurrenceFrequency, TaskStatus,
 };
 
 type Handler = dyn Fn(&Task, &TaskExecution) -> Result<(), String> + Send + Sync + 'static;
@@ -211,7 +211,7 @@ impl TaskWorker {
         let mut eligible_task_ids = Vec::new();
         let lease_until = timestamp(&(now.clone() + config.lease_duration));
 
-        // Les occurrences cron utilisent une clé stable liée à l'instant prévu.
+        // Les occurrences récurrentes utilisent une clé stable liée à l'instant prévu.
         // Le plafond borne le rattrapage d'un coffre resté fermé longtemps ; un appel
         // ultérieur reprend où le précédent s'est arrêté.
         for task in TaskEngine::list_tasks(connection)? {
@@ -226,69 +226,32 @@ impl TaskWorker {
                 eligible_task_ids.push(task.id.clone());
             }
 
-            if let Some(expression) = task.cron_expression.as_deref() {
-                if task.scheduled_at > now_text {
-                    continue;
-                }
-                let schedule = CronSchedule::parse(expression).map_err(|error| {
-                    TaskEngineError::InvalidInput(format!(
-                        "Expression cron persistée invalide pour la tâche « {} » : {error}",
-                        task.id
-                    ))
-                })?;
+            if task.recurrence_frequency.is_recurring() {
+                if task.scheduled_at > now_text { continue; }
+                let cron_schedule = if task.recurrence_frequency == TaskRecurrenceFrequency::CustomCron {
+                    let expression = task.cron_expression.as_deref().ok_or_else(|| TaskEngineError::InvalidInput(format!("Expression cron absente pour la tâche « {} ».", task.id)))?;
+                    Some(CronSchedule::parse(expression).map_err(|error| TaskEngineError::InvalidInput(format!("Expression cron persistée invalide pour la tâche « {} » : {error}", task.id)))?)
+                } else { None };
                 let mut scheduled_for = task.scheduled_at.clone();
-
                 for _ in 0..MAX_CRON_CATCH_UP_PER_TASK {
-                    if scheduled_for > now_text {
-                        break;
-                    }
-                    let transaction = connection
-                        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-                        .map_err(TaskEngineError::from)?;
+                    if scheduled_for > now_text { break; }
+                    let transaction = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(TaskEngineError::from)?;
                     let key = format!("cron:{}:{}", task.id, scheduled_for);
-                    match TaskEngine::enqueue_execution(
-                        &transaction,
-                        &task.id,
-                        &key,
-                        &scheduled_for,
-                        &now_text,
-                    ) {
+                    match TaskEngine::enqueue_execution(&transaction, &task.id, &key, &scheduled_for, &now_text) {
                         Ok(_) => {}
-                        Err(TaskEngineError::TaskInactive) => {
-                            transaction.rollback().map_err(TaskEngineError::from)?;
-                            break;
-                        }
+                        Err(TaskEngineError::TaskInactive) => { transaction.rollback().map_err(TaskEngineError::from)?; break; }
                         Err(error) => return Err(error.into()),
                     }
-
-                    let scheduled_time = DateTime::parse_from_rfc3339(&scheduled_for)
-                        .map_err(|_| {
-                            TaskEngineError::InvalidInput(
-                                "Une échéance cron persistée n'est pas une date ISO 8601 valide."
-                                    .to_string(),
-                            )
-                        })?
-                        .with_timezone(&Utc);
-                    let next = schedule.next_after(&scheduled_time).ok_or_else(|| {
-                        TaskEngineError::InvalidInput(
-                            "L'expression cron ne produit aucune occurrence suivante dans les cinq prochaines années."
-                                .to_string(),
-                        )
-                    })?;
-                    let next_scheduled_for = timestamp(&next);
-
-                    match TaskEngine::advance_cron_occurrence_in_transaction(
-                        &transaction,
-                        &task.id,
-                        &scheduled_for,
-                        &next_scheduled_for,
-                        &now_text,
-                    ) {
+                    let next_scheduled_for = if let Some(schedule) = cron_schedule.as_ref() {
+                        let scheduled_time = DateTime::parse_from_rfc3339(&scheduled_for).map_err(|_| TaskEngineError::InvalidInput("Une échéance récurrente persistée n'est pas une date ISO 8601 valide.".to_string()))?.with_timezone(&Utc);
+                        timestamp(&schedule.next_after(&scheduled_time).ok_or_else(|| TaskEngineError::InvalidInput("L'expression cron ne produit aucune occurrence suivante dans les cinq prochaines années.".to_string()))?)
+                    } else {
+                        let anchor = task.cron_anchor_at.as_deref().ok_or_else(|| TaskEngineError::InvalidInput(format!("Ancre absente pour la récurrence métier de la tâche « {} ».", task.id)))?;
+                        TaskEngine::next_anchored_occurrence(task.recurrence_frequency, anchor, &scheduled_for)?
+                    };
+                    match TaskEngine::advance_cron_occurrence_in_transaction(&transaction, &task.id, &scheduled_for, &next_scheduled_for, &now_text) {
                         Ok(()) => {}
-                        Err(TaskEngineError::StaleSchedule) => {
-                            transaction.rollback().map_err(TaskEngineError::from)?;
-                            break;
-                        }
+                        Err(TaskEngineError::StaleSchedule) => { transaction.rollback().map_err(TaskEngineError::from)?; break; }
                         Err(error) => return Err(error.into()),
                     }
                     transaction.commit().map_err(TaskEngineError::from)?;
@@ -462,6 +425,7 @@ mod tests {
             title: "Classer un document".to_string(),
             payload: serde_json::json!({"documentId": "document-test"}),
             scheduled_at: DUE.to_string(),
+            recurrence_frequency: TaskRecurrenceFrequency::Once,
             cron_expression: None,
             max_attempts,
         };
@@ -656,6 +620,7 @@ mod tests {
                 title: "Tâche avec handler".to_string(),
                 payload: serde_json::json!({}),
                 scheduled_at: DUE.to_string(),
+                recurrence_frequency: TaskRecurrenceFrequency::Once,
                 cron_expression: None,
                 max_attempts: 2,
             },
@@ -698,6 +663,7 @@ mod tests {
                 title: "Cron sans handler".to_string(),
                 payload: serde_json::json!({}),
                 scheduled_at: DUE.to_string(),
+                recurrence_frequency: TaskRecurrenceFrequency::Once,
                 cron_expression: Some("*/5 * * * *".to_string()),
                 max_attempts: 2,
             },
@@ -774,6 +740,7 @@ mod tests {
             title: "Contrôler les documents chaque matin".to_string(),
             payload: serde_json::json!({"documentId": "document-test"}),
             scheduled_at: "2026-10-13T10:00:00Z".to_string(),
+            recurrence_frequency: TaskRecurrenceFrequency::Once,
             cron_expression: Some("0 10 * * 1-5".to_string()),
             max_attempts: 2,
         };
