@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; fréquences métier ponctuelle/mensuelle/trimestrielle/annuelle ; migration v5→v6 et contrôles CI #38438886275 validés ; calculs de dates couverts par tests déterministes ; vérification intégrée du verrouillage/déverrouillage restant |
+| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handler `general/reminder` ; fréquences métier ponctuelle/mensuelle/trimestrielle/annuelle ; migration v5→v6 et intégration worker mensuel validées par la CI #38442503451 ; vérification intégrée du verrouillage/déverrouillage restant |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -69,7 +69,8 @@
 - [x] Champ de message de rappel dédié et tests de synchronisation du payload validés en CI #153 sur `78ace82`.
 - [x] Sélecteur de fréquence métier ajouté, cron conservé comme mode avancé.
 - [x] Migration v5→v6 additive et conservation des tâches existantes testée.
-- [ ] Confirmer par CI le calcul ancré, le frontend et la migration v5→v6.
+- [x] Confirmer par CI le calcul ancré, le frontend et la migration v5→v6 (CI #38442503451, commit `fa33766`).
+- [x] Tester l’intégration des occurrences mensuelles dans le worker : 31 janvier → 28 février → 31 mars, ancre d’origine conservée et répétition sans doublon (CI #38442503451).
 - [x] Essai natif sur coffre temporaire : rappel `general/reminder` à échéance, notification visible, exécution `Terminée`, tentative `#1 · Réussie` et historique confirmé par l'utilisateur.
 - [ ] Verrouiller puis déverrouiller le même coffre temporaire et confirmer que le worker reprend sans doublon.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
@@ -81,4 +82,4 @@
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
 - La suppression contrôlée, le test frontend du mode démo, les migrations historiques v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
-- La CI #38438886275 est entièrement verte sur `4c10f16` : contrôles Rust, frontend, build Windows/Tauri et tests du workspace, y compris le test du contrôleur du worker (double démarrage ignoré, arrêt et redémarrage). Les calculs de récurrence sont validés par tests automatisés couvrant les fins de mois, le trimestre et les années bissextiles : pas d'attente réelle de plusieurs mois. L'essai natif du rappel est réussi ; seul le cycle intégré verrouillage/déverrouillage sans doublon reste à confirmer. [Résultats CI #38438886275](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38438886275).
+- La CI #38442503451 est entièrement verte sur `fa33766` : formatage/tests Rust, test d’intégration du worker mensuel (31 janvier → 28 février → 31 mars et passes répétées sans doublon), frontend, build Tauri Windows et tests workspace/migrations. La CI #38438886275 valide aussi le contrôleur du worker : double démarrage ignoré, arrêt et redémarrage. L’essai natif du rappel simple est réussi ; seul le cycle intégré verrouillage/déverrouillage sans doublon reste à confirmer. [Résultats CI #38442503451](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38442503451).

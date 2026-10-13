@@ -9,7 +9,7 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher et le worker natif ; les tâches ponctuelles, mensuelles, trimestrielles et annuelles sont proposées avec ancre sans dérive de fin de mois ; cron reste avancé. CI #38438886275 entièrement verte sur `4c10f16` (Rust, frontend, build Tauri Windows et tests workspace). Le test natif du rappel est réussi ; les calculs de récurrence sont testés automatiquement, sans attendre les échéances réelles. Le cycle intégré verrouillage/déverrouillage sans doublon reste à confirmer. |
+| Statut | S06-B est dans `main`. La branche S02 contient le moteur SQLCipher et le worker natif ; les tâches ponctuelles, mensuelles, trimestrielles et annuelles sont proposées avec ancre sans dérive de fin de mois ; cron reste avancé. CI #38442503451 entièrement verte sur `fa33766` (Rust, frontend, build Tauri Windows et tests workspace). Le test du worker mensuel passe de janvier à février puis mars avec l’ancre du 31 conservée et sans doublon après répétition. Le test natif du rappel simple est réussi ; seul le cycle intégré verrouillage/déverrouillage sans doublon reste à confirmer. |
 | Prochaine action | Confirmer le cycle intégré verrouillage/déverrouillage du coffre temporaire sans double exécution ; ensuite ajouter un handler métier idempotent. Les dates récurrentes ont déjà des tests automatisés déterministes. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
@@ -40,7 +40,7 @@ Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/3832
 | Frontend | Typecheck, tests et bundle S06-B passés sur le run #96 et le run post-fusion #97 |
 | Build Tauri Windows | CI #153 verte sur `78ace82` : [run #153](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38423220628) |
 | CI fréquence métier v5→v6 | **Verte** sur `2c445cb` : tests Rust du moteur de tâches, build Windows/Tauri, tests workspace et migrations ; [run #162](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38436681181) |
-| Vérification Markdown et liens | Passée en CI #162 sur `2c445cb`, après les vérifications précédentes #153 et #154 |
+| Vérification Markdown et liens | Passée en CI #38440915992 sur `5c0cee9`, après les vérifications précédentes #153 et #154 |
 | Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
 | Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
@@ -72,7 +72,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Sur la branche S02, le run CI #38438886275 valide le code courant `4c10f16` : contrôles Rust/frontend, build Windows/Tauri, tests du workspace et régression du contrôleur du worker (pas de double démarrage, arrêt puis redémarrage). L'essai natif du rappel confirme la notification visible et l'historique réussi. Les calculs de récurrence sont automatisés ; seul le cycle intégré de verrouillage/déverrouillage reste à confirmer. Les handlers documents/import bancaire/locatif, le fuseau cron configurable et l'adaptation du widget restent à faire.
+- Sur la branche S02, la CI #38442503451 valide le code courant `fa33766` : formatage, tests du domaine et du moteur (incluant l’intégration mensuelle 31 janvier → 28 février → 31 mars et les passes répétées sans doublon), frontend, build Windows/Tauri et tests du workspace/migrations. La régression du contrôleur (double démarrage ignoré, arrêt et redémarrage) est également verte en CI #38438886275. L'essai natif du rappel simple confirme la notification visible et l'historique réussi. Seul le cycle intégré de verrouillage/déverrouillage reste à confirmer ; handlers métier des documents/import bancaire/locatif et fuseau cron configurable restent à faire.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
