@@ -7,7 +7,9 @@
 //!
 //! Cette première tranche couvre les tâches ponctuelles, l'idempotence des demandes,
 //! la file persistante, l'historique des tentatives et la reprise après expiration d'un
-//! bail. Le calcul cron, les handlers métier et les commandes/UI Tauri viennent ensuite.
+//! bail. Le registre des handlers et un worker piloté appel par appel sont exposés dans
+//! le module worker. Le service de fond Tauri, les handlers métier de l'application
+//! et cron restent à intégrer après validation de cette tranche.
 
 use std::io;
 
@@ -19,6 +21,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use uuid::Uuid;
+
+mod worker;
+pub use worker::{
+    HandlerRegistryError, TaskHandlerRegistry, TaskWorker, TaskWorkerConfig, TaskWorkerError,
+    WorkerOutcome,
+};
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS task_definitions (

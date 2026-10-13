@@ -9,8 +9,8 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. Sur la branche S02, la crate `task-engine`, la migration v3→v4, les commandes Tauri de base et une première page UI Tâches sont codées. Validation du dernier commit en cours ; worker/handlers, cron, édition complète et calendrier restent à faire. |
-| Prochaine action | Valider migration, commandes et UI sur le dernier commit avec Rust, frontend et build Windows ; ensuite ajouter worker d'exécution et planification cron avec handlers métier. |
+| Statut | S06-B est dans `main`. La branche S02 contient la crate `task-engine`, la migration v3→v4, les commandes Tauri, la page UI Tâches, un registre de handlers et un worker one-shot. CI à confirmer pour cette nouvelle tranche ; lancement en arrière-plan et handlers métier réels non livrés. |
+| Prochaine action | Valider le commit du registre et du worker one-shot par toute la CI ; ensuite intégrer le cycle de vie du worker à Tauri avant d'ajouter les handlers métier et cron. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -71,7 +71,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Le schéma des tâches et la migration v3→v4 sont câblés sur la branche S02 ; des commandes IPC et une page UI de base sont ajoutées, mais restent à valider après le dernier changement. Le worker, les handlers métier, l'ordonnanceur cron, le calendrier et l'édition complète ne sont pas livrés.
+- Le schéma des tâches et la migration v3→v4 sont câblés sur la branche S02 ; des commandes IPC et une page UI de base sont ajoutées, mais restent à valider après le dernier changement. Le worker one-shot et le registre de handlers sont désormais codés sur la branche ; le démarrage en arrière-plan, les handlers métier, l'ordonnanceur cron, le calendrier et l'édition complète ne sont pas livrés.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.

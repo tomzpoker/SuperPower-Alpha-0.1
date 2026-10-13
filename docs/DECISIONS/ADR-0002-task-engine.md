@@ -22,12 +22,15 @@ La première tranche comprend :
 
 La crate fournit l'installation des tables sans modifier elle-même `PRAGMA user_version`. Sur la branche S02, `src-tauri/src/database.rs` appelle cette installation dans une migration transactionnelle v3→v4 et versionne le schéma applicatif. Cette modification est à valider sur le dernier commit par les tests de migration et le build Windows ; elle n'est pas fusionnée dans `main`.
 
+## Seconde tranche — registre et exécuteur piloté
+
+La branche ajoute un registre de handlers indexé par module/type, qui refuse les doublons et peut être partagé entre threads. Le worker one-shot matérialise idempotemment les tâches ponctuelles arrivées à échéance, réserve au plus une exécution, appelle son handler hors transaction SQL et persiste succès ou échec avec historique et délai de nouvelle tentative. Les erreurs de handler et les paniques sont converties en échecs historisés. Cette couche reste appelée explicitement par son intégrateur : elle ne lance pas encore de boucle de fond Tauri et n'inclut pas de handler métier de production. La validation CI de cette tranche est requise avant intégration.
+
 ## Points explicitement différés
 
 - validation et calcul des expressions cron ;
-- registre des handlers métier et exécution des jobs par le runtime ;
-- politique de backoff configurable, arrêt propre et supervision ;
-- worker d'exécution et handlers métier ;
+- démarrage/arrêt du worker dans Tauri, supervision et politique de backoff configurable ;
+- handlers métier de production et accès contrôlé aux services applicatifs ;
 - planification cron et calendrier ;
 - édition complète des tâches et adaptation du widget historique ;
 - intégration des tâches documents, import bancaire et rappels locatifs.
