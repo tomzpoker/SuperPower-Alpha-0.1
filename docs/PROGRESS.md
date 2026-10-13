@@ -6,11 +6,11 @@
 | Champ | Valeur |
 |---|---|
 | Version | `0.1.0-alpha.1` |
-| Main de référence | `5078de2` — socle précédent |
-| Lot en cours | S06-A — flux prévisionnels et réalisations guidées |
-| Branche | `feat/guided-cash-flows` |
-| Statut | IN_PROGRESS — CI verte jusqu'au commit documentaire `1071158` ; plusieurs scénarios Trésorerie natifs confirmés par l'utilisateur ; version source de la base de migration et refus technique d'un réel sur prévision annulée à confirmer |
-| Prochaine action | Revalider la CI après cette mise à jour, confirmer la version de la base avant migration et tester le refus métier d'une réalisation sur une prévision annulée |
+| Main de référence | `41d26e6` — Sprint 06-A fusionné, CI verte |
+| Lot en cours | S06-B — spécification des flux récurrents, avant développement |
+| Branche | `main` ; branche de développement S06-B à créer |
+| Statut | S06-A fusionné ; CI main #40 entièrement verte ; vérification native migration et test ciblé de refus métier encore ouverts. S06-B spécifié, pas implémenté. |
+| Prochaine action | Terminer les contrôles résiduels S06-A en environnement isolé, puis développer `docs/SPRINTS/SPRINT_06B_RECURRENCE.md` |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -23,14 +23,14 @@
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
-| 06 | Trésorerie | IN_PROGRESS | `SPRINTS/SPRINT_06_TRESORERIE.md` | S06-A : prévu/réalisé ; projection et rapprochement restent à faire |
+| 06 | Trésorerie | S06-A fusionné ; S06-B spécifié | `SPRINTS/SPRINT_06_TRESORERIE.md` et `SPRINTS/SPRINT_06B_RECURRENCE.md` | S06-A : prévu/réalisé ; récurrence non encore implémentée |
 | 07 | Fiscalité | TODO | `SPRINTS/SPRINT_07_FISCALITE.md` | Déclarations non livrées |
 | 08 | Sync mobile | TODO | `SPRINTS/SPRINT_08_SYNC_MOBILE.md` | Non livré |
 | 09 | Stocks | TODO | `SPRINTS/SPRINT_09_STOCKS.md` | Extension facultative |
 
 ## Validation automatisée
 
-Le run GitHub Actions [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762) est vert sur le commit de code `b65085c` (avant la présente mise à jour documentaire) : formatage/tests Rust, tests/typecheck/bundle frontend, build Tauri Windows et tests du workspace compris. La CI doit se réexécuter sur le commit documentaire qui suit.
+Le run GitHub Actions [38326327437](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38326327437) est terminé avec succès sur `main`, commit `41d26e6` : frontend, domaine Rust et build Tauri Windows sont tous verts.
 
 | Contrôle | Portée et état |
 |---|---|
@@ -56,7 +56,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Gestion multi-entités des sociétés, socle de comptes et saisie technique d'écritures équilibrées.
 - CI Windows, cache Rust et diagnostics.
 
-## Lot S06-A sur la branche de travail
+## Sprint 06-A livré dans main
 - Domaine Rust pour flux prévisionnels et réalisations partielles.
 - Migration versionnée `user_version 1 → 2`, transactionnelle et sans reconstruction des tables v1.
 - Commandes Tauri de liste/création/modification/annulation/réalisation avec audit transactionnel.
@@ -66,7 +66,8 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 
 ## Limites / risques connus
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
-- Récurrences, projection 12/24/36 mois, alertes et rapprochement bancaire automatique non livrés.
+- Récurrences non livrées ; S06-B est spécifié dans [Sprint 06-B](SPRINTS/SPRINT_06B_RECURRENCE.md). La fenêtre de 36 mois concerne la génération initiale des occurrences récurrentes, pas encore une projection financière dédiée.
+- Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
 - Baux, import bancaire, grand livre/balance, FEC validé, clôture et fiscalité automatisée non livrés.
 - Plan de comptes limité au socle illustratif.
 - Triggers d'immutabilité/append-only, sauvegarde/restauration chiffrée, audit sécurité complet et tests de mauvaise clé à renforcer.
@@ -77,6 +78,6 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 |---|---|---|---|
 | 2026-10-12 | 00/01 | Première tranche : Tauri, UI, sociétés, écritures, coffre | Sur main |
 | 2026-10-12 | CI | Formatage, cache Windows et diagnostics | Sur main |
-| 2026-10-13 | 06-A | Prévu/réalisé, migration v2 et documentation métier | Branche de travail, validation manuelle restante |
-| 2026-10-13 | 06-A | Renforcement du test de migration pour confirmer la conservation des données v1 | CI verte sur `b65085c` ; nouvelle exécution attendue après cette mise à jour documentaire |
-| 2026-10-13 | 06-A | Parcours Trésorerie natif détaillé et réouverture d'une copie isolée du coffre | Loyer modifié, assurance créée, réalisations annulées depuis l'historique, prévision annulée et totaux vérifiés selon le retour utilisateur ; version source de la base non vérifiée indépendamment |
+| 2026-10-13 | 06-A | Prévu/réalisé, migration v2 et documentation métier | Fusionné dans main ; CI #40 verte ; vérification native de migration encore ouverte |
+| 2026-10-13 | 06-A | Renforcement du test automatisé de migration v1 → v2 | CI verte sur main, run #40 |
+| 2026-10-13 | 06-A | Parcours natif Trésorerie et copie de coffre isolée | Scénarios observés réussis ; version source de la copie migrée non relevée indépendamment |

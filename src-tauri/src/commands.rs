@@ -1531,3 +1531,25 @@ fn from_enum<T: for<'de> Deserialize<'de>>(value: &str) -> Result<T, String> {
 fn db_error(error: rusqlite::Error) -> String {
     format!("Erreur de base de données : {error}")
 }
+
+#[cfg(test)]
+mod flux_realisation_guard_tests {
+    use super::ensure_flux_realisation_allowed;
+
+    #[test]
+    fn active_forecast_accepts_realisation_but_cancelled_forecast_refuses_it() {
+        assert_eq!(ensure_flux_realisation_allowed("actif"), Ok(()));
+        assert_eq!(
+            ensure_flux_realisation_allowed("annule"),
+            Err(
+                "Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée."
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn unknown_forecast_status_is_rejected_safely() {
+        assert!(ensure_flux_realisation_allowed("inconnu").is_err());
+    }
+}
