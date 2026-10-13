@@ -90,6 +90,8 @@ Propriétés IPC en \`camelCase\`, enums en \`snake_case\), erreurs françaises.
 ## Hors périmètre
 Flux récurrents, projection 12/24/36 mois, alertes, import/rapprochement bancaire, baux, comptabilisation PCG multi-lignes, lettrage, TVA, fiscalité, FEC, OCR et synchronisation mobile.
 
+La récurrence est planifiée dans le lot suivant : [Sprint 06-B — Flux prévisionnels récurrents](SPRINT_06B_RECURRENCE.md), suivi dans [l'issue GitHub #2](https://github.com/tomzpoker/SuperPower-Alpha-0.1/issues/2). Elle ne fait pas partie de S06-A et n'est pas encore implémentée.
+
 ## Résultats du parcours natif (2026-10-13)
 Selon le test manuel utilisateur, dans un coffre temporaire distinct :
 - Modification du loyer test à 1 400 € avec les 400 € réalisés conservés ; écart affiché 1 000 €.

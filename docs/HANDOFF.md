@@ -4,7 +4,7 @@
 
 ## 1. État du dépôt
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
-- `main` de référence : `5078de2`.
+- `main` de référence : `41d26e6ae10f382e20df8fbc9adfe0e3dfadb09c`.
 - Branche de travail : `feat/guided-cash-flows`, pull request [#1 — Sprint 06](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/1).
 - Le run [38319595762](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38319595762) est vert sur le commit de code `b65085c` : Rust, frontend, build Tauri Windows et tests workspace passent. La mise à jour documentaire qui consigne le retour manuel doit déclencher une nouvelle CI.
 
@@ -19,10 +19,9 @@ Résultats manuels signalés le 2026-10-13 :
 - Copie de `superpower.db` et `superpower.salt` dans un dossier temporaire : l'application s'est déverrouillée, les données existantes ont été signalées présentes et la réouverture de cette même copie a fonctionné.
 - Aucun test n'a utilisé le coffre habituel comme cible de migration ; il a servi uniquement de source pour copier les fichiers.
 
-Ne pas fusionner ou déclarer S06-A entièrement terminé avant :
-1. CI verte sur le commit documentaire le plus récent.
-2. Confirmation indépendante que la copie source de migration était bien au `user_version = 1`, puis vérification que la copie migrée est au `user_version = 2` et possède les tables `flux_previsionnels` et `flux_realisations`.
-3. Compléter les vérifications restantes : vérifier le refus métier (pas seulement les boutons masqués) d'ajouter une réalisation à une prévision annulée ; confirmer les tables et la version du schéma sur la copie migrée.
+S06-A est fusionné ; cette fusion ne prouve pas à elle seule une migration native complète. Deux contrôles restent ouverts :
+1. Relever la version de schéma d'une copie de test avant ouverture, puis vérifier après migration `PRAGMA user_version = 2` et les tables `flux_previsionnels` / `flux_realisations`.
+2. Le refus métier d'une nouvelle réalisation sur une prévision annulée est maintenant couvert par un test unitaire de la fonction appelée par la commande, dans la PR [#4](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/4). La CI doit confirmer cette couverture.
 
 Ne jamais demander à l'application de migrer la base originale pour « voir ce qui se passe ». L'application de développement reconnaît `SUPERPOWER_TEST_DATA_DIR` uniquement si elle pointe vers un chemin absolu distinct du coffre habituel ; cette variable est ignorée dans les builds release. Le test décrit plus bas doit être lancé avec cette variable définie afin que la copie, et non le coffre habituel, soit ouverte.
 
@@ -117,4 +116,8 @@ Le test automatisé utilise SQLite en mémoire et le schéma v1 complet représe
 S06-A ne génère ni écritures comptables ni TVA. Les récurrences, projections 12/24/36 mois, alertes, import/rapprochement bancaire, baux, règles PCG multi-lignes, fiscalité et FEC restent à concevoir/livrer dans leurs lots dédiés.
 
 ## 8. Suite après validation
+
+S06-A est fusionné sur main. La CI #40 est verte sur le commit 41d26e6. Les contrôles résiduels sont la vérification indépendante de la version de schéma sur une copie isolée et le test ciblé du refus métier d'une réalisation sur une prévision annulée.
+
+La suite fonctionnelle est S06-B, flux récurrents ponctuels/mensuels/trimestriels/annuels, spécifiés dans [l'issue #2](https://github.com/tomzpoker/SuperPower-Alpha-0.1/issues/2) et dans `SPRINTS/SPRINT_06B_RECURRENCE.md`.
 Une fois les tests manuels consignés, fusionner la PR si les contrôles sont verts, puis prioriser les tests d'intégration des commandes/audit. Les prochains choix métier à spécifier sont la génération PCG/TVA, les emprunts (principal/intérêts), les apports/CCA, les dépôts/garanties, les paiements partiels, les avoirs et les contre-passations.
