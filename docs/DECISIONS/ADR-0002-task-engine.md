@@ -24,12 +24,12 @@ La crate fournit l'installation des tables sans modifier elle-même `PRAGMA user
 
 ## Seconde tranche — registre et exécuteur piloté
 
-La branche ajoute un registre de handlers indexé par module/type, qui refuse les doublons et peut être partagé entre threads. Le worker one-shot matérialise idempotemment les occurrences échues, réserve au plus une exécution, appelle le handler hors transaction SQL et persiste succès ou échec avec historique et délai de nouvelle tentative. Les erreurs et paniques de handler sont converties en échecs historisés ; un test de régression couvre maintenant le cas de panique. La CI #146 a validé le code précédent sur le commit `881fcd5` ; le commit de reprise doit encore valider le nouveau test. Cette couche reste pilotée explicitement : pas de boucle de fond Tauri, ni de handler métier de production.
+La branche ajoute un registre de handlers indexé par module/type, qui refuse les doublons et peut être partagé entre threads. Le worker one-shot persiste les exécutions et tentatives ; le mode sûr ne consomme que les tâches dont le handler est enregistré. Le lot courant ajoute un contrôleur natif démarré après déverrouillage et arrêté au verrouillage/à la fermeture, plus un handler `general/reminder` qui place le rappel dans une file locale. La notification n'est publiée qu'après succès SQLCipher, afin d'éviter de signaler une exécution non validée. La CI complète doit encore confirmer cette intégration.
 
 ## Points explicitement différés
 
-- démarrage/arrêt du worker dans Tauri, supervision et politique de backoff configurable ;
-- handlers métier de production et accès contrôlé aux services applicatifs ;
+- politiques de backoff configurables et supervision avancée du worker ;
+- handlers métier adaptés aux documents, à l'import bancaire et à la gestion locative ;
 - planification cron et calendrier ;
 - édition complète des tâches et adaptation du widget historique ;
 - intégration des tâches documents, import bancaire et rappels locatifs.
@@ -48,4 +48,4 @@ Le statut de prototype ne signifie donc pas que les user stories du Sprint 02 so
 
 ## État à la création de l'ADR
 
-La tranche se trouve toujours sur `sprint/02-moteur-taches-prototype` et n'est pas fusionnée dans `main`. La CI #146 est entièrement verte sur `881fcd5` pour le moteur, le frontend, le build Tauri Windows et les migrations. L'interface permet de créer/lister les tâches, de modifier leur statut, d'afficher le calendrier mensuel et de consulter l'historique. Ne pas présenter l'exécution automatique comme livrée : la boucle de fond, les handlers métier réels, un fuseau cron configurable et l'adaptation du widget historique restent à faire. Le commit de reprise ajoute un test de régression sur la panique d'un handler et attend sa validation CI.
+La tranche se trouve toujours sur `sprint/02-moteur-taches-prototype` et n'est pas fusionnée dans `main`. La CI #149 est entièrement verte sur `5d249e8` pour le moteur, le frontend, le build Windows/Tauri et les migrations. Le lot courant ajoute le worker natif supervisé et le premier rappel local ; son build et ses tests doivent être validés par la nouvelle CI. Les rappels se déclenchent uniquement avec l'application ouverte et le coffre déverrouillé. Les autres handlers métier, le fuseau configurable et l'adaptation du widget restent à faire.

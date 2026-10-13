@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import type { FormEvent, ReactNode } from 'react';
 import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bell, BookOpenCheck,
@@ -17,6 +18,13 @@ import type {
 
 type PageKey = 'dashboard' | 'societes' | 'ecritures' | 'documents' | 'taches' | 'tresorerie' | 'locatif' | 'fiscalite' | 'parametres';
 type ThemeKey = 'aurora' | 'sakura' | 'mint' | 'sunset' | 'midnight';
+
+type TaskReminderEvent = {
+  executionId: string;
+  title: string;
+  message: string;
+  scheduledFor: string;
+};
 
 const navigation: Array<{ key: PageKey; label: string; icon: typeof LayoutDashboard; group: string }> = [
   { key: 'dashboard', label: 'Cockpit', icon: LayoutDashboard, group: 'ESPACE DE TRAVAIL' },
@@ -121,8 +129,29 @@ function App() {
   }, [status, loadData]);
 
   useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen<TaskReminderEvent>('task-reminder', ({ payload }) => {
+      const detail = payload.message && payload.message !== payload.title ? ` — ${payload.message}` : '';
+      setToast(`Rappel : ${payload.title}${detail}`);
+    })
+      .then((stopListening) => {
+        if (active) unlisten = stopListening;
+        else stopListening();
+      })
+      .catch((reason: unknown) => {
+        if (active) setError(errorMessage(reason));
+      });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(''), 3200);
+    const timer = window.setTimeout(() => setToast(''), 6500);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -592,7 +621,7 @@ function TasksPage() {
   const [submitting, setSubmitting] = useState(false);
   const [title, setTitle] = useState('');
   const [moduleName, setModuleName] = useState('general');
-  const [taskType, setTaskType] = useState('manual');
+  const [taskType, setTaskType] = useState('reminder');
   const [scheduledAt, setScheduledAt] = useState(() => defaultTaskDateTime());
   const [cronExpression, setCronExpression] = useState('');
   const [cronPreview, setCronPreview] = useState<{ anchor: string; expression: string; occurrences: string[] } | null>(null);
@@ -627,7 +656,7 @@ function TasksPage() {
     setEditingTaskId(null);
     setTitle('');
     setModuleName('general');
-    setTaskType('manual');
+    setTaskType('reminder');
     setScheduledAt(defaultTaskDateTime());
     setCronExpression('');
     setCronPreview(null);
@@ -729,7 +758,7 @@ function TasksPage() {
       setTasks((current) => [saved, ...current.filter((task) => task.id !== saved.id)]
         .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)));
       setTitle('');
-      setTaskType('manual');
+      setTaskType('reminder');
       setScheduledAt(defaultTaskDateTime());
       setCronExpression('');
       setCronPreview(null);
@@ -822,17 +851,17 @@ function TasksPage() {
     />
     <div className="panel tasks-notice">
       <ShieldCheck size={18} />
-      <div><strong>Persistance locale chiffrée</strong><p>Les expressions cron sont conservées dans le coffre et leurs occurrences échues peuvent être matérialisées par le worker one-shot. L’exécution automatique en arrière-plan et les handlers métier restent désactivés.</p></div>
+      <div><strong>Rappels locaux automatisés</strong><p>Le worker démarre après le déverrouillage du coffre et s’arrête au verrouillage ou à la fermeture. Le type « Général / reminder » affiche un rappel dans l’application à l’échéance ; les autres types restent en attente tant qu’un handler dédié n’est pas disponible. Les tâches et leur historique restent dans le coffre SQLCipher.</p></div>
     </div>
     {!isDesktopRuntime() && <div className="alert warning"><CircleAlert size={16} /><span>Mode aperçu : les tâches restent en mémoire et disparaissent au rechargement. Le coffre natif est nécessaire pour valider la persistance chiffrée.</span></div>}
     {error && <div className="alert error"><CircleAlert size={17} /><span>{error}</span><button onClick={() => setError('')} aria-label="Fermer l’erreur"><X size={16} /></button></div>}
     {notice && <div className="alert success"><CheckCircle2 size={17} /><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Fermer le message"><X size={16} /></button></div>}
     {showForm && <form className="panel tasks-form" onSubmit={saveTask}>
-      <div className="tasks-form-heading"><div><h2>{editingTaskId ? 'Modifier la tâche' : 'Nouvelle tâche'}</h2><p>{editingTaskId ? 'Modification possible avant la première exécution, sans altérer l’historique.' : 'Les tentatives sont historisées ; les exécutions automatiques seront activées ultérieurement.'}</p></div><button type="button" className="icon-button" onClick={() => { setShowForm(false); setEditingTaskId(null); }} aria-label="Fermer le formulaire"><X size={17} /></button></div>
+      <div className="tasks-form-heading"><div><h2>{editingTaskId ? 'Modifier la tâche' : 'Nouvelle tâche'}</h2><p>{editingTaskId ? 'Modification possible avant la première exécution, sans altérer l’historique.' : 'Un rappel « Général / reminder » s’affichera dans l’application si elle reste ouverte à l’échéance.'}</p></div><button type="button" className="icon-button" onClick={() => { setShowForm(false); setEditingTaskId(null); }} aria-label="Fermer le formulaire"><X size={17} /></button></div>
       <div className="tasks-form-grid">
         <Field label="Titre"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required placeholder="Ex. Vérifier les pièces de novembre" /></Field>
         <Field label="Module"><select value={moduleName} onChange={(event) => setModuleName(event.target.value)}><option value="general">Général</option><option value="documents">Documents</option><option value="import_bancaire">Import bancaire</option><option value="locatif">Gestion locative</option><option value="fiscalite">Fiscalité</option></select></Field>
-        <Field label="Type technique"><input value={taskType} onChange={(event) => setTaskType(event.target.value)} maxLength={100} required placeholder="Ex. verifier_piece" /></Field>
+        <Field label="Type technique"><input value={taskType} onChange={(event) => setTaskType(event.target.value)} maxLength={100} required placeholder="Ex. reminder" /><small>Seul « Général / reminder » est exécuté automatiquement. Dans le JSON, la propriété « message » est facultative ; à défaut, le titre du rappel est affiché.</small></Field>
         <Field label={cronExpression.trim() ? 'Date de départ de la récurrence' : 'Date et heure prévues'}><input type="datetime-local" value={scheduledAt} onChange={(event) => { setScheduledAt(event.target.value); setCronPreview(null); }} required /></Field>
         <Field label="Expression cron (facultative, UTC)"><input value={cronExpression} onChange={(event) => { setCronExpression(event.target.value); setCronPreview(null); }} maxLength={200} placeholder="*/15 9-17 * * 1-5" /><div className="cron-preview-actions"><button type="button" className="button secondary small" onClick={() => void previewCronSchedule()} disabled={!isDesktopRuntime() || cronPreviewLoading || !cronExpression.trim() || !scheduledAt}>{cronPreviewLoading ? 'Calcul des occurrences…' : 'Prévisualiser les prochaines échéances'}</button>{!isDesktopRuntime() && <span>Disponible dans l’application de bureau.</span>}</div></Field>
         <Field label="Nombre maximal de tentatives"><input type="number" value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} min={1} max={100} required /></Field>

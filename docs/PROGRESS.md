@@ -9,8 +9,8 @@
 | Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 contient la crate `task-engine`, les migrations v3→v5, les commandes Tauri, la page Tâches avec calendrier mensuel, le worker one-shot et la planification cron persistée avec matérialisation idempotente. Le worker de fond et les handlers métier réels ne sont pas livrés. |
-| Prochaine action | Enregistrer le premier handler métier réel et définir son contrat idempotent ; ensuite intégrer une boucle Tauri supervisée avec arrêt propre. Le mode sûr du worker filtre les tâches sur les handlers connus, sous réserve de validation CI. |
+| Statut | S06-B est dans `main`. La branche S02 contient le moteur persistant, les migrations v3→v5, la page Tâches, le calendrier et le cron UTC. Le lot courant ajoute un worker natif stoppable et le handler local `general/reminder` ; validation CI en cours. |
+| Prochaine action | Valider le worker de rappel dans la CI puis ajouter un handler métier idempotent pour un module réel et tester le parcours natif coffre verrouillé/déverrouillé. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -71,7 +71,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Sur la branche S02, les migrations v3→v5, les commandes IPC, la page Tâches avec calendrier, le parseur/aperçu cron UTC, la matérialisation idempotente et le worker one-shot sont codés. CI #146 valide le build Tauri Windows et les tests du workspace sur `881fcd5`. Restent à livrer : premier handler métier de production, cycle de vie du worker de fond avec arrêt propre, fuseau cron configurable et adaptation du widget historique.
+- Sur la branche S02, la CI #149 valide le mode sûr filtré par handlers, les migrations et le build Windows sur `5d249e8`. Le lot courant ajoute le worker supervisé au cycle de vie du coffre et un rappel local natif `general/reminder`. Validation en attente ; les handlers documents/import bancaire/locatif, le fuseau cron configurable et l'adaptation du widget restent à faire.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -93,6 +93,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 
 | 2026-10-13 | 02 | Prototype du registre de tâches/exécutions avec idempotence et reprise par bail | Branche `sprint/02-moteur-taches-prototype`, validation automatisée à réaliser avant intégration |
 
-| 2026-10-13 | 02 | Câblage des migrations v3→v5, cron UTC, worker one-shot et tests de suppression contrôlée | CI #146 entièrement verte sur `881fcd5`; commit de reprise ajoute un test de panique et doit repasser la CI |
+| 2026-10-13 | 02 | Migrations v3→v5, cron UTC, worker one-shot et suppression contrôlée | CI #149 entièrement verte sur `5d249e8` |
+| 2026-10-13 | 02 | Worker natif stoppable et handler local `general/reminder` | Commit courant : CI requise |
 
 | 2026-10-13 | 02 | Ajout des commandes Tauri de création/liste/statut/historique et d'une page UI Tâches | Branche non fusionnée ; CI du dernier commit à confirmer |

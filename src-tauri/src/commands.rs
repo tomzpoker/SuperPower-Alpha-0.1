@@ -13,10 +13,11 @@ use superpower_core::{
 use task_engine::{
     CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus,
 };
-use tauri::State;
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use crate::database::{AppState, DatabaseStatus};
+use crate::task_worker::TaskWorkerController;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,19 +120,35 @@ pub fn database_status(state: State<'_, AppState>) -> Result<DatabaseStatus, Str
 }
 
 #[tauri::command]
-pub fn initialize_database(passphrase: String, state: State<'_, AppState>) -> Result<(), String> {
-    state.initialize(&passphrase)
+pub fn initialize_database(
+    passphrase: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+    worker: State<'_, TaskWorkerController>,
+) -> Result<(), String> {
+    state.initialize(&passphrase)?;
+    worker.start(app)
 }
 
 #[tauri::command]
-pub fn unlock_database(passphrase: String, state: State<'_, AppState>) -> Result<(), String> {
-    state.unlock(&passphrase)
+pub fn unlock_database(
+    passphrase: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+    worker: State<'_, TaskWorkerController>,
+) -> Result<(), String> {
+    state.unlock(&passphrase)?;
+    worker.start(app)
 }
 
 #[tauri::command]
-pub fn lock_database(state: State<'_, AppState>) -> Result<(), String> {
+pub fn lock_database(
+    state: State<'_, AppState>,
+    worker: State<'_, TaskWorkerController>,
+) -> Result<(), String> {
+    let stop_result = worker.stop();
     state.lock();
-    Ok(())
+    stop_result
 }
 
 #[tauri::command]

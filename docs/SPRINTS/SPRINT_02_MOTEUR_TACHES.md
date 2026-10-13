@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — tâches ponctuelles/récurrentes persistées, parseur et aperçu cron UTC, matérialisation idempotente one-shot ; runtime de fond et handlers métier restent à faire |
+| **Statut** | IN_PROGRESS — tâches persistées, cron UTC, worker natif supervisé, premier handler local `general/reminder` ; autres modules et fuseau local restent à livrer |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -49,7 +49,7 @@
 - Le changement suivant corrige la réactivation : une tâche annulée avant sa première tentative remet en file sa même occurrence, sans créer de doublon. Un type sans handler échoue de façon visible et conserve l'erreur dans l'historique.
 - Les tâches conservent une expression cron numérique à cinq champs et son ancre d'origine ; la migration v4→v5 ajoute les colonnes sans perdre les définitions existantes. Le worker one-shot matérialise les occurrences échues avec une clé idempotente par occurrence, avance l'échéance dans la même transaction et borne le rattrapage à 1 000 occurrences par appel et par tâche.
 - Le formulaire natif peut prévisualiser cinq échéances suivant l'ancre via le parseur Rust partagé. L'aperçu refuse les expressions invalides et borne le nombre demandé ; le mode navigateur indique clairement que le calcul nécessite la fenêtre Tauri.
-- Le démarrage automatique du worker dans Tauri et les handlers métier réels restent à faire. Les expressions cron sont évaluées en UTC (pas encore de fuseau local configurable) et le worker n'est invoqué que par appel explicite ; aucune exécution automatique en arrière-plan n'est activée.
+- Le lot courant ajoute le démarrage du worker après création/déverrouillage du coffre, son arrêt avant verrouillage et à la fermeture, et un handler `general/reminder` qui affiche un toast local. Seules les tâches dont le handler est enregistré sont traitées ; les autres restent en file. CI et essai natif restent à confirmer.
 
 ### Contrôles avant clôture
 
@@ -63,7 +63,7 @@
 - [x] Persister l'expression et l'ancre cron dans la migration v4→v5, puis matérialiser idempotemment les occurrences échues dans le worker one-shot.
 - [x] Ajouter un parseur cron à cinq champs avec validation stricte et tests unitaires.
 - [x] Ajouter un mode de worker limité aux handlers enregistrés, avec tests anti-consommation, anti-famine et sans matérialisation cron si le handler manque.
-- [ ] Intégrer le démarrage/arrêt du worker à Tauri avec arrêt propre et handlers métier explicites ; enregistrer les handlers métier avant le premier lancement.
+- [ ] Valider l'intégration du worker natif stoppable et du handler `general/reminder` dans la CI et le parcours natif.
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.
 - [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
@@ -73,4 +73,4 @@
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
 - La suppression contrôlée, le test frontend du mode démo, les migrations v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
-- Le lot de reprise ajoute un test qui vérifie qu'une panique dans un handler est rattrapée, convertie en échec, et conservée dans l'historique de tentative. Ce test et les mises à jour documentaires doivent être validés par la nouvelle CI de la branche.
+- La CI #149 est entièrement verte sur `5d249e8`, incluant le build Windows/Tauri et les tests workspace/migrations. Le commit courant doit valider le worker supervisé, le handler de rappel et les tests du nouveau module.

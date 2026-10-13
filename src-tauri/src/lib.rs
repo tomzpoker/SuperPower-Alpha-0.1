@@ -1,11 +1,19 @@
 mod commands;
 mod database;
+mod task_worker;
 
+use std::io;
+
+use task_engine::TaskHandlerRegistry;
 use tauri::Manager;
+
+use crate::task_worker::{
+    reminder_message, ReminderNotificationQueue, TaskReminderEvent, TaskWorkerController,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
             let default_app_data_dir = app.path().app_data_dir()?;
             #[cfg(debug_assertions)]
@@ -15,8 +23,8 @@ pub fn run() {
                     if !test_dir.is_absolute()
                         || test_dir.as_path() == default_app_data_dir.as_path()
                     {
-                        Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
+                        Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
                             "SUPERPOWER_TEST_DATA_DIR doit pointer vers un dossier absolu distinct du coffre habituel.",
                         ))
                     } else {
@@ -28,6 +36,24 @@ pub fn run() {
             #[cfg(not(debug_assertions))]
             let app_data_dir = default_app_data_dir;
             std::fs::create_dir_all(&app_data_dir)?;
+
+            let notifications = ReminderNotificationQueue::default();
+            let handler_notifications = notifications.clone();
+            let mut handlers = TaskHandlerRegistry::new();
+            handlers
+                .register_handler("general", "reminder", move |task, execution| {
+                    handler_notifications.enqueue(TaskReminderEvent {
+                        execution_id: execution.id.clone(),
+                        title: task.title.clone(),
+                        message: reminder_message(&task.title, &task.payload),
+                        scheduled_for: execution.scheduled_for.clone(),
+                    })
+                })
+                .map_err(|error| io::Error::other(error.to_string()))?;
+
+            app.manage(handlers);
+            app.manage(notifications);
+            app.manage(TaskWorkerController::default());
             app.manage(database::AppState::new(app_data_dir.join("superpower.db")));
             Ok(())
         })
@@ -60,6 +86,14 @@ pub fn run() {
             commands::list_task_attempts,
             commands::dashboard_summary,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("Erreur au démarrage de SuperPower Alpha");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            if let Err(error) = app_handle.state::<TaskWorkerController>().stop() {
+                eprintln!("Arrêt du worker de tâches impossible : {error}");
+            }
+        }
+    });
 }

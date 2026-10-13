@@ -45,6 +45,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Domain unit tests
         run: cargo test -p superpower-core
+      - name: Task engine unit tests
+        run: cargo test -p task-engine
 
   windows-native:
     name: Windows desktop build
