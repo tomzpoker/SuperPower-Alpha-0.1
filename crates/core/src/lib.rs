@@ -3,6 +3,7 @@
 pub mod accounting;
 pub mod events;
 pub mod flows;
+pub mod recurrence;
 pub mod society;
 
 pub use accounting::{validate_entry_lines, Account, EntryLine, EntryValidationError};
@@ -15,3 +16,5 @@ pub use society::{
     CompanyWarnings, ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva,
     Societe, ValidationSocieteError,
 };
+
+pub use recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux};
