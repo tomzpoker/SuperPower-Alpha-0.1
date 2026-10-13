@@ -10,7 +10,7 @@
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
 | Statut | S06-B est dans `main`. La branche S02 contient la crate `task-engine`, les migrations v3→v5, les commandes Tauri, la page Tâches avec calendrier mensuel, le worker one-shot et la planification cron persistée avec matérialisation idempotente. Le worker de fond et les handlers métier réels ne sont pas livrés. |
-| Prochaine action | Valider la migration v4→v5 et la matérialisation cron en CI ; ensuite concevoir le cycle de vie du worker Tauri avec arrêt propre et handlers métier explicitement enregistrés. |
+| Prochaine action | Définir le premier handler métier réellement utile et sa politique de reprise/annulation, puis intégrer un worker Tauri supervisé avec arrêt propre. Ne pas lancer de boucle de fond tant que des handlers sûrs ne sont pas enregistrés. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -30,16 +30,16 @@
 
 ## Validation automatisée
 
-Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38326327437) a validé S06-A. Pour S06-B, le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb` : formatage, tests Rust du domaine, frontend, vérification documentaire, build Tauri Windows et tests workspace sont tous passés. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est en cours sur `17966e1`; frontend et Rust sont verts, build Windows encore en cours au dernier relevé.
+Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38326327437) a validé S06-A. Pour S06-B, le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb`. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est également terminé avec succès sur `17966e1`.
 
 | Contrôle | Portée et état |
 |---|---|
 | `cargo fmt --all -- --check` | S06-B passé sur le run #96 |
 | Tests Rust du domaine | S06-B passé sur le run #96 et le run post-fusion #97 |
-| Tests workspace / migrations automatisées | L'utilisateur a confirmé 3 tests `task-engine` et 29 tests workspace passés sur le prototype initial ; migration v3→v4 ajoutée ensuite, à retester sur le commit courant |
+| Tests workspace / migrations automatisées | CI #146 verte sur le commit `881fcd5`, incluant le workspace et les migrations ; une nouvelle CI est requise pour le test de panique ajouté au lot de reprise |
 | Frontend | Typecheck, tests et bundle S06-B passés sur le run #96 et le run post-fusion #97 |
-| Build Tauri Windows | Réussi sur le commit S02 avant l'intégration de la migration ; build du commit de migration en attente dans la CI |
-| Vérification Markdown et liens | Passée sur le run #96 |
+| Build Tauri Windows | CI #146 verte sur le commit `881fcd5` ; revalidation complète requise après le nouveau test de panique |
+| Vérification Markdown et liens | Passée en CI #146 sur le commit `881fcd5` ; documentation de reprise mise à jour dans le lot courant |
 | Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
 | Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
@@ -71,7 +71,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Le schéma des tâches et la migration v3→v4 sont câblés sur la branche S02 ; des commandes IPC et une page UI de base sont ajoutées, mais restent à valider après le dernier changement. Le worker one-shot, le registre de handlers et le parseur cron à cinq champs sont codés sur la branche ; le démarrage en arrière-plan, les handlers métier, la persistance des récurrences, le raccordement cron et l'édition complète ne sont pas livrés.
+- Sur la branche S02, les migrations v3→v5, les commandes IPC, la page Tâches avec calendrier, le parseur/aperçu cron UTC, la matérialisation idempotente et le worker one-shot sont codés. CI #146 valide le build Tauri Windows et les tests du workspace sur `881fcd5`. Restent à livrer : premier handler métier de production, cycle de vie du worker de fond avec arrêt propre, fuseau cron configurable et adaptation du widget historique.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -93,6 +93,6 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 
 | 2026-10-13 | 02 | Prototype du registre de tâches/exécutions avec idempotence et reprise par bail | Branche `sprint/02-moteur-taches-prototype`, validation automatisée à réaliser avant intégration |
 
-| 2026-10-13 | 02 | Câblage de la migration transactionnelle v3→v4 pour `task-engine` et test de conservation d'un flux v3 | Branche non fusionnée ; tests et build Windows du commit de migration en attente |
+| 2026-10-13 | 02 | Câblage des migrations v3→v5, cron UTC, worker one-shot et tests de suppression contrôlée | CI #146 entièrement verte sur `881fcd5`; commit de reprise ajoute un test de panique et doit repasser la CI |
 
 | 2026-10-13 | 02 | Ajout des commandes Tauri de création/liste/statut/historique et d'une page UI Tâches | Branche non fusionnée ; CI du dernier commit à confirmer |

@@ -59,7 +59,7 @@
 - [x] Tests SQLCipher, idempotence, reprise de bail et historique des erreurs inclus dans les tests du workspace passés par la CI #139.
 - [x] Aperçu cron natif et tests de régression de l'ancre validés par la CI #142 sur le commit `a656e83`.
 - [x] Exposer les opérations de consultation/création/statut/historique via IPC (CI verte sur le commit précédent).
-- [x] Ajouter une première API de registre de handlers et un worker one-shot ; la CI associée au commit actuel doit confirmer le build et les tests workspace.
+- [x] Ajouter une première API de registre de handlers et un worker one-shot ; build Tauri Windows et tests workspace confirmés par la CI #146 sur `881fcd5`.
 - [x] Persister l'expression et l'ancre cron dans la migration v4→v5, puis matérialiser idempotemment les occurrences échues dans le worker one-shot.
 - [x] Ajouter un parseur cron à cinq champs avec validation stricte et tests unitaires.
 - [ ] Intégrer le démarrage/arrêt du worker à Tauri avec arrêt propre et handlers métier explicites ; enregistrer les handlers métier avant le premier lancement.
@@ -71,4 +71,5 @@
 
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
-- Le commit `14da025` ajoute la suppression contrôlée et ses tests SQLCipher. Le run #143 a validé le frontend ainsi que le build Windows/workspace, mais le contrôle Rust a relevé deux écarts de formatage dans les assertions. Le commit `92b9cdd` corrige ces deux lignes ; le commit `078d365` met à jour ce handoff. La prochaine CI doit valider l'ensemble.
+- La suppression contrôlée, le test frontend du mode démo, les migrations v3→v5 et l'ensemble du Sprint 02 actuel ont passé la CI #146 sur `881fcd5` : [résultats complets](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38411970774).
+- Le lot de reprise ajoute un test qui vérifie qu'une panique dans un handler est rattrapée, convertie en échec, et conservée dans l'historique de tentative. Ce test et les mises à jour documentaires doivent être validés par la nouvelle CI de la branche.

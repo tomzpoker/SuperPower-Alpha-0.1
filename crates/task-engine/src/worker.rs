@@ -521,6 +521,54 @@ mod tests {
     }
 
     #[test]
+    fn worker_catches_handler_panics_and_records_them_as_failed_attempts() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        TaskEngine::install_schema(&connection).expect("install schema");
+        let task = create_due_task(&connection, "worker-handler-panic", 2);
+        let registry = TaskHandlerRegistry::new();
+        registry
+            .register_handler(
+                "documents",
+                "classify_document",
+                |_task, _execution| -> Result<(), String> { panic!("simulated handler panic") },
+            )
+            .unwrap();
+
+        let outcome = TaskWorker::run_once(
+            &mut connection,
+            &registry,
+            at("2026-10-13T10:01:00Z"),
+            TaskWorkerConfig::default(),
+        )
+        .expect("convert handler panic into a recorded failure");
+
+        assert!(matches!(
+            outcome,
+            WorkerOutcome::RetryScheduled {
+                attempt_number: 1,
+                ref error,
+                ..
+            } if error == "Le gestionnaire a paniqué pendant l'exécution."
+        ));
+
+        let executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(executions.len(), 1);
+        assert_eq!(executions[0].status, ExecutionStatus::Queued);
+        assert_eq!(
+            executions[0].last_error.as_deref(),
+            Some("Le gestionnaire a paniqué pendant l'exécution.")
+        );
+        let attempts = TaskEngine::list_attempts(&connection, &executions[0].id).unwrap();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].status, AttemptStatus::Failed);
+        assert_eq!(
+            attempts[0].error_message.as_deref(),
+            Some("Le gestionnaire a paniqué pendant l'exécution.")
+        );
+    }
+
+    #[test]
     fn missing_handler_fails_visibly_and_exhausts_the_attempt_budget() {
         let database = TemporaryDatabase::new();
         let mut connection = database.connect();
