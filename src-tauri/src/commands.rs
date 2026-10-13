@@ -566,7 +566,10 @@ fn ensure_flux_realisation_allowed(status: &str) -> Result<(), String> {
     if status == "actif" {
         Ok(())
     } else {
-        Err("Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée.".to_string())
+        Err(
+            "Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée."
+                .to_string(),
+        )
     }
 }
 
@@ -882,7 +885,10 @@ mod flux_realisation_guard_tests {
         assert_eq!(ensure_flux_realisation_allowed("actif"), Ok(()));
         assert_eq!(
             ensure_flux_realisation_allowed("annule"),
-            Err("Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée.".to_string())
+            Err(
+                "Impossible d'enregistrer un encaissement ou paiement sur une prévision annulée."
+                    .to_string()
+            )
         );
     }
 
