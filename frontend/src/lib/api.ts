@@ -276,6 +276,13 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       const existingEnd = seriesFlows[0].dateFinRecurrence;
       if (dateFin < start) throw new Error('La date d’arrêt ne peut pas précéder la première échéance.');
       if (existingEnd && dateFin > existingEnd) throw new Error('La date d’arrêt ne peut pas prolonger une récurrence déjà limitée.');
+      const horizonToday = demoAddMonthsAnchored(demoToday(), 36);
+      const horizonStart = demoAddMonthsAnchored(start, 36);
+      const horizon = horizonToday > horizonStart ? horizonToday : horizonStart;
+      if (dateFin > horizon) throw new Error('Choisissez une dernière échéance dans l’horizon prévisionnel visible de 36 mois.');
+      if (!seriesFlows.some(flow => flow.datePrevue === dateFin)) {
+        throw new Error('La date d’arrêt doit correspondre à une échéance réelle de cette série.');
+      }
       const now = new Date().toISOString();
       demoFlux = demoFlux.map(flow => {
         if (flow.recurrenceId !== recurrenceId) return flow;
