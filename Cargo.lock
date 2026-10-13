@@ -3097,6 +3097,7 @@ dependencies = [
  "serde",
  "serde_json",
  "superpower-core",
+ "task-engine",
  "tauri",
  "tauri-build",
  "uuid",
