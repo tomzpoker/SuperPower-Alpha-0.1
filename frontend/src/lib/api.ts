@@ -283,6 +283,9 @@ async function browserCommand<T>(command: string, args: Record<string, unknown> 
       if (!seriesFlows.some(flow => flow.datePrevue === dateFin)) {
         throw new Error('La date d’arrêt doit correspondre à une échéance réelle de cette série.');
       }
+      if (seriesFlows.some(flow => flow.datePrevue > dateFin && flow.realisations.some(item => item.annuleeAt === null))) {
+        throw new Error('Impossible d’arrêter la récurrence avant une échéance qui possède déjà une réalisation active. Choisissez une date de fin à cette échéance ou après.');
+      }
       const now = new Date().toISOString();
       demoFlux = demoFlux.map(flow => {
         if (flow.recurrenceId !== recurrenceId) return flow;
