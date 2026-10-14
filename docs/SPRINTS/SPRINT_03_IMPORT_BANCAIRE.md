@@ -43,6 +43,8 @@ Le module `superpower-core::bank_import` n'accède ni au système de fichiers ni
 
 Montants pris en charge : entiers, décimales à un ou deux chiffres, virgule française, point décimal, groupements de milliers par espaces ou séparateurs cohérents, symbole euro et préfixe/suffixe EUR. L'en-tête UTF-8 avec BOM est reconnu ; les fichiers de plus de 10 Mio sont rejetés avant parsing. Si le format est ambigu, la ligne est rejetée plutôt que devinée.
 
+Les tests unitaires du parseur couvrent les formats français/internationaux, les en-têtes BOM UTF-8, les colonnes débit/crédit manquantes, les dates impossibles, les montants ambigus, les guillemets échappés et les champs multilignes. Le résultat CI sur le head courant doit être vérifié avant de déclarer cette tranche validée.
+
 ## Critères d'acceptation globaux
 - Un CSV valide produit un aperçu avant toute écriture en base.
 - Les dates impossibles, montants mal formés, lignes incomplètes et mappings contradictoires sont signalés.
