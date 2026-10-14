@@ -455,38 +455,38 @@ fn parse_amount_cents(raw: &str) -> Result<i64, ()> {
     let comma_count = value.matches(',').count();
     let dot_count = value.matches('.').count();
     let (integer_part, fraction_part, grouping_separator) = if comma_count > 0 && dot_count > 0 {
-            let comma = value.rfind(',').ok_or(())?;
-            let dot = value.rfind('.').ok_or(())?;
-            let decimal_separator = if comma > dot { ',' } else { '.' };
-            let decimal_position = value.rfind(decimal_separator).ok_or(())?;
-            let integer = &value[..decimal_position];
-            let fraction = &value[decimal_position + 1..];
-            let grouping = if decimal_separator == ',' { '.' } else { ',' };
-            (integer.to_string(), fraction.to_string(), Some(grouping))
-        } else if comma_count + dot_count > 1 {
-            let separator = if comma_count > 0 { ',' } else { '.' };
-            let groups: Vec<&str> = value.split(separator).collect();
-            let valid_grouping = !groups.is_empty()
-                && (1..=3).contains(&groups[0].len())
-                && groups
-                    .iter()
-                    .all(|part| part.chars().all(|ch| ch.is_ascii_digit()))
-                && groups.iter().skip(1).all(|part| part.len() == 3);
-            if !valid_grouping {
-                return Err(());
-            }
-            (groups.join(""), String::new(), None)
-        } else if comma_count == 1 || dot_count == 1 {
-            let separator = if comma_count == 1 { ',' } else { '.' };
-            let position = value.find(separator).ok_or(())?;
-            (
-                value[..position].to_string(),
-                value[position + 1..].to_string(),
-                None,
-            )
-        } else {
-            (value, String::new(), None)
-        };
+        let comma = value.rfind(',').ok_or(())?;
+        let dot = value.rfind('.').ok_or(())?;
+        let decimal_separator = if comma > dot { ',' } else { '.' };
+        let decimal_position = value.rfind(decimal_separator).ok_or(())?;
+        let integer = &value[..decimal_position];
+        let fraction = &value[decimal_position + 1..];
+        let grouping = if decimal_separator == ',' { '.' } else { ',' };
+        (integer.to_string(), fraction.to_string(), Some(grouping))
+    } else if comma_count + dot_count > 1 {
+        let separator = if comma_count > 0 { ',' } else { '.' };
+        let groups: Vec<&str> = value.split(separator).collect();
+        let valid_grouping = !groups.is_empty()
+            && (1..=3).contains(&groups[0].len())
+            && groups
+                .iter()
+                .all(|part| part.chars().all(|ch| ch.is_ascii_digit()))
+            && groups.iter().skip(1).all(|part| part.len() == 3);
+        if !valid_grouping {
+            return Err(());
+        }
+        (groups.join(""), String::new(), None)
+    } else if comma_count == 1 || dot_count == 1 {
+        let separator = if comma_count == 1 { ',' } else { '.' };
+        let position = value.find(separator).ok_or(())?;
+        (
+            value[..position].to_string(),
+            value[position + 1..].to_string(),
+            None,
+        )
+    } else {
+        (value, String::new(), None)
+    };
 
     if fraction_part.len() > 2 || !fraction_part.chars().all(|ch| ch.is_ascii_digit()) {
         return Err(());
