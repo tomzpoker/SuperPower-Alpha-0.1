@@ -6,11 +6,11 @@
 | Champ | Valeur |
 |---|---|
 | Version | `0.1.0-alpha.1` |
-| Main de référence | `17966e1` — S06-B fusionné ; CI de la PR #5 verte |
+| Main de référence | `535baa6` — S06-B fusionné ; commit `main` vérifié le 14 octobre 2026 |
 | Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
 | Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B est dans `main`. La branche S02 couvre calendrier accessible, recherche/filtres, historique avec durées, cycle SQLCipher, handler `tresorerie/rappel_flux` et action UI idempotente validés en CI #38460849010. Un test worker+handler de bout en bout sur coffre temporaire est ajouté, en attente de CI. Le parcours visuel/IPC natif reste ouvert. |
-| Prochaine action | Vérifier le parcours natif des commandes Tauri de verrouillage/déverrouillage sur coffre temporaire, puis choisir le prochain handler métier à partir d’un cas d’usage existant. Les tests de récurrence et de persistance utilisent des dates déterministes. |
+| Statut | S06-B reste livré dans `main`. La branche S02 non fusionnée porte le moteur SQLCipher, le worker natif, les rappels métier, les récurrences ancrées, le calendrier, les filtres et l’historique. La CI #191 (`38461882586`) est verte sur `7683c88` ; l’intégration `TaskWorker` + `tresorerie/rappel_flux` est validée. Le rappel ponctuel et le rappel récurrent ont été testés avec succès selon le retour utilisateur. Le seul contrôle natif identifié restant sur S02 est le parcours réel des commandes Tauri verrouillage/déverrouillage. |
+| Prochaine action | Vérifier dans l’application native les commandes Tauri de verrouillage/déverrouillage sur un coffre temporaire (sans refaire les tests de rappel déjà passés). Puis relire la PR #8 et sa CI à jour avant toute fusion ; après clôture de S02, préparer S03 Import bancaire. La vérification de migration S06-B v2→v3 reste un contrôle séparé sur copie isolée. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | Handler SQLCipher et bouton Trésorerie validés par CI #38460849010 ; test intégration worker + handler avec historique/idempotence en validation ; vérification native du verrouillage/déverrouillage encore ouverte |
+| 02 | Moteur de tâches | IN_PROGRESS | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | CI #191 verte sur le head `7683c88` (Windows/Tauri, Rust, frontend), intégration worker + handler de trésorerie validée ; rappels ponctuel et récurrent testés par l’utilisateur. Vérification native des commandes Tauri de verrouillage/déverrouillage encore ouverte |
 | 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
@@ -34,6 +34,7 @@ Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/3832
 
 | Contrôle | Portée et état |
 |---|---|
+| CI Sprint 02 — run #191 | **Verte** sur `7683c88` : jobs Windows/Tauri, Rust et frontend ; intégration worker + `tresorerie/rappel_flux` et idempotence : [run #191](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38461882586) |
 | `cargo fmt --all -- --check` | S06-B passé sur le run #96 |
 | Tests Rust du domaine | S06-B passé sur le run #96 et le run post-fusion #97 |
 | Tests workspace / migrations automatisées | CI #153 verte sur `78ace82`, incluant le workspace et les migrations : [run #153](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38423220628) |
@@ -43,6 +44,7 @@ Le run [#40](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/3832
 | Vérification Markdown et liens | Passée en CI #38440915992 sur `5c0cee9`, après les vérifications précédentes #153 et #154 |
 | Parcours natif Trésorerie (2026-10-13) | **Réussi sur les scénarios observés** : loyer prévu modifié à 1 400 € sans écraser les 400 € réalisés ; assurance prévue à 240 € ; réalisation de 300 € enregistrée puis annulée depuis l'historique ; les lignes annulées restent visibles avec motif et sont exclues des totaux ; prévision assurance annulée et visible via le filtre |
 | Réouverture d'une copie isolée du coffre | **Réussie selon le retour utilisateur** ; les données existantes sont restées visibles après réouverture, sans les fusionner dans le coffre habituel |
+| Rappel récurrent Sprint 02 | **Testé avec succès selon le retour utilisateur** ; les calculs de récurrence et la reprise du worker sont aussi couverts par des dates simulées en CI, sans attendre plusieurs mois |
 | Migration réelle depuis une base dont la version v1 est explicitement vérifiée | **À confirmer** : la copie s'ouvre et se rouvre, mais la valeur initiale de `PRAGMA user_version` n'a pas été relevée indépendamment |
 | État `depasse` visible avant annulation | **Confirmé par l'utilisateur** : il a vu l'étiquette « Réalisé au-delà du prévu » lors de la réalisation de 300 € pour une prévision de 240 €, avant d'annuler cette réalisation |
 | Refus technique d'une réalisation sur prévision annulée | Test unitaire du garde-fou partagé passé en CI sur la PR #4 ; test d'intégration invoquant la commande avec une prévision annulée en base native encore souhaitable |
@@ -72,7 +74,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- Sur la branche S02, la CI #38445019655 valide le commit `2c13cc8` : formatage, tests Rust, frontend, build Windows/Tauri et workspace/migrations. Le test SQLCipher AppState couvre verrouillage/déverrouillage, conservation de l’historique et reprise du worker sans doublon ; le contrôleur a ses tests start/stop/restart dans une CI verte distincte (#38438886275). L'essai natif du rappel confirme notification et historique. Les commandes Tauri avec l’interface native restent à valider manuellement ; les handlers métier des documents/import bancaire/locatif et le fuseau cron configurable restent à faire.
+- La branche S02 est toujours non fusionnée (PR #8 en brouillon). La CI la plus récente, [run #191](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38461882586), est entièrement verte sur `7683c88` : build Windows/Tauri, tests Rust et frontend. Elle inclut le test d’intégration du worker avec `tresorerie/rappel_flux`, l’historique persistant et l’absence de doublon à la passe suivante. Le rappel ponctuel et le rappel récurrent ont été testés avec succès selon le retour utilisateur. Le contrôle manuel restant du lot S02 est l’appel réel aux commandes Tauri de verrouillage/déverrouillage dans l’interface native ; les handlers métier documents/import bancaire/locatif et le fuseau cron configurable restent à développer.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -104,3 +106,5 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 | 2026-10-13 | 02 | Commandes Tauri et page Tâches | Branche non fusionnée ; worker et UI du rappel validés par CI #153 |
 | 2026-10-13 | 02 | Tests de logique de commandes avec AppState SQLCipher temporaire | CI #38454692391 verte sur `5e39f35` : création/idempotence/audit, transitions, garde-fous d’historique et verrouillage ; interaction UI native encore ouverte |
 | 2026-10-13 | 02 | Couverture automatisée du déverrouillage | CI #38457756360 verte sur `f3a3ef1` : ouverture correcte, mauvaise phrase secrète, rollback si le worker échoue ; UI/IPC natif reste ouvert |
+| 2026-10-13 | 02 | Intégration worker + rappel de trésorerie | CI #191 verte sur `7683c88` : exécution du handler enregistré, lecture du solde SQLCipher, historique et seconde passe sans doublon |
+| 2026-10-14 | Documentation | Synchronisation handoff, progression, roadmap, Sprint 02, architecture et ADR avec le head vérifié | Mise à jour sur la branche S02 ; PR #8 reste non fusionnée |

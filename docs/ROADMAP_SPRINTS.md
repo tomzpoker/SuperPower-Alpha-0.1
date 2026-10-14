@@ -7,16 +7,20 @@ Séquence de livraison, pas promesse de calendrier. Les sprints fondateurs reste
 |---|---|---|---|---|
 | 00 | Bootstrap | Setup projet, CI, thèmes, coffre local | — | IN_PROGRESS |
 | 01 | Noyau | Entités, partie double, stockage chiffré | 00 | IN_PROGRESS |
-| 02 | Moteur de tâches | Planification durable, retries, idempotence | 01 | TODO |
+| 02 | Moteur de tâches | Planification durable, retries, idempotence | 01 | IN_PROGRESS — branche S02, PR #8 non fusionnée ; CI #191 verte, parcours natif lock/unlock restant |
 | 03 | Import bancaire | CSV, catégorisation, rapprochement | 01, 02 | TODO |
 | 04 | Documents | Extraction, classification | 01, 02 | TODO |
 | 05 | Gestion locative | Biens, lots, baux, loyers, TVA par opération | 01, 02, 03 | TODO |
-| 06 | Trésorerie | Prévisionnel/réalisé puis projection et rapprochement | 01 pour S06-A ; 03/05 pour rapprochement | IN_PROGRESS |
+| 06 | Trésorerie | Prévisionnel/réalisé puis projection et rapprochement | 01 pour S06-A ; 03/05 pour rapprochement | IN_PROGRESS — S06-A/B dans `main`, contrôle manuel de migration v2→v3 restant |
 | 07 | Fiscalité | TVA, déclarations préparatoires, veille et FEC | 01, 05, 06 | TODO |
 | 08 | Sync mobile | Fichiers chiffrés, résolution de conflits | 01, 02 | TODO |
 | 09 | Stocks | Articles, inventaire, valorisation | 01 | TODO |
 
-## Lot courant : S06-A — flux métiers guidés
+## Lot courant : S02 — moteur de tâches persistant
+
+Au 14 octobre 2026, le code S02 est sur `sprint/02-moteur-taches-prototype`, PR #8 en brouillon non fusionnée. Le head `7683c88` a passé la CI #191 : jobs Windows/Tauri, Rust et frontend. Le prototype inclut SQLCipher, commandes Tauri, UI Tâches, worker natif, rappels ponctuels/récurrents et handler de rappel de trésorerie idempotent. Le test natif des rappels ponctuel et récurrent a été confirmé par l’utilisateur. Contrôle manuel restant : commandes natives de verrouillage/déverrouillage sur coffre temporaire. Voir [HANDOFF](HANDOFF.md), [PROGRESS](PROGRESS.md) et [Sprint 02](SPRINTS/SPRINT_02_MOTEUR_TACHES.md).
+
+## Lot S06-A — flux métiers guidés
 Le premier incrément ajoute les prévisions ponctuelles, les réalisations partielles, l'écart, l'annulation auditée et la migration SQLite/SQLCipher v1→v2. L'utilisateur choisit le sens, la catégorie de pilotage, la date et le montant sans sélectionner de compte PCG.
 
 S06-A ne crée volontairement aucune écriture comptable ni TVA. Une catégorie ne suffit pas à déterminer le compte, la ventilation d'un emprunt ou l'exigibilité TVA. Voir [Sprint 06](SPRINTS/SPRINT_06_TRESORERIE.md) et [ADR-0001](DECISIONS/ADR-0001-flux-previsionnels.md).
@@ -53,7 +57,7 @@ La couverture visée est ≥80 % sur le nouveau code métier critique ; elle n'e
 main
 ├── sprint/00-bootstrap
 ├── sprint/01-noyau
-├── sprint/02-moteur-taches
+├── sprint/02-moteur-taches-prototype (PR #8, en cours)
 └── feat/guided-cash-flows (lot UX S06-A)
 \`\`\`
 Commits conseillés : \`[SPRINT-XX] feat(scope): description\`, \`fix\`, \`test\`, \`docs\`, \`chore\`.

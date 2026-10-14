@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — moteur persistant, worker natif et handlers `general/reminder` et `tresorerie/rappel_flux` ; récurrences ancrées, calendrier accessible, filtres et historique avec durées. CI #38460849010 verte sur `28731d4` : action UI de rappel depuis la trésorerie, tests frontend, Rust, build Windows/Tauri et workspace. Un nouveau test d’intégration exécute le handler de trésorerie via `TaskWorker` sur SQLCipher et vérifie succès/historique/absence de doublon ; CI en cours. Le parcours visuel/IPC natif reste ouvert |
+| **Statut** | IN_PROGRESS — le prototype couvre moteur SQLCipher, migrations v3→v6 sur la branche, commandes Tauri, page Tâches, worker natif, handlers `general/reminder` et `tresorerie/rappel_flux`, fréquences métier, calendrier accessible, recherche/filtres et historique avec durées. CI #191 verte sur `7683c88`, y compris le test d’intégration worker + handler de trésorerie. Rappels ponctuel et récurrent testés avec succès par l’utilisateur. Le parcours natif réel des commandes Tauri verrouillage/déverrouillage reste à vérifier. PR #8 non fusionnée |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -27,12 +27,12 @@
 - US-02-04 : Voir l'historique d'exécution et les erreurs.
 
 ## Tâches techniques
-- T-02-01 : Créer `crates/task-engine`.
-- T-02-02 : Intégrer `flexiq-core`.
-- T-02-03 : Migrations SQLite pour les tâches.
-- T-02-04 : Commandes Tauri (`list_tasks`, `create_task`, `run_task`, ...).
-- T-02-05 : UI Liste + Calendrier (FullCalendar).
-- T-02-06 : Migrer le widget Tom-Alpha-0.1 de PostgreSQL à SQLite.
+- [x] T-02-01 : Créer `crates/task-engine`, isolée du noyau et de l’interface.
+- [x] T-02-02 : Évaluer la piste `flexiq-core` ; elle est absente du dépôt et n’est pas intégrée. Le prototype utilise une crate interne, conformément à [ADR-0002](../DECISIONS/ADR-0002-task-engine.md).
+- [x] T-02-03 : Migrations SQLCipher versionnées et transactionnelles ; migration applicative v3→v6 sur la branche S02, avec tests de conservation.
+- [x] T-02-04 : Commandes Tauri de consultation/création/modification de statut/historique, avec audit et garde-fous.
+- [x] T-02-05 : UI Tâches avec liste, filtres, calendrier mensuel accessible, aperçu cron et historique des exécutions/tentatives.
+- [x] T-02-06 : Fournir une interface native intégrée à SuperPower ; pas de dépendance à un serveur PostgreSQL ni de réutilisation de base externe.
 
 ## État après sprint (handoff)
 
@@ -74,7 +74,8 @@
 - [x] Migration v5→v6 additive et conservation des tâches existantes testée.
 - [x] Confirmer par CI le calcul ancré, le frontend et la migration v5→v6 (CI #38442503451, commit `fa33766`).
 - [x] Tester l’intégration des occurrences mensuelles dans le worker : 31 janvier → 28 février → 31 mars, ancre d’origine conservée et répétition sans doublon (CI #38442503451).
-- [x] Essai natif sur coffre temporaire : rappel `general/reminder` à échéance, notification visible, exécution `Terminée`, tentative `#1 · Réussie` et historique confirmé par l'utilisateur.
+- [x] Essai natif sur coffre temporaire : rappel ponctuel `general/reminder` à échéance, notification visible, exécution terminée et tentative réussie, confirmé par l’utilisateur.
+- [x] Essai manuel du rappel récurrent : scénario confirmé comme réussi par l’utilisateur. Le calcul métier utilise l’ancre initiale et les tests automatisés simulent des dates futures ; aucune attente de plusieurs mois n’est requise.
 - [x] Test automatisé SQLCipher AppState : verrouillage/déverrouillage, accès refusé pendant le verrouillage, historique conservé et reprise du worker sans double exécution (CI #38445019655).
 - [ ] Vérifier manuellement dans l’application native les commandes Tauri de verrouillage/déverrouillage et la reprise du worker sur un coffre temporaire.
 - [x] Valider les tests SQLCipher des fonctions partagées avec les commandes : idempotence, audit, cycle de vie, garde-fous d’historique et verrouillage (CI #38454692391 sur `5e39f35`). Ces tests ne lancent pas le runtime graphique Tauri.
@@ -82,9 +83,11 @@
 - [x] Ajouter la vue calendrier mensuelle de base et sa navigation.
 - [x] Rendre les occurrences du calendrier sélectionnables au clavier et à la souris, avec bascule vers la tâche correspondante et mise en évidence de la date choisie.
 - [x] Suppression contrôlée avant toute exécution, avec garde-fou transactionnel et audit atomique.
-- [ ] Édition complète du cycle de vie et adaptation du widget historique avant de considérer toutes les user stories livrées.
+- [x] Édition protégée avant exécution, transitions pause/reprise/annulation/réactivation, suppression auditée avant exécution et rafraîchissement de l’historique/tentative ouverte ; tests frontend et Rust inclus dans les runs CI verts.
 
 ### Validation CI confirmée
+
+- [x] **Dernière CI vérifiée :** [run #191](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38461882586), commit `7683c88`, jobs Windows/Tauri, Rust et frontend tous réussis. Ce run valide le dernier test d’intégration `TaskWorker` + `tresorerie/rappel_flux`.
 
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
@@ -92,6 +95,6 @@
 - La CI #38457756360 est verte sur `f3a3ef1` : formatage/tests Rust, frontend, build Windows/Tauri et workspace/migrations. Les tests couvrent création idempotente et audit, mise à jour, transitions de cycle de vie, refus d’altération après historisation, verrouillage, déverrouillage correct, mauvaise phrase secrète et reverrouillage si le worker échoue. Les tests n’exécutent pas le runtime graphique ni l’IPC réel.
 - La CI #38449610042 est verte sur `50f289e` : le test frontend du calendrier interactif, les six tests de recherche/filtres, les tests Rust, le build Tauri Windows et les tests workspace/migrations sont tous réussis.
 - La CI #38445019655 est verte sur `2c13cc8` : formatage/tests Rust, frontend, build Tauri Windows et tests workspace/migrations. Le test SQLCipher AppState verrouille/déverrouille le coffre temporaire, conserve l’historique de janvier/février et vérifie la reprise sans doublon ainsi que la prochaine occurrence au 31 mars. La CI #38438886275 valide séparément start/stop/restart du contrôleur. Le test natif du rappel simple est réussi ; la vérification manuelle des commandes de verrouillage/déverrouillage reste ouverte. [Résultats CI #38445019655](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38445019655).
-- [ ] Valider par CI le handler `tresorerie/rappel_flux` : solde réel après réalisations actives, réalisations annulées exclues, encaissement/décaissement, flux annulé/soldé ignoré, payload invalide refusé.
+- [x] Valider par CI le handler `tresorerie/rappel_flux` : solde réel après réalisations actives, réalisations annulées exclues, sens encaissement/décaissement, flux annulé/soldé ignoré et payload invalide refusé ; test d’intégration worker/handler couvert par CI #191 sur `7683c88`.
 - [x] Valider par CI le bouton de rappel sur un flux actif avec solde positif : création idempotente, actualisation du rappel sans historique, refus de doublon si l’historique existe et masquage en mode démo/flux soldé (CI #38460849010 sur `28731d4`).
-- [ ] Valider par CI le test worker + handler SQLCipher de bout en bout : exécution réussie, notification avec le solde réel, historique persistant et seconde passe sans doublon.
+- [x] Valider par CI le test worker + handler SQLCipher de bout en bout : exécution réussie, événement de rappel issu du solde réel, historique persistant et seconde passe sans doublon ; CI #191 [verte](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38461882586).
