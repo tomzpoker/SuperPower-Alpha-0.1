@@ -1,4 +1,4 @@
-use chrono::{Local, Months, NaiveDate};
+use chrono::{Local, Months, NaiveDate, Utc};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use superpower_core::{
@@ -10,10 +10,14 @@ use superpower_core::{
     recurrence::{generer_echeances, ErreurRecurrence, FrequenceFlux},
     society::{ExigibiliteTva, FormeJuridique, PeriodiciteTva, RegimeFiscal, RegimeTva, Societe},
 };
-use tauri::State;
+use task_engine::{
+    CronSchedule, NewTask, Task, TaskAttempt, TaskEngine, TaskExecution, TaskStatus,
+};
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use crate::database::{AppState, DatabaseStatus};
+use crate::task_worker::TaskWorkerController;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,19 +120,58 @@ pub fn database_status(state: State<'_, AppState>) -> Result<DatabaseStatus, Str
 }
 
 #[tauri::command]
-pub fn initialize_database(passphrase: String, state: State<'_, AppState>) -> Result<(), String> {
-    state.initialize(&passphrase)
-}
-
-#[tauri::command]
-pub fn unlock_database(passphrase: String, state: State<'_, AppState>) -> Result<(), String> {
-    state.unlock(&passphrase)
-}
-
-#[tauri::command]
-pub fn lock_database(state: State<'_, AppState>) -> Result<(), String> {
-    state.lock();
+pub fn initialize_database(
+    passphrase: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+    worker: State<'_, TaskWorkerController>,
+) -> Result<(), String> {
+    state.initialize(&passphrase)?;
+    if let Err(error) = worker.start(app) {
+        state.lock();
+        return Err(error);
+    }
     Ok(())
+}
+
+fn unlock_database_with_state<F>(
+    passphrase: &str,
+    state: &AppState,
+    start_worker: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    state.unlock(passphrase)?;
+    if let Err(error) = start_worker() {
+        state.lock();
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn unlock_database(
+    passphrase: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+    worker: State<'_, TaskWorkerController>,
+) -> Result<(), String> {
+    unlock_database_with_state(&passphrase, state.inner(), move || worker.start(app))
+}
+
+fn lock_database_with_state(state: &AppState, worker: &TaskWorkerController) -> Result<(), String> {
+    let stop_result = worker.stop();
+    state.lock();
+    stop_result
+}
+
+#[tauri::command]
+pub fn lock_database(
+    state: State<'_, AppState>,
+    worker: State<'_, TaskWorkerController>,
+) -> Result<(), String> {
+    lock_database_with_state(state.inner(), worker.inner())
 }
 
 #[tauri::command]
@@ -1469,6 +1512,267 @@ pub fn list_ecritures(
     Ok(entries)
 }
 
+fn build_cron_preview(expression: &str, after: &str, count: u8) -> Result<Vec<String>, String> {
+    if !(1..=10).contains(&count) {
+        return Err("Le nombre d'occurrences doit être compris entre 1 et 10.".to_string());
+    }
+
+    let schedule = CronSchedule::parse(expression.trim())
+        .map_err(|error| format!("Expression cron invalide : {error}"))?;
+    let mut cursor = chrono::DateTime::parse_from_rfc3339(after)
+        .map_err(|_| {
+            "La date de départ doit être un instant ISO 8601 avec fuseau horaire.".to_string()
+        })?
+        .with_timezone(&Utc);
+    let mut occurrences = Vec::with_capacity(usize::from(count));
+
+    for index in 0..count {
+        // Comme lors de la création d'une tâche, l'ancre compte comme première
+        // occurrence uniquement si elle correspond exactement à l'expression cron.
+        let next = if index == 0 && schedule.matches_at(&cursor) {
+            cursor.clone()
+        } else {
+            schedule.next_after(&cursor).ok_or_else(|| {
+                "Aucune occurrence suivante trouvée dans la fenêtre de recherche de cinq ans."
+                    .to_string()
+            })?
+        };
+        occurrences.push(next.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        cursor = next;
+    }
+
+    Ok(occurrences)
+}
+
+#[tauri::command]
+pub fn preview_cron_schedule(
+    expression: String,
+    after: String,
+    count: u8,
+) -> Result<Vec<String>, String> {
+    build_cron_preview(&expression, &after, count)
+}
+
+#[tauri::command]
+pub fn list_tasks(state: State<'_, AppState>) -> Result<Vec<Task>, String> {
+    list_tasks_with_state(state.inner())
+}
+
+fn list_tasks_with_state(state: &AppState) -> Result<Vec<Task>, String> {
+    let connection = state.connection()?;
+    TaskEngine::list_tasks(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn create_task(input: NewTask, state: State<'_, AppState>) -> Result<Task, String> {
+    create_task_with_state(input, state.inner())
+}
+
+fn create_task_with_state(input: NewTask, state: &AppState) -> Result<Task, String> {
+    let mut connection = state.connection()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let existing = TaskEngine::get_task_by_idempotency_key(&transaction, &input.idempotency_key)
+        .map_err(|error| error.to_string())?;
+    let task = TaskEngine::create_task(&transaction, &input, &Utc::now().to_rfc3339())
+        .map_err(|error| error.to_string())?;
+    if existing.is_none() {
+        audit_tx(
+            &transaction,
+            "create",
+            "task_definition",
+            &task.id,
+            serde_json::json!({
+                "module": task.module,
+                "taskType": task.task_type,
+                "scheduledAt": task.scheduled_at,
+                "recurrenceFrequency": task.recurrence_frequency,
+                "cronExpression": task.cron_expression,
+                "cronAnchorAt": task.cron_anchor_at
+            }),
+        )
+        .map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)?;
+    Ok(task)
+}
+
+#[tauri::command]
+pub fn delete_task(task_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    delete_task_with_state(task_id, state.inner())
+}
+
+fn delete_task_with_state(task_id: String, state: &AppState) -> Result<(), String> {
+    let mut connection = state.connection()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let deleted = TaskEngine::delete_task_in_transaction(&transaction, &task_id)
+        .map_err(|error| error.to_string())?;
+    audit_tx(
+        &transaction,
+        "delete",
+        "task_definition",
+        &task_id,
+        serde_json::json!({
+            "module": &deleted.module,
+            "taskType": &deleted.task_type,
+            "title": &deleted.title,
+            "scheduledAt": &deleted.scheduled_at,
+            "recurrenceFrequency": deleted.recurrence_frequency,
+            "cronExpression": &deleted.cron_expression,
+            "status": deleted.status
+        }),
+    )
+    .map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_task(
+    task_id: String,
+    input: NewTask,
+    state: State<'_, AppState>,
+) -> Result<Task, String> {
+    update_task_with_state(task_id, input, state.inner())
+}
+
+fn update_task_with_state(
+    task_id: String,
+    input: NewTask,
+    state: &AppState,
+) -> Result<Task, String> {
+    let mut connection = state.connection()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let previous = TaskEngine::get_task_by_id(&transaction, &task_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("La tâche « {task_id} » n'existe pas."))?;
+    let updated = TaskEngine::update_task_in_transaction(
+        &transaction,
+        &task_id,
+        &input,
+        &Utc::now().to_rfc3339(),
+    )
+    .map_err(|error| error.to_string())?;
+    audit_tx(
+        &transaction,
+        "update",
+        "task_definition",
+        &task_id,
+        serde_json::json!({
+            "before": {
+                "module": &previous.module,
+                "taskType": &previous.task_type,
+                "title": &previous.title,
+                "scheduledAt": &previous.scheduled_at,
+                "recurrenceFrequency": previous.recurrence_frequency,
+                "cronExpression": &previous.cron_expression,
+                "cronAnchorAt": &previous.cron_anchor_at,
+                "maxAttempts": previous.max_attempts
+            },
+            "after": {
+                "module": &updated.module,
+                "taskType": &updated.task_type,
+                "title": &updated.title,
+                "scheduledAt": &updated.scheduled_at,
+                "recurrenceFrequency": updated.recurrence_frequency,
+                "cronExpression": &updated.cron_expression,
+                "cronAnchorAt": &updated.cron_anchor_at,
+                "maxAttempts": updated.max_attempts
+            }
+        }),
+    )
+    .map_err(db_error)?;
+    transaction.commit().map_err(db_error)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub fn update_task_status(
+    task_id: String,
+    status: TaskStatus,
+    state: State<'_, AppState>,
+) -> Result<Task, String> {
+    update_task_status_with_state(task_id, status, state.inner())
+}
+
+fn update_task_status_with_state(
+    task_id: String,
+    status: TaskStatus,
+    state: &AppState,
+) -> Result<Task, String> {
+    let mut connection = state.connection()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(db_error)?;
+    let previous = TaskEngine::get_task_by_id(&transaction, &task_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("La tâche « {task_id} » n'existe pas."))?;
+    let updated = TaskEngine::update_task_status_in_transaction(
+        &transaction,
+        &task_id,
+        status,
+        &Utc::now().to_rfc3339(),
+    )
+    .map_err(|error| error.to_string())?;
+    if previous.status != status {
+        let action = match status {
+            TaskStatus::Scheduled => "resume",
+            TaskStatus::Paused => "pause",
+            TaskStatus::Cancelled => "cancel",
+        };
+        audit_tx(
+            &transaction,
+            action,
+            "task_definition",
+            &task_id,
+            serde_json::json!({
+                "from": previous.status,
+                "to": status
+            }),
+        )
+        .map_err(db_error)?;
+    }
+    transaction.commit().map_err(db_error)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub fn list_task_executions(
+    task_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TaskExecution>, String> {
+    list_task_executions_with_state(task_id, state.inner())
+}
+
+fn list_task_executions_with_state(
+    task_id: String,
+    state: &AppState,
+) -> Result<Vec<TaskExecution>, String> {
+    let connection = state.connection()?;
+    TaskEngine::list_executions(&connection, &task_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_task_attempts(
+    execution_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TaskAttempt>, String> {
+    list_task_attempts_with_state(execution_id, state.inner())
+}
+
+fn list_task_attempts_with_state(
+    execution_id: String,
+    state: &AppState,
+) -> Result<Vec<TaskAttempt>, String> {
+    let connection = state.connection()?;
+    TaskEngine::list_attempts(&connection, &execution_id).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub fn dashboard_summary(state: State<'_, AppState>) -> Result<DashboardSummary, String> {
     let connection = state.connection()?;
@@ -1579,5 +1883,270 @@ mod flux_realisation_guard_tests {
     #[test]
     fn unknown_forecast_status_is_rejected_safely() {
         assert!(ensure_flux_realisation_allowed("inconnu").is_err());
+    }
+}
+#[cfg(test)]
+mod cron_preview_tests {
+    use super::build_cron_preview;
+
+    #[test]
+    fn previews_weekday_occurrences_in_utc_after_the_selected_anchor() {
+        assert_eq!(
+            build_cron_preview("0 10 * * 1-5", "2026-10-13T09:59:00Z", 3).unwrap(),
+            vec![
+                "2026-10-13T10:00:00.000Z",
+                "2026-10-14T10:00:00.000Z",
+                "2026-10-15T10:00:00.000Z",
+            ]
+        );
+    }
+
+    #[test]
+    fn includes_the_anchor_when_it_matches_the_cron_schedule() {
+        assert_eq!(
+            build_cron_preview("0 10 * * 1-5", "2026-10-13T10:00:00Z", 3).unwrap(),
+            vec![
+                "2026-10-13T10:00:00.000Z",
+                "2026-10-14T10:00:00.000Z",
+                "2026-10-15T10:00:00.000Z",
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_expression_date_and_occurrence_count() {
+        assert!(build_cron_preview("60 10 * * *", "2026-10-13T09:59:00Z", 3)
+            .unwrap_err()
+            .contains("Expression cron invalide"));
+        assert!(build_cron_preview("0 10 * * *", "not-a-date", 3).is_err());
+        assert!(build_cron_preview("0 10 * * *", "2026-10-13T09:59:00Z", 0).is_err());
+        assert!(build_cron_preview("0 10 * * *", "2026-10-13T09:59:00Z", 11).is_err());
+    }
+}
+
+#[cfg(test)]
+mod task_command_tests {
+    use super::*;
+    use crate::database::{AppState, DatabaseStatus};
+    use crate::task_worker::TaskWorkerController;
+    use std::{fs, path::PathBuf};
+    use task_engine::TaskRecurrenceFrequency;
+    use uuid::Uuid;
+
+    const TEST_PASSPHRASE: &str = "command-layer temporary vault passphrase";
+
+    struct TemporaryVault(PathBuf);
+
+    impl Drop for TemporaryVault {
+        fn drop(&mut self) {
+            for path in [
+                self.0.clone(),
+                self.0.with_extension("salt"),
+                self.0.with_extension("db-wal"),
+                self.0.with_extension("db-shm"),
+            ] {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+
+    fn test_state() -> (TemporaryVault, AppState) {
+        let vault = TemporaryVault(
+            std::env::temp_dir().join(format!("superpower-task-command-{}.db", Uuid::new_v4())),
+        );
+        let state = AppState::new(vault.0.clone());
+        state
+            .initialize(TEST_PASSPHRASE)
+            .expect("initialize temporary SQLCipher vault");
+        (vault, state)
+    }
+
+    fn task_input(key: &str, title: &str) -> NewTask {
+        NewTask {
+            idempotency_key: key.to_string(),
+            module: "general".to_string(),
+            task_type: "reminder".to_string(),
+            title: title.to_string(),
+            payload: serde_json::json!({"message": "Test command layer"}),
+            scheduled_at: "2027-01-31T10:00:00Z".to_string(),
+            recurrence_frequency: TaskRecurrenceFrequency::Monthly,
+            cron_expression: None,
+            max_attempts: 3,
+        }
+    }
+
+    fn audit_count(state: &AppState, action: &str, task_id: &str) -> i64 {
+        let connection = state
+            .connection()
+            .expect("open temporary vault for audit query");
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM journal_audit
+                 WHERE action = ?1 AND type_entite = 'task_definition' AND entite_id = ?2",
+                [action, task_id],
+                |row| row.get(0),
+            )
+            .expect("read task audit count")
+    }
+
+    #[test]
+    fn task_command_logic_is_idempotent_audited_and_supports_lifecycle_transitions() {
+        let (_vault, state) = test_state();
+        let input = task_input("command-lifecycle-key", "Tâche initiale");
+
+        let created = create_task_with_state(input.clone(), &state)
+            .expect("create task through shared command logic");
+        let duplicate = create_task_with_state(input.clone(), &state)
+            .expect("repeat an idempotent task command");
+        assert_eq!(created.id, duplicate.id);
+        assert_eq!(list_tasks_with_state(&state).unwrap().len(), 1);
+        assert_eq!(audit_count(&state, "create", &created.id), 1);
+
+        let mut revised_input = input;
+        revised_input.title = "Tâche modifiée".to_string();
+        let revised = update_task_with_state(created.id.clone(), revised_input, &state)
+            .expect("edit task before its first execution");
+        assert_eq!(revised.title, "Tâche modifiée");
+        assert_eq!(audit_count(&state, "update", &created.id), 1);
+
+        for status in [
+            TaskStatus::Paused,
+            TaskStatus::Scheduled,
+            TaskStatus::Cancelled,
+            TaskStatus::Scheduled,
+        ] {
+            let changed = update_task_status_with_state(created.id.clone(), status, &state)
+                .expect("apply task status transition");
+            assert_eq!(changed.status, status);
+        }
+
+        assert_eq!(audit_count(&state, "pause", &created.id), 1);
+        assert_eq!(audit_count(&state, "resume", &created.id), 2);
+        assert_eq!(audit_count(&state, "cancel", &created.id), 1);
+
+        delete_task_with_state(created.id.clone(), &state)
+            .expect("delete task before the first execution");
+        assert_eq!(list_tasks_with_state(&state).unwrap().len(), 0);
+        assert_eq!(audit_count(&state, "delete", &created.id), 1);
+    }
+
+    #[test]
+    fn task_command_logic_preserves_definitions_with_execution_history() {
+        let (_vault, state) = test_state();
+        let input = task_input("command-history-key", "Tâche historisée");
+        let created =
+            create_task_with_state(input.clone(), &state).expect("create task before execution");
+
+        {
+            let connection = state.connection().expect("open temporary vault");
+            TaskEngine::enqueue_execution(
+                &connection,
+                &created.id,
+                "command-history-execution",
+                &created.scheduled_at,
+                "2027-01-01T00:00:00Z",
+            )
+            .expect("record a queued execution");
+        }
+
+        let mut revised_input = input;
+        revised_input.title = "Modification interdite".to_string();
+        let update_error = update_task_with_state(created.id.clone(), revised_input, &state)
+            .expect_err("a task with history must not be editable");
+        assert!(update_error.contains("ne peut plus être modifiée ou supprimée"));
+
+        let delete_error = delete_task_with_state(created.id.clone(), &state)
+            .expect_err("a task with history must not be deletable");
+        assert!(delete_error.contains("ne peut plus être modifiée ou supprimée"));
+
+        assert_eq!(
+            list_task_executions_with_state(created.id.clone(), &state)
+                .expect("read execution history")
+                .len(),
+            1
+        );
+        assert_eq!(
+            list_tasks_with_state(&state)
+                .expect("read task definitions")
+                .iter()
+                .filter(|task| task.id == created.id)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn lock_database_logic_locks_the_vault_and_blocks_new_connections() {
+        let (_vault, state) = test_state();
+        let worker = TaskWorkerController::default();
+
+        lock_database_with_state(&state, &worker)
+            .expect("lock temporary SQLCipher vault through shared command logic");
+
+        assert_eq!(state.status(), DatabaseStatus::Locked);
+        assert!(state
+            .connection()
+            .expect_err("new connection must be refused while locked")
+            .contains("verrouillée"));
+    }
+
+    #[test]
+    fn unlock_database_logic_opens_the_vault_before_starting_worker() {
+        use std::cell::Cell;
+
+        let (_vault, state) = test_state();
+        state.lock();
+        let worker_start_called = Cell::new(false);
+
+        unlock_database_with_state(TEST_PASSPHRASE, &state, || {
+            assert_eq!(state.status(), DatabaseStatus::Ready);
+            worker_start_called.set(true);
+            Ok(())
+        })
+        .expect("unlock the temporary SQLCipher vault");
+
+        assert!(worker_start_called.get());
+        assert!(state.connection().is_ok());
+    }
+
+    #[test]
+    fn unlock_database_logic_relocks_the_vault_if_worker_start_fails() {
+        let (_vault, state) = test_state();
+        state.lock();
+
+        let error = unlock_database_with_state(TEST_PASSPHRASE, &state, || {
+            Err("simulated worker start failure".to_string())
+        })
+        .expect_err("worker failure must make unlock fail closed");
+
+        assert!(error.contains("simulated worker start failure"));
+        assert_eq!(state.status(), DatabaseStatus::Locked);
+        assert!(state
+            .connection()
+            .expect_err("failed worker start must relock the vault")
+            .contains("verrouillée"));
+    }
+
+    #[test]
+    fn unlock_database_logic_does_not_start_worker_for_wrong_passphrase() {
+        use std::cell::Cell;
+
+        let (_vault, state) = test_state();
+        state.lock();
+        let worker_start_called = Cell::new(false);
+
+        let error = unlock_database_with_state("wrong passphrase", &state, || {
+            worker_start_called.set(true);
+            Ok(())
+        })
+        .expect_err("wrong passphrase must not unlock the vault");
+
+        assert!(!worker_start_called.get());
+        assert!(!error.is_empty());
+        assert_eq!(state.status(), DatabaseStatus::Locked);
+        assert!(state
+            .connection()
+            .expect_err("wrong passphrase must leave the vault locked")
+            .contains("verrouillée"));
     }
 }

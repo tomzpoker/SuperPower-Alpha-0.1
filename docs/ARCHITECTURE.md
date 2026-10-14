@@ -26,6 +26,10 @@ crates/core/src/
   society.rs     # société, régimes, avertissements
   flows.rs       # flux prévisionnels, réalisations, validation, états
   events.rs      # bus mémoire, pas encore branché
+crates/task-engine/src/
+  lib.rs          # file durable SQLCipher, cycle de vie, audit et idempotence (branche S02)
+  cron.rs         # parseur et aperçu cron à cinq champs en UTC
+  worker.rs       # worker one-shot et handlers enregistrés, hors transaction
 src-tauri/src/
   database.rs    # AppState, SQLCipher, Argon2id, schéma/migrations
   commands.rs    # IPC Tauri et persistance
@@ -72,7 +76,8 @@ Aucun fallback vers SQLite non chiffré n'est autorisé.
 ## 6. Migration de schéma
 - v1 : sociétés, comptes, écritures, lignes, audit.
 - v2 : ajoute \`flux_previsionnels\` et \`flux_realisations\`, index chronologiques et contraintes de montant.
-- Migration v1→v2 transactionnelle à l'initialisation et au déverrouillage ; elle ne supprime aucune table v1.
+- Migrations v1→v2 et v2→v3 transactionnelles à l'initialisation et au déverrouillage ; elles ne reconstruisent pas les tables historiques.
+- Migrations applicatives v3→v6 câblées sur la branche S02 : définitions/exécutions/tentatives, cron et fréquences métier. Les tests SQLCipher, la conservation du schéma et le build Windows sont verts en CI #191 ; la branche reste à relire et n’est pas fusionnée dans `main`.
 - Une version future inconnue est refusée, jamais rétrogradée automatiquement.
 - Test automatisé d'idempotence ajouté ; la validation sur copie d'une vraie base SQLCipher v1 reste nécessaire avant merge.
 
@@ -91,6 +96,9 @@ Aucun fallback vers SQLite non chiffré n'est autorisé.
 | \`cancel_flux\` | \`id\` | vue annulée |
 | \`register_flux_realisation\` | \`fluxId\`, \`input: RealisationFluxInput\` | vue recalculée |
 | \`cancel_flux_realisation\` | \`id\`, \`motifAnnulation\` | vue recalculée |
+| \`list_tasks\` / \`create_task\` | — / \`input: NewTask\` | définitions de tâches |
+| \`update_task_status\` | \`taskId\`, \`status\` | tâche mise à jour, audit atomique |
+| \`list_task_executions\` / \`list_task_attempts\` | \`taskId\` / \`executionId\` | historique d'exécutions et tentatives |
 
 Les champs JSON sont en \`camelCase\), enums en \`snake_case\). Chaque nouvelle commande doit être déclarée dans \`commands.rs\), \`lib.rs\), \`types.ts\` et dans \`api.ts\` pour la démo.
 
@@ -107,4 +115,4 @@ S06-A ne crée pas d'écriture comptable ni de TVA. Une opération réelle peut 
 - Couverture >80 % non démontrée.
 
 ## 10. Évolutions
-S06-A → import bancaire (03) → gestion locative (05) → projection/alertes (06) → règles comptables et fiscalité préparatoire (07). Le moteur de tâches reste un sujet séparé : choisir une solution seulement après tests de persistance, idempotence et reprise.
+Le Sprint 02 en cours sur `sprint/02-moteur-taches-prototype` utilise une crate interne `task-engine` sur la connexion SQLCipher de l’application. Les commandes IPC, la page Tâches, le worker supervisé, le parseur/aperçu cron, les fréquences métier et les handlers `general/reminder` et `tresorerie/rappel_flux` sont présents sur cette branche ; la CI #191 est verte. La validation graphique réelle des commandes Tauri de verrouillage/déverrouillage reste ouverte avant clôture de S02. Après la fusion et la revue de sécurité, la suite prévue est S03 Import bancaire.

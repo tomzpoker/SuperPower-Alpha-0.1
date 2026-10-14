@@ -3097,6 +3097,7 @@ dependencies = [
  "serde",
  "serde_json",
  "superpower-core",
+ "task-engine",
  "tauri",
  "tauri-build",
  "uuid",
@@ -3234,6 +3235,18 @@ name = "target-lexicon"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
+
+[[package]]
+name = "task-engine"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
 
 [[package]]
 name = "tauri"

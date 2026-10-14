@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CreateSocieteInput, FluxInput, FluxView, RealisationFluxInput, Societe } from './types';
+import type { CreateSocieteInput, FluxInput, FluxView, NewTask, RealisationFluxInput, Societe, Task } from './types';
 
 type Api = typeof import('./api')['api'];
 let api: Api;
@@ -212,6 +212,56 @@ describe('browser demo cashflow behaviour', () => {
         dateFinRecurrence: '2026-11-30',
       }),
     })).rejects.toThrow('ne peut pas précéder');
+  });
+
+  it('deletes a task from the browser demo when it has no execution history', async () => {
+    const input: NewTask = {
+      idempotencyKey: 'delete-demo-task',
+      module: 'general',
+      taskType: 'manual',
+      title: 'Tâche de test supprimable',
+      payload: { test: true },
+      scheduledAt: '2026-12-01T10:00:00.000Z',
+      cronExpression: null,
+      maxAttempts: 3,
+    };
+    const task = await api<Task>('create_task', { input });
+    expect((await api<Task[]>('list_tasks')).some(item => item.id === task.id)).toBe(true);
+
+    await api<void>('delete_task', { taskId: task.id });
+
+    expect((await api<Task[]>('list_tasks')).some(item => item.id === task.id)).toBe(false);
+    await expect(api<void>('delete_task', { taskId: task.id }))
+      .rejects.toThrow('Cette tâche n’existe plus.');
+  });
+
+  it('supports pause, resume, cancel and reactivate without duplicating a task', async () => {
+    const input: NewTask = {
+      idempotencyKey: 'lifecycle-demo-task',
+      module: 'general',
+      taskType: 'reminder',
+      title: 'Cycle de vie de test',
+      payload: {},
+      scheduledAt: '2027-01-31T10:00:00.000Z',
+      recurrenceFrequency: 'monthly',
+      cronExpression: null,
+      maxAttempts: 3,
+    };
+
+    const created = await api<Task>('create_task', { input });
+    const paused = await api<Task>('update_task_status', { taskId: created.id, status: 'paused' });
+    const resumed = await api<Task>('update_task_status', { taskId: created.id, status: 'scheduled' });
+    const cancelled = await api<Task>('update_task_status', { taskId: created.id, status: 'cancelled' });
+    const reactivated = await api<Task>('update_task_status', { taskId: created.id, status: 'scheduled' });
+
+    expect([paused.status, resumed.status, cancelled.status, reactivated.status]).toEqual([
+      'paused', 'scheduled', 'cancelled', 'scheduled',
+    ]);
+    expect([paused.id, resumed.id, cancelled.id, reactivated.id]).toEqual([
+      created.id, created.id, created.id, created.id,
+    ]);
+    const listed = await api<Task[]>('list_tasks');
+    expect(listed.filter(item => item.id === created.id)).toHaveLength(1);
   });
 
   it('rejects values that exceed the native field limits', async () => {

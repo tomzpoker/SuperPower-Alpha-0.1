@@ -1,0 +1,13 @@
+[package]
+name = "task-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

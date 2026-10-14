@@ -1,0 +1,1915 @@
+//! Prototype de moteur de tâches persistant pour SuperPower.
+//!
+//! Cette crate utilise la connexion SQLCipher fournie par l'application : elle ne crée
+//! pas de base annexe non chiffrée. L'installation du schéma ne modifie pas
+//! PRAGMA user_version ; la migration de production doit rester orchestrée par
+//! src-tauri/src/database.rs.
+//!
+//! Cette première tranche couvre les tâches ponctuelles, l'idempotence des demandes,
+//! la file persistante, l'historique des tentatives et la reprise après expiration d'un
+//! bail. Le registre des handlers et un worker piloté appel par appel sont exposés dans
+//! le module worker. Le service de fond Tauri, les handlers métier de l'application
+//! et cron restent à intégrer après validation de cette tranche.
+
+use std::io;
+
+use chrono::{DateTime, Datelike, Duration, NaiveDate, SecondsFormat, Utc};
+use rusqlite::{
+    params,
+    types::{Type, Value as SqlValue},
+    Connection, OptionalExtension, Row, Transaction, TransactionBehavior,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use thiserror::Error;
+use uuid::Uuid;
+
+mod cron;
+mod worker;
+pub use cron::{CronError, CronSchedule};
+pub use worker::{
+    HandlerRegistryError, TaskHandlerRegistry, TaskWorker, TaskWorkerConfig, TaskWorkerError,
+    WorkerOutcome,
+};
+
+const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS task_definitions (
+    id TEXT PRIMARY KEY NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    module TEXT NOT NULL CHECK (length(trim(module)) > 0),
+    task_type TEXT NOT NULL CHECK (length(trim(task_type)) > 0),
+    title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+    payload_json TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'scheduled'
+        CHECK (status IN ('scheduled', 'paused', 'cancelled')),
+    max_attempts INTEGER NOT NULL CHECK (max_attempts BETWEEN 1 AND 100),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_definitions_due
+    ON task_definitions(status, scheduled_at);
+
+CREATE TABLE IF NOT EXISTS task_executions (
+    id TEXT PRIMARY KEY NOT NULL,
+    task_id TEXT NOT NULL REFERENCES task_definitions(id) ON DELETE RESTRICT,
+    idempotency_key TEXT NOT NULL,
+    scheduled_for TEXT NOT NULL,
+    available_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    max_attempts INTEGER NOT NULL CHECK (max_attempts BETWEEN 1 AND 100),
+    lease_until TEXT NULL,
+    last_error TEXT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT NULL,
+    finished_at TEXT NULL,
+    UNIQUE(task_id, idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_executions_claim
+    ON task_executions(status, available_at, lease_until);
+
+CREATE TABLE IF NOT EXISTS task_attempts (
+    id TEXT PRIMARY KEY NOT NULL,
+    execution_id TEXT NOT NULL REFERENCES task_executions(id) ON DELETE RESTRICT,
+    attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
+    status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT NULL,
+    error_message TEXT NULL,
+    UNIQUE(execution_id, attempt_number),
+    CHECK (
+        (status = 'running' AND finished_at IS NULL)
+        OR (status <> 'running' AND finished_at IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_attempts_history
+    ON task_attempts(execution_id, attempt_number);
+"#;
+
+#[derive(Debug, Error)]
+pub enum TaskEngineError {
+    #[error("Paramètre invalide : {0}")]
+    InvalidInput(String),
+    #[error(transparent)]
+    Database(#[from] rusqlite::Error),
+    #[error("Cette clé d'idempotence est déjà utilisée pour une demande différente.")]
+    IdempotencyConflict,
+    #[error("La tâche « {0} » n'existe pas.")]
+    TaskNotFound(String),
+    #[error("La tâche est en pause ou annulée ; aucune nouvelle exécution ne peut être ajoutée.")]
+    TaskInactive,
+    #[error("Une tâche annulée ne peut pas être modifiée. Réactivez-la avant de recommencer.")]
+    TaskCancelled,
+    #[error("Une tâche avec une exécution ne peut plus être modifiée ou supprimée ; annulez-la et créez-en une nouvelle pour préserver l'historique.")]
+    TaskHasExecutions,
+    #[error("L'exécution « {0} » n'existe pas.")]
+    ExecutionNotFound(String),
+    #[error("Transition impossible : l'exécution n'est pas en cours.")]
+    InvalidExecutionState,
+    #[error("Cette tentative a expiré ou a été remplacée par une tentative plus récente.")]
+    StaleAttempt,
+    #[error("L'échéance cron a changé avant sa matérialisation ; la tâche doit être relue.")]
+    StaleSchedule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Scheduled,
+    Paused,
+    Cancelled,
+}
+
+impl TaskStatus {
+    fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Scheduled => "scheduled",
+            Self::Paused => "paused",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    fn from_db_str(value: &str) -> Result<Self, String> {
+        match value {
+            "scheduled" => Ok(Self::Scheduled),
+            "paused" => Ok(Self::Paused),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => Err(format!("statut de tâche inconnu : {value}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionStatus {
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+impl ExecutionStatus {
+    fn from_db_str(value: &str) -> Result<Self, String> {
+        match value {
+            "queued" => Ok(Self::Queued),
+            "running" => Ok(Self::Running),
+            "succeeded" => Ok(Self::Succeeded),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => Err(format!("statut d'exécution inconnu : {value}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttemptStatus {
+    Running,
+    Succeeded,
+    Failed,
+}
+
+impl AttemptStatus {
+    fn from_db_str(value: &str) -> Result<Self, String> {
+        match value {
+            "running" => Ok(Self::Running),
+            "succeeded" => Ok(Self::Succeeded),
+            "failed" => Ok(Self::Failed),
+            _ => Err(format!("statut de tentative inconnu : {value}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRecurrenceFrequency {
+    Once,
+    Monthly,
+    Quarterly,
+    Yearly,
+    CustomCron,
+}
+impl Default for TaskRecurrenceFrequency {
+    fn default() -> Self {
+        Self::Once
+    }
+}
+impl TaskRecurrenceFrequency {
+    fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Once => "once",
+            Self::Monthly => "monthly",
+            Self::Quarterly => "quarterly",
+            Self::Yearly => "yearly",
+            Self::CustomCron => "custom_cron",
+        }
+    }
+    fn from_db_str(value: &str) -> Result<Self, String> {
+        match value {
+            "once" => Ok(Self::Once),
+            "monthly" => Ok(Self::Monthly),
+            "quarterly" => Ok(Self::Quarterly),
+            "yearly" => Ok(Self::Yearly),
+            "custom_cron" => Ok(Self::CustomCron),
+            _ => Err(format!("fréquence de récurrence inconnue : {value}")),
+        }
+    }
+    pub fn is_recurring(self) -> bool {
+        self != Self::Once
+    }
+    fn interval_months(self) -> Option<u32> {
+        match self {
+            Self::Once | Self::CustomCron => None,
+            Self::Monthly => Some(1),
+            Self::Quarterly => Some(3),
+            Self::Yearly => Some(12),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTask {
+    pub idempotency_key: String,
+    pub module: String,
+    pub task_type: String,
+    pub title: String,
+    pub payload: Value,
+    pub scheduled_at: String,
+    #[serde(default)]
+    pub recurrence_frequency: TaskRecurrenceFrequency,
+    #[serde(default)]
+    pub cron_expression: Option<String>,
+    pub max_attempts: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Task {
+    pub id: String,
+    pub idempotency_key: String,
+    pub module: String,
+    pub task_type: String,
+    pub title: String,
+    pub payload: Value,
+    pub scheduled_at: String,
+    pub recurrence_frequency: TaskRecurrenceFrequency,
+    pub cron_expression: Option<String>,
+    pub cron_anchor_at: Option<String>,
+    pub status: TaskStatus,
+    pub max_attempts: u32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskExecution {
+    pub id: String,
+    pub task_id: String,
+    pub idempotency_key: String,
+    pub scheduled_for: String,
+    pub available_at: String,
+    pub status: ExecutionStatus,
+    pub attempt_count: u32,
+    pub max_attempts: u32,
+    pub lease_until: Option<String>,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskAttempt {
+    pub id: String,
+    pub execution_id: String,
+    pub attempt_number: u32,
+    pub status: AttemptStatus,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub error_message: Option<String>,
+}
+
+pub struct TaskEngine;
+
+impl TaskEngine {
+    /// Installe le schéma courant du moteur, y compris les colonnes de récurrence.
+    /// La version globale du coffre reste la responsabilité des migrations Tauri.
+    pub fn install_schema(connection: &Connection) -> Result<(), TaskEngineError> {
+        Self::install_schema_v4(connection)?;
+        Self::install_cron_schema(connection)?;
+        Self::install_recurrence_schema(connection)?;
+        Ok(())
+    }
+
+    /// Installe uniquement le schéma historique v4 pour la migration v3 → v4.
+    /// Cette méthode est réservée à l'enchaînement des migrations applicatives.
+    pub fn install_schema_v4(connection: &Connection) -> Result<(), TaskEngineError> {
+        connection.execute_batch(SCHEMA)?;
+        Ok(())
+    }
+
+    /// Ajoute les colonnes des expressions cron (migration v4 → v5).
+    /// Idempotent afin d'être utilisé aussi dans les tests du moteur isolé.
+    pub fn install_cron_schema(connection: &Connection) -> Result<(), TaskEngineError> {
+        for (column, sql) in [
+            (
+                "cron_expression",
+                "ALTER TABLE task_definitions ADD COLUMN cron_expression TEXT NULL;",
+            ),
+            (
+                "cron_anchor_at",
+                "ALTER TABLE task_definitions ADD COLUMN cron_anchor_at TEXT NULL;",
+            ),
+        ] {
+            let has_column: bool = connection.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM pragma_table_info('task_definitions') WHERE name = ?1
+                 )",
+                [column],
+                |row| row.get(0),
+            )?;
+            if !has_column {
+                connection.execute_batch(sql)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Ajoute la fréquence métier et reclasse les tâches cron historiques sans réécriture de table.
+    pub fn install_recurrence_schema(connection: &Connection) -> Result<(), TaskEngineError> {
+        let has_column: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('task_definitions') WHERE name = 'recurrence_frequency')",
+            [], |row| row.get(0),
+        )?;
+        if !has_column {
+            connection.execute_batch("ALTER TABLE task_definitions ADD COLUMN recurrence_frequency TEXT NOT NULL DEFAULT 'once' CHECK (recurrence_frequency IN ('once','monthly','quarterly','yearly','custom_cron'));")?;
+        }
+        connection.execute("UPDATE task_definitions SET recurrence_frequency = 'custom_cron' WHERE cron_expression IS NOT NULL AND recurrence_frequency = 'once'", [])?;
+        Ok(())
+    }
+
+    /// Crée une tâche ponctuelle ou récurrente. Une même clé réutilisée à l'identique
+    /// retourne la tâche existante ; réutilisée pour des paramètres différents, elle échoue.
+    pub fn create_task(
+        connection: &Connection,
+        input: &NewTask,
+        now: &str,
+    ) -> Result<Task, TaskEngineError> {
+        let idempotency_key = required_text(&input.idempotency_key, "clé d'idempotence", 200)?;
+        let module = required_text(&input.module, "module", 100)?;
+        let task_type = required_text(&input.task_type, "type de tâche", 100)?;
+        let title = required_text(&input.title, "titre", 200)?;
+        if !(1..=100).contains(&input.max_attempts) {
+            return Err(TaskEngineError::InvalidInput(
+                "Le nombre de tentatives doit être compris entre 1 et 100.".to_string(),
+            ));
+        }
+
+        let (scheduled_at, cron_expression, cron_anchor_at, recurrence_frequency) =
+            normalize_schedule(input)?;
+        let now = normalize_timestamp(now, "date de création")?;
+        let payload_json = input.payload.to_string();
+        let id = Uuid::new_v4().to_string();
+
+        connection.execute(
+            "INSERT INTO task_definitions (
+                id, idempotency_key, module, task_type, title, payload_json,
+                scheduled_at, status, max_attempts, created_at, updated_at,
+                cron_expression, cron_anchor_at, recurrence_frequency
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9, ?9, ?10, ?11, ?12)
+             ON CONFLICT(idempotency_key) DO NOTHING",
+            params![
+                id,
+                idempotency_key,
+                module,
+                task_type,
+                title,
+                payload_json,
+                scheduled_at,
+                i64::from(input.max_attempts),
+                now,
+                cron_expression,
+                cron_anchor_at,
+                recurrence_frequency.as_db_str()
+            ],
+        )?;
+
+        let existing =
+            find_task_by_idempotency_key(connection, &idempotency_key)?.ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "La tâche créée est introuvable après insertion.".to_string(),
+                )
+            })?;
+
+        let same_schedule = if recurrence_frequency.is_recurring() {
+            existing.cron_anchor_at == cron_anchor_at
+        } else {
+            existing.scheduled_at == scheduled_at
+        };
+        let same_request = existing.module == module
+            && existing.task_type == task_type
+            && existing.title == title
+            && existing.payload == input.payload
+            && existing.cron_expression == cron_expression
+            && existing.recurrence_frequency == recurrence_frequency
+            && same_schedule
+            && existing.max_attempts == input.max_attempts;
+
+        if !same_request {
+            return Err(TaskEngineError::IdempotencyConflict);
+        }
+
+        Ok(existing)
+    }
+
+    /// Modifie une définition tant qu'aucune exécution n'a été créée.
+    /// La clé d'idempotence et le statut sont immuables dans cette opération.
+    pub fn update_task(
+        connection: &mut Connection,
+        task_id: &str,
+        input: &NewTask,
+        now: &str,
+    ) -> Result<Task, TaskEngineError> {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated = Self::update_task_in_transaction(&transaction, task_id, input, now)?;
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    /// Variante transactionnelle pour conserver l'audit applicatif et la mutation atomiques.
+    pub fn update_task_in_transaction(
+        transaction: &Transaction<'_>,
+        task_id: &str,
+        input: &NewTask,
+        now: &str,
+    ) -> Result<Task, TaskEngineError> {
+        let existing = find_task_by_id(transaction, task_id)?
+            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))?;
+        if existing.status == TaskStatus::Cancelled {
+            return Err(TaskEngineError::TaskCancelled);
+        }
+
+        let idempotency_key = required_text(&input.idempotency_key, "clé d'idempotence", 200)?;
+        if idempotency_key != existing.idempotency_key {
+            return Err(TaskEngineError::IdempotencyConflict);
+        }
+
+        let has_executions: i64 = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM task_executions WHERE task_id = ?1)",
+            [task_id],
+            |row| row.get(0),
+        )?;
+        if has_executions != 0 {
+            return Err(TaskEngineError::TaskHasExecutions);
+        }
+
+        let module = required_text(&input.module, "module", 100)?;
+        let task_type = required_text(&input.task_type, "type de tâche", 100)?;
+        let title = required_text(&input.title, "titre", 200)?;
+        if !(1..=100).contains(&input.max_attempts) {
+            return Err(TaskEngineError::InvalidInput(
+                "Le nombre de tentatives doit être compris entre 1 et 100.".to_string(),
+            ));
+        }
+        let (scheduled_at, cron_expression, cron_anchor_at, recurrence_frequency) =
+            normalize_schedule(input)?;
+        let now = normalize_timestamp(now, "date de modification")?;
+        let payload_json = input.payload.to_string();
+
+        transaction.execute(
+            "UPDATE task_definitions
+             SET module = ?1, task_type = ?2, title = ?3, payload_json = ?4,
+                 scheduled_at = ?5, max_attempts = ?6, updated_at = ?7,
+                 cron_expression = ?8, cron_anchor_at = ?9, recurrence_frequency = ?10
+             WHERE id = ?11",
+            params![
+                module,
+                task_type,
+                title,
+                payload_json,
+                scheduled_at,
+                i64::from(input.max_attempts),
+                now,
+                cron_expression,
+                cron_anchor_at,
+                recurrence_frequency.as_db_str(),
+                task_id
+            ],
+        )?;
+
+        find_task_by_id(transaction, task_id)?
+            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))
+    }
+
+    /// Supprime une définition sans exécution. Les tâches ayant un historique doivent
+    /// être annulées plutôt que supprimées, afin de ne jamais effacer leurs résultats.
+    /// L'appelant conserve la transaction pour journaliser l'audit atomiquement.
+    pub fn delete_task_in_transaction(
+        transaction: &Transaction<'_>,
+        task_id: &str,
+    ) -> Result<Task, TaskEngineError> {
+        let existing = find_task_by_id(transaction, task_id)?
+            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))?;
+        let has_executions: i64 = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM task_executions WHERE task_id = ?1)",
+            [task_id],
+            |row| row.get(0),
+        )?;
+        if has_executions != 0 {
+            return Err(TaskEngineError::TaskHasExecutions);
+        }
+
+        let deleted =
+            transaction.execute("DELETE FROM task_definitions WHERE id = ?1", [task_id])?;
+        if deleted != 1 {
+            return Err(TaskEngineError::TaskNotFound(task_id.to_string()));
+        }
+        Ok(existing)
+    }
+
+    pub fn list_tasks(connection: &Connection) -> Result<Vec<Task>, TaskEngineError> {
+        let mut statement = connection.prepare(
+            "SELECT id, idempotency_key, module, task_type, title, payload_json,
+                    scheduled_at, status, max_attempts, created_at, updated_at,
+                    cron_expression, cron_anchor_at, recurrence_frequency
+             FROM task_definitions
+             ORDER BY scheduled_at, created_at, id",
+        )?;
+        let rows = statement.query_map([], task_from_row)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn update_task_status(
+        connection: &mut Connection,
+        task_id: &str,
+        status: TaskStatus,
+        now: &str,
+    ) -> Result<Task, TaskEngineError> {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let task = Self::update_task_status_in_transaction(&transaction, task_id, status, now)?;
+        transaction.commit()?;
+        Ok(task)
+    }
+
+    /// Même mutation, mais laisse à l'appelant la responsabilité du commit afin que
+    /// l'audit applicatif et le changement de statut soient atomiques.
+    pub fn update_task_status_in_transaction(
+        transaction: &Transaction<'_>,
+        task_id: &str,
+        status: TaskStatus,
+        now: &str,
+    ) -> Result<Task, TaskEngineError> {
+        let now = normalize_timestamp(now, "date de modification")?;
+        let previous_status: Option<String> = transaction
+            .query_row(
+                "SELECT status FROM task_definitions WHERE id = ?1",
+                [task_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(previous_status) = previous_status else {
+            return Err(TaskEngineError::TaskNotFound(task_id.to_string()));
+        };
+
+        transaction.execute(
+            "UPDATE task_definitions SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            params![status.as_db_str(), now, task_id],
+        )?;
+
+        if status == TaskStatus::Cancelled {
+            transaction.execute(
+                "UPDATE task_executions
+                 SET status = 'cancelled', updated_at = ?1, finished_at = ?1,
+                     lease_until = NULL
+                 WHERE task_id = ?2 AND status = 'queued'",
+                params![now, task_id],
+            )?;
+        } else if previous_status == "cancelled" && status == TaskStatus::Scheduled {
+            // Une tâche annulée peut être réactivée sans créer une seconde occurrence :
+            // seule une exécution annulée avant sa première tentative est remise en file.
+            transaction.execute(
+                "UPDATE task_executions
+                 SET status = 'queued', available_at = scheduled_for,
+                     updated_at = ?1, finished_at = NULL, lease_until = NULL,
+                     last_error = NULL
+                 WHERE task_id = ?2 AND status = 'cancelled' AND attempt_count = 0",
+                params![now, task_id],
+            )?;
+        }
+
+        find_task_by_id(transaction, task_id)?
+            .ok_or_else(|| TaskEngineError::TaskNotFound(task_id.to_string()))
+    }
+
+    /// Avance l'échéance d'une tâche cron dans la transaction qui matérialise
+    /// l'occurrence, sans écraser une mise à jour concurrente.
+    pub fn advance_cron_occurrence_in_transaction(
+        transaction: &Transaction<'_>,
+        task_id: &str,
+        expected_scheduled_at: &str,
+        next_scheduled_at: &str,
+        now: &str,
+    ) -> Result<(), TaskEngineError> {
+        let expected = normalize_timestamp(expected_scheduled_at, "échéance cron attendue")?;
+        let next = normalize_timestamp(next_scheduled_at, "prochaine échéance cron")?;
+        let now = normalize_timestamp(now, "date de matérialisation")?;
+        let changed = transaction.execute(
+            "UPDATE task_definitions
+             SET scheduled_at = ?1, updated_at = ?2
+             WHERE id = ?3 AND status = 'scheduled'
+               AND recurrence_frequency <> 'once' AND scheduled_at = ?4",
+            params![next, now, task_id, expected],
+        )?;
+        if changed != 1 {
+            return Err(TaskEngineError::StaleSchedule);
+        }
+        Ok(())
+    }
+
+    /// Calcule la prochaine occurrence depuis l'ancre originale.
+    pub fn next_anchored_occurrence(
+        frequency: TaskRecurrenceFrequency,
+        anchor_at: &str,
+        current_at: &str,
+    ) -> Result<String, TaskEngineError> {
+        let interval = frequency.interval_months().ok_or_else(|| {
+            TaskEngineError::InvalidInput(
+                "Une fréquence métier mensuelle, trimestrielle ou annuelle est requise."
+                    .to_string(),
+            )
+        })?;
+        let anchor =
+            DateTime::parse_from_rfc3339(&normalize_timestamp(anchor_at, "ancre de récurrence")?)
+                .map_err(|_| {
+                    TaskEngineError::InvalidInput("Ancre de récurrence invalide.".to_string())
+                })?
+                .with_timezone(&Utc);
+        let current =
+            DateTime::parse_from_rfc3339(&normalize_timestamp(current_at, "échéance actuelle")?)
+                .map_err(|_| {
+                    TaskEngineError::InvalidInput("Échéance actuelle invalide.".to_string())
+                })?
+                .with_timezone(&Utc);
+        let months = ((current.year() - anchor.year()) * 12 + current.month() as i32
+            - anchor.month() as i32)
+            .max(0) as u32;
+        let mut index = months / interval;
+        loop {
+            let offset = interval.checked_mul(index).ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "La récurrence dépasse la plage de dates prise en charge.".to_string(),
+                )
+            })?;
+            let candidate = anchored_month_occurrence(&anchor, offset).ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "La prochaine échéance sort de la plage de dates prise en charge.".to_string(),
+                )
+            })?;
+            if candidate > current {
+                return Ok(candidate.to_rfc3339_opts(SecondsFormat::Millis, true));
+            }
+            index = index.checked_add(1).ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "La récurrence dépasse la plage de dates prise en charge.".to_string(),
+                )
+            })?;
+        }
+    }
+
+    pub fn get_task_by_id(
+        connection: &Connection,
+        task_id: &str,
+    ) -> Result<Option<Task>, TaskEngineError> {
+        Ok(find_task_by_id(connection, task_id)?)
+    }
+
+    pub fn get_task_by_idempotency_key(
+        connection: &Connection,
+        idempotency_key: &str,
+    ) -> Result<Option<Task>, TaskEngineError> {
+        Ok(find_task_by_idempotency_key(connection, idempotency_key)?)
+    }
+
+    /// Enfile une occurrence. La paire (task_id, idempotency_key) empêche
+    /// les doublons lorsqu'un planificateur répète sa matérialisation.
+    pub fn enqueue_execution(
+        connection: &Connection,
+        task_id: &str,
+        idempotency_key: &str,
+        scheduled_for: &str,
+        now: &str,
+    ) -> Result<TaskExecution, TaskEngineError> {
+        let idempotency_key = required_text(idempotency_key, "clé d'exécution", 200)?;
+        let scheduled_for = normalize_timestamp(scheduled_for, "date d'exécution")?;
+        let now = normalize_timestamp(now, "date de création de l'exécution")?;
+
+        let task_data: Option<(String, i64)> = connection
+            .query_row(
+                "SELECT status, max_attempts FROM task_definitions WHERE id = ?1",
+                [task_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((status, max_attempts)) = task_data else {
+            return Err(TaskEngineError::TaskNotFound(task_id.to_string()));
+        };
+        if status != "scheduled" {
+            return Err(TaskEngineError::TaskInactive);
+        }
+
+        connection.execute(
+            "INSERT INTO task_executions (
+                id, task_id, idempotency_key, scheduled_for, available_at,
+                status, attempt_count, max_attempts, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?4, 'queued', 0, ?5, ?6, ?6)
+             ON CONFLICT(task_id, idempotency_key) DO NOTHING",
+            params![
+                Uuid::new_v4().to_string(),
+                task_id,
+                idempotency_key,
+                scheduled_for,
+                max_attempts,
+                now
+            ],
+        )?;
+
+        let execution =
+            find_execution_by_key(connection, task_id, &idempotency_key)?.ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "L'exécution est introuvable après insertion.".to_string(),
+                )
+            })?;
+        if execution.scheduled_for != scheduled_for {
+            return Err(TaskEngineError::IdempotencyConflict);
+        }
+        Ok(execution)
+    }
+
+    /// Réserve la prochaine exécution échue, tous handlers confondus. Réservé aux
+    /// appels explicites de diagnostic ; la boucle de fond doit filtrer ses handlers.
+    pub fn claim_next_due(
+        connection: &mut Connection,
+        now: &str,
+        lease_until: &str,
+    ) -> Result<Option<TaskExecution>, TaskEngineError> {
+        Self::claim_next_due_internal(connection, now, lease_until, None)
+    }
+
+    /// Réserve uniquement une tâche dont le handler est connu par l'appelant.
+    pub fn claim_next_due_for_task_ids(
+        connection: &mut Connection,
+        now: &str,
+        lease_until: &str,
+        eligible_task_ids: &[String],
+    ) -> Result<Option<TaskExecution>, TaskEngineError> {
+        if eligible_task_ids.is_empty() {
+            return Ok(None);
+        }
+        Self::claim_next_due_internal(connection, now, lease_until, Some(eligible_task_ids))
+    }
+
+    fn claim_next_due_internal(
+        connection: &mut Connection,
+        now: &str,
+        lease_until: &str,
+        eligible_task_ids: Option<&[String]>,
+    ) -> Result<Option<TaskExecution>, TaskEngineError> {
+        let now = normalize_timestamp(now, "date de réservation")?;
+        let lease_until = normalize_timestamp(lease_until, "expiration du bail")?;
+        if lease_until <= now {
+            return Err(TaskEngineError::InvalidInput(
+                "L'expiration du bail doit être postérieure à la réservation.".to_string(),
+            ));
+        }
+
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let interrupted_message =
+            "Exécution interrompue ; reprise après expiration du bail.".to_string();
+
+        let exhausted: Vec<(String, i64)> = {
+            let (filter, filter_values) = task_id_filter("t", eligible_task_ids);
+            let query = format!(
+                "SELECT e.id, e.attempt_count
+                 FROM task_executions e
+                 JOIN task_definitions t ON t.id = e.task_id
+                 WHERE e.status = 'running'
+                   AND e.lease_until IS NOT NULL
+                   AND e.lease_until <= ?1
+                   AND e.attempt_count >= e.max_attempts
+                   {filter}"
+            );
+            let mut values = vec![SqlValue::Text(now.clone())];
+            values.extend(filter_values);
+            let mut statement = transaction.prepare(&query)?;
+            let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+
+        for (execution_id, attempt_count) in exhausted {
+            transaction.execute(
+                "UPDATE task_attempts
+                 SET status = 'failed', finished_at = ?1,
+                     error_message = COALESCE(error_message, ?2)
+                 WHERE execution_id = ?3 AND attempt_number = ?4 AND status = 'running'",
+                params![now, interrupted_message, execution_id, attempt_count],
+            )?;
+            transaction.execute(
+                "UPDATE task_executions
+                 SET status = 'failed', lease_until = NULL, last_error = ?1,
+                     finished_at = ?2, updated_at = ?2
+                 WHERE id = ?3",
+                params![interrupted_message, now, execution_id],
+            )?;
+        }
+
+        let candidate: Option<(String, String, i64)> = {
+            let (filter, filter_values) = task_id_filter("t", eligible_task_ids);
+            let query = format!(
+                "SELECT e.id, e.status, e.attempt_count
+                 FROM task_executions e
+                 JOIN task_definitions t ON t.id = e.task_id
+                 WHERE t.status = 'scheduled'
+                   AND (
+                     (e.status = 'queued' AND e.available_at <= ?1)
+                     OR
+                     (e.status = 'running' AND e.lease_until IS NOT NULL
+                       AND e.lease_until <= ?1 AND e.attempt_count < e.max_attempts)
+                   )
+                   {filter}
+                 ORDER BY e.available_at, e.scheduled_for, e.created_at, e.id
+                 LIMIT 1"
+            );
+            let mut values = vec![SqlValue::Text(now.clone())];
+            values.extend(filter_values);
+            transaction
+                .query_row(&query, rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .optional()?
+        };
+
+        let Some((execution_id, previous_status, previous_attempt_count)) = candidate else {
+            transaction.commit()?;
+            return Ok(None);
+        };
+
+        if previous_status == "running" {
+            transaction.execute(
+                "UPDATE task_attempts
+                 SET status = 'failed', finished_at = ?1,
+                     error_message = COALESCE(error_message, ?2)
+                 WHERE execution_id = ?3 AND attempt_number = ?4 AND status = 'running'",
+                params![
+                    now,
+                    interrupted_message,
+                    execution_id,
+                    previous_attempt_count
+                ],
+            )?;
+            transaction.execute(
+                "UPDATE task_executions
+                 SET status = 'queued', available_at = ?1, lease_until = NULL,
+                     last_error = ?2, updated_at = ?1
+                 WHERE id = ?3",
+                params![now, interrupted_message, execution_id],
+            )?;
+        }
+
+        let attempt_number = previous_attempt_count + 1;
+        transaction.execute(
+            "UPDATE task_executions
+             SET status = 'running', attempt_count = ?1, lease_until = ?2,
+                 started_at = COALESCE(started_at, ?3), updated_at = ?3,
+                 last_error = NULL, finished_at = NULL
+             WHERE id = ?4",
+            params![attempt_number, lease_until, now, execution_id],
+        )?;
+        transaction.execute(
+            "INSERT INTO task_attempts (
+                id, execution_id, attempt_number, status, started_at
+             ) VALUES (?1, ?2, ?3, 'running', ?4)",
+            params![
+                Uuid::new_v4().to_string(),
+                execution_id,
+                attempt_number,
+                now
+            ],
+        )?;
+
+        let execution = find_execution_by_id(&transaction, &execution_id)?
+            .ok_or_else(|| TaskEngineError::ExecutionNotFound(execution_id.clone()))?;
+        transaction.commit()?;
+        Ok(Some(execution))
+    }
+
+    pub fn complete_execution(
+        connection: &mut Connection,
+        execution_id: &str,
+        expected_attempt_number: u32,
+        now: &str,
+    ) -> Result<TaskExecution, TaskEngineError> {
+        let now = normalize_timestamp(now, "date de fin")?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let state: Option<(String, i64)> = transaction
+            .query_row(
+                "SELECT status, attempt_count FROM task_executions WHERE id = ?1",
+                [execution_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((status, attempt_count)) = state else {
+            return Err(TaskEngineError::ExecutionNotFound(execution_id.to_string()));
+        };
+        if status != "running" {
+            return Err(TaskEngineError::InvalidExecutionState);
+        }
+        if attempt_count != i64::from(expected_attempt_number) {
+            return Err(TaskEngineError::StaleAttempt);
+        }
+
+        let changed = transaction.execute(
+            "UPDATE task_attempts
+             SET status = 'succeeded', finished_at = ?1, error_message = NULL
+             WHERE execution_id = ?2 AND attempt_number = ?3 AND status = 'running'",
+            params![now, execution_id, attempt_count],
+        )?;
+        if changed != 1 {
+            return Err(TaskEngineError::InvalidExecutionState);
+        }
+        transaction.execute(
+            "UPDATE task_executions
+             SET status = 'succeeded', lease_until = NULL, last_error = NULL,
+                 finished_at = ?1, updated_at = ?1
+             WHERE id = ?2",
+            params![now, execution_id],
+        )?;
+
+        let execution = find_execution_by_id(&transaction, execution_id)?
+            .ok_or_else(|| TaskEngineError::ExecutionNotFound(execution_id.to_string()))?;
+        transaction.commit()?;
+        Ok(execution)
+    }
+
+    /// Termine la tentative courante. Si le budget de tentatives le permet,
+    /// l'exécution revient dans la file à retry_at ; sinon elle devient terminale.
+    pub fn fail_execution(
+        connection: &mut Connection,
+        execution_id: &str,
+        expected_attempt_number: u32,
+        now: &str,
+        retry_at: &str,
+        error_message: &str,
+    ) -> Result<TaskExecution, TaskEngineError> {
+        let now = normalize_timestamp(now, "date d'échec")?;
+        let retry_at = normalize_timestamp(retry_at, "date de nouvelle tentative")?;
+        let error_message = required_text(error_message, "erreur d'exécution", 4_000)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let state: Option<(String, i64, i64)> = transaction
+            .query_row(
+                "SELECT status, attempt_count, max_attempts
+                 FROM task_executions WHERE id = ?1",
+                [execution_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((status, attempt_count, max_attempts)) = state else {
+            return Err(TaskEngineError::ExecutionNotFound(execution_id.to_string()));
+        };
+        if status != "running" {
+            return Err(TaskEngineError::InvalidExecutionState);
+        }
+        if attempt_count != i64::from(expected_attempt_number) {
+            return Err(TaskEngineError::StaleAttempt);
+        }
+
+        let attempt_changed = transaction.execute(
+            "UPDATE task_attempts
+             SET status = 'failed', finished_at = ?1, error_message = ?2
+             WHERE execution_id = ?3 AND attempt_number = ?4 AND status = 'running'",
+            params![now, error_message, execution_id, attempt_count],
+        )?;
+        if attempt_changed != 1 {
+            return Err(TaskEngineError::InvalidExecutionState);
+        }
+
+        if attempt_count < max_attempts {
+            transaction.execute(
+                "UPDATE task_executions
+                 SET status = 'queued', available_at = ?1, lease_until = NULL,
+                     last_error = ?2, updated_at = ?3, finished_at = NULL
+                 WHERE id = ?4",
+                params![retry_at, error_message, now, execution_id],
+            )?;
+        } else {
+            transaction.execute(
+                "UPDATE task_executions
+                 SET status = 'failed', lease_until = NULL, last_error = ?1,
+                     updated_at = ?2, finished_at = ?2
+                 WHERE id = ?3",
+                params![error_message, now, execution_id],
+            )?;
+        }
+
+        let execution = find_execution_by_id(&transaction, execution_id)?
+            .ok_or_else(|| TaskEngineError::ExecutionNotFound(execution_id.to_string()))?;
+        transaction.commit()?;
+        Ok(execution)
+    }
+
+    pub fn list_executions(
+        connection: &Connection,
+        task_id: &str,
+    ) -> Result<Vec<TaskExecution>, TaskEngineError> {
+        let mut statement = connection.prepare(
+            "SELECT id, task_id, idempotency_key, scheduled_for, available_at, status,
+                    attempt_count, max_attempts, lease_until, last_error, created_at,
+                    updated_at, started_at, finished_at
+             FROM task_executions WHERE task_id = ?1
+             ORDER BY scheduled_for DESC, created_at DESC, id",
+        )?;
+        let rows = statement.query_map([task_id], execution_from_row)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn list_attempts(
+        connection: &Connection,
+        execution_id: &str,
+    ) -> Result<Vec<TaskAttempt>, TaskEngineError> {
+        let mut statement = connection.prepare(
+            "SELECT id, execution_id, attempt_number, status, started_at, finished_at,
+                    error_message
+             FROM task_attempts WHERE execution_id = ?1
+             ORDER BY attempt_number",
+        )?;
+        let rows = statement.query_map([execution_id], attempt_from_row)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+}
+
+fn required_text(value: &str, label: &str, max_chars: usize) -> Result<String, TaskEngineError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(TaskEngineError::InvalidInput(format!(
+            "Le champ « {label} » est obligatoire."
+        )));
+    }
+    if value.chars().count() > max_chars {
+        return Err(TaskEngineError::InvalidInput(format!(
+            "Le champ « {label} » dépasse {max_chars} caractères."
+        )));
+    }
+    Ok(value.to_string())
+}
+
+fn normalize_timestamp(value: &str, label: &str) -> Result<String, TaskEngineError> {
+    let parsed = DateTime::parse_from_rfc3339(value).map_err(|_| {
+        TaskEngineError::InvalidInput(format!(
+            "Le champ « {label} » doit être une date ISO 8601 avec fuseau horaire."
+        ))
+    })?;
+    Ok(parsed
+        .with_timezone(&Utc)
+        .to_rfc3339_opts(SecondsFormat::Millis, true))
+}
+
+fn normalize_schedule(
+    input: &NewTask,
+) -> Result<
+    (
+        String,
+        Option<String>,
+        Option<String>,
+        TaskRecurrenceFrequency,
+    ),
+    TaskEngineError,
+> {
+    let anchor = normalize_timestamp(&input.scheduled_at, "date programmée")?;
+    let expression = input
+        .cron_expression
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if expression.is_some()
+        && !matches!(
+            input.recurrence_frequency,
+            TaskRecurrenceFrequency::Once | TaskRecurrenceFrequency::CustomCron
+        )
+    {
+        return Err(TaskEngineError::InvalidInput(
+            "Choisissez soit une fréquence métier, soit une expression cron avancée, pas les deux."
+                .to_string(),
+        ));
+    }
+    let frequency = if expression.is_some() {
+        TaskRecurrenceFrequency::CustomCron
+    } else {
+        input.recurrence_frequency
+    };
+    if frequency == TaskRecurrenceFrequency::Once {
+        return Ok((anchor, None, None, frequency));
+    }
+    if frequency == TaskRecurrenceFrequency::CustomCron {
+        let expression = required_text(
+            expression.ok_or_else(|| {
+                TaskEngineError::InvalidInput(
+                    "Saisissez une expression cron pour utiliser le mode avancé.".to_string(),
+                )
+            })?,
+            "expression cron",
+            200,
+        )?;
+        let schedule = CronSchedule::parse(&expression).map_err(|error| {
+            TaskEngineError::InvalidInput(format!("Expression cron invalide : {error}"))
+        })?;
+        let anchor_date = DateTime::parse_from_rfc3339(&anchor)
+            .map_err(|_| {
+                TaskEngineError::InvalidInput(
+                    "La date de départ de la tâche récurrente est invalide.".to_string(),
+                )
+            })?
+            .with_timezone(&Utc);
+        let first = if schedule.matches_at(&anchor_date) {
+            anchor_date
+        } else {
+            schedule.next_after(&anchor_date).ok_or_else(|| TaskEngineError::InvalidInput("L'expression cron ne produit aucune occurrence dans les cinq prochaines années.".to_string()))?
+        };
+        return Ok((
+            first.to_rfc3339_opts(SecondsFormat::Millis, true),
+            Some(expression),
+            Some(anchor),
+            frequency,
+        ));
+    }
+    Ok((anchor.clone(), None, Some(anchor), frequency))
+}
+
+fn anchored_month_occurrence(anchor: &DateTime<Utc>, offset_months: u32) -> Option<DateTime<Utc>> {
+    let start = anchor.date_naive();
+    let absolute = i64::from(start.year())
+        .checked_mul(12)?
+        .checked_add(i64::from(start.month0()))?
+        .checked_add(i64::from(offset_months))?;
+    let year = i32::try_from(absolute.div_euclid(12)).ok()?;
+    let month = u32::try_from(absolute.rem_euclid(12) + 1).ok()?;
+    let (next_year, next_month) = if month == 12 {
+        (year.checked_add(1)?, 1)
+    } else {
+        (year, month + 1)
+    };
+    let first_next = NaiveDate::from_ymd_opt(next_year, next_month, 1)?;
+    let last_day = (first_next - Duration::days(1)).day();
+    let date = NaiveDate::from_ymd_opt(year, month, start.day().min(last_day))?;
+    Some(DateTime::from_naive_utc_and_offset(
+        date.and_time(anchor.time()),
+        Utc,
+    ))
+}
+
+fn conversion_error(index: usize, kind: &str, value: &str) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(
+        index,
+        Type::Text,
+        Box::new(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{kind} inconnu : {value}"),
+        )),
+    )
+}
+
+fn task_status_from_db(value: &str) -> Result<TaskStatus, rusqlite::Error> {
+    TaskStatus::from_db_str(value)
+        .map_err(|message| conversion_error(7, "statut de tâche", &message))
+}
+
+fn attempt_status_from_db(value: &str) -> Result<AttemptStatus, rusqlite::Error> {
+    AttemptStatus::from_db_str(value)
+        .map_err(|message| conversion_error(3, "statut de tentative", &message))
+}
+
+fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
+    let payload_json: String = row.get(5)?;
+    let payload = serde_json::from_str(&payload_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(error))
+    })?;
+    let status_raw: String = row.get(7)?;
+    let frequency_raw: String = row.get(13)?;
+    let recurrence_frequency = TaskRecurrenceFrequency::from_db_str(&frequency_raw)
+        .map_err(|message| conversion_error(13, "fréquence de récurrence", &message))?;
+    let max_attempts_raw: i64 = row.get(8)?;
+    let max_attempts = u32::try_from(max_attempts_raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(8, Type::Integer, Box::new(error))
+    })?;
+    Ok(Task {
+        id: row.get(0)?,
+        idempotency_key: row.get(1)?,
+        module: row.get(2)?,
+        task_type: row.get(3)?,
+        title: row.get(4)?,
+        payload,
+        scheduled_at: row.get(6)?,
+        recurrence_frequency,
+        status: task_status_from_db(&status_raw)?,
+        max_attempts,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+        cron_expression: row.get(11)?,
+        cron_anchor_at: row.get(12)?,
+    })
+}
+
+fn execution_from_row(row: &Row<'_>) -> rusqlite::Result<TaskExecution> {
+    let status_raw: String = row.get(5)?;
+    let attempt_count_raw: i64 = row.get(6)?;
+    let attempt_count = u32::try_from(attempt_count_raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(6, Type::Integer, Box::new(error))
+    })?;
+    let max_attempts_raw: i64 = row.get(7)?;
+    let max_attempts = u32::try_from(max_attempts_raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(7, Type::Integer, Box::new(error))
+    })?;
+    Ok(TaskExecution {
+        id: row.get(0)?,
+        task_id: row.get(1)?,
+        idempotency_key: row.get(2)?,
+        scheduled_for: row.get(3)?,
+        available_at: row.get(4)?,
+        status: ExecutionStatus::from_db_str(&status_raw)
+            .map_err(|message| conversion_error(5, "statut d'exécution", &message))?,
+        attempt_count,
+        max_attempts,
+        lease_until: row.get(8)?,
+        last_error: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        started_at: row.get(12)?,
+        finished_at: row.get(13)?,
+    })
+}
+
+fn attempt_from_row(row: &Row<'_>) -> rusqlite::Result<TaskAttempt> {
+    let attempt_number_raw: i64 = row.get(2)?;
+    let attempt_number = u32::try_from(attempt_number_raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(2, Type::Integer, Box::new(error))
+    })?;
+    let status_raw: String = row.get(3)?;
+    Ok(TaskAttempt {
+        id: row.get(0)?,
+        execution_id: row.get(1)?,
+        attempt_number,
+        status: attempt_status_from_db(&status_raw)?,
+        started_at: row.get(4)?,
+        finished_at: row.get(5)?,
+        error_message: row.get(6)?,
+    })
+}
+
+fn find_task_by_idempotency_key(
+    connection: &Connection,
+    idempotency_key: &str,
+) -> Result<Option<Task>, rusqlite::Error> {
+    connection
+        .query_row(
+            "SELECT id, idempotency_key, module, task_type, title, payload_json,
+                    scheduled_at, status, max_attempts, created_at, updated_at,
+                    cron_expression, cron_anchor_at, recurrence_frequency
+             FROM task_definitions WHERE idempotency_key = ?1",
+            [idempotency_key],
+            task_from_row,
+        )
+        .optional()
+}
+
+fn task_id_filter(alias: &str, eligible_task_ids: Option<&[String]>) -> (String, Vec<SqlValue>) {
+    let Some(task_ids) = eligible_task_ids else {
+        return (String::new(), Vec::new());
+    };
+    if task_ids.is_empty() {
+        return (" AND 1 = 0".to_string(), Vec::new());
+    }
+    let placeholders = (2..=task_ids.len() + 1)
+        .map(|index| format!("?{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let filter = format!(" AND {alias}.id IN ({placeholders})");
+    let values = task_ids.iter().cloned().map(SqlValue::Text).collect();
+    (filter, values)
+}
+
+fn find_task_by_id(
+    connection: &Connection,
+    task_id: &str,
+) -> Result<Option<Task>, rusqlite::Error> {
+    connection
+        .query_row(
+            "SELECT id, idempotency_key, module, task_type, title, payload_json,
+                    scheduled_at, status, max_attempts, created_at, updated_at,
+                    cron_expression, cron_anchor_at, recurrence_frequency
+             FROM task_definitions WHERE id = ?1",
+            [task_id],
+            task_from_row,
+        )
+        .optional()
+}
+
+fn find_execution_by_key(
+    connection: &Connection,
+    task_id: &str,
+    idempotency_key: &str,
+) -> Result<Option<TaskExecution>, rusqlite::Error> {
+    connection
+        .query_row(
+            "SELECT id, task_id, idempotency_key, scheduled_for, available_at, status,
+                    attempt_count, max_attempts, lease_until, last_error, created_at,
+                    updated_at, started_at, finished_at
+             FROM task_executions WHERE task_id = ?1 AND idempotency_key = ?2",
+            params![task_id, idempotency_key],
+            execution_from_row,
+        )
+        .optional()
+}
+
+fn find_execution_by_id(
+    connection: &Connection,
+    execution_id: &str,
+) -> Result<Option<TaskExecution>, rusqlite::Error> {
+    connection
+        .query_row(
+            "SELECT id, task_id, idempotency_key, scheduled_for, available_at, status,
+                    attempt_count, max_attempts, lease_until, last_error, created_at,
+                    updated_at, started_at, finished_at
+             FROM task_executions WHERE id = ?1",
+            [execution_id],
+            execution_from_row,
+        )
+        .optional()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::OpenFlags;
+    use std::path::PathBuf;
+
+    const KEY_HEX: &str = "2727272727272727272727272727272727272727272727272727272727272727";
+    const BEFORE_DUE: &str = "2026-10-13T09:00:00Z";
+    const DUE: &str = "2026-10-13T10:00:00Z";
+
+    struct TemporaryDatabase {
+        path: PathBuf,
+    }
+
+    impl TemporaryDatabase {
+        fn new() -> Self {
+            Self {
+                path: std::env::temp_dir()
+                    .join(format!("superpower-task-engine-{}.db", Uuid::new_v4())),
+            }
+        }
+
+        fn connect(&self) -> Connection {
+            let connection = Connection::open_with_flags(
+                &self.path,
+                OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | OpenFlags::SQLITE_OPEN_CREATE
+                    | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+            .expect("open encrypted test database");
+            connection
+                .execute_batch(&format!(
+                    "PRAGMA key = \"x'{KEY_HEX}'\";
+                     PRAGMA cipher_memory_security = ON;
+                     PRAGMA foreign_keys = ON;"
+                ))
+                .expect("configure SQLCipher");
+            let cipher_version: Option<String> = connection
+                .query_row("PRAGMA cipher_version", [], |row| row.get(0))
+                .optional()
+                .expect("read SQLCipher version");
+            assert!(
+                cipher_version.is_some_and(|value| !value.trim().is_empty()),
+                "tests must use SQLCipher, never plain SQLite"
+            );
+            connection
+        }
+    }
+
+    impl Drop for TemporaryDatabase {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_file(self.path.with_extension("db-wal"));
+            let _ = std::fs::remove_file(self.path.with_extension("db-shm"));
+        }
+    }
+
+    fn new_task(key: &str, max_attempts: u32) -> NewTask {
+        NewTask {
+            idempotency_key: key.to_string(),
+            module: "documents".to_string(),
+            task_type: "classify_document".to_string(),
+            title: "Classer un document".to_string(),
+            payload: serde_json::json!({"documentId": "document-test"}),
+            scheduled_at: DUE.to_string(),
+            recurrence_frequency: TaskRecurrenceFrequency::Once,
+            cron_expression: None,
+            max_attempts,
+        }
+    }
+
+    fn init(connection: &Connection) {
+        TaskEngine::install_schema(connection).expect("install current task schema");
+    }
+
+    #[test]
+    fn recurring_task_persists_expression_and_keeps_idempotency_anchor_after_advancing() {
+        let database = TemporaryDatabase::new();
+        let connection = database.connect();
+        init(&connection);
+        let mut input = new_task("cron-anchor-test", 2);
+        input.scheduled_at = "2026-10-13T10:00:00Z".to_string();
+        input.cron_expression = Some("0 10 * * 1-5".to_string());
+
+        let task = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
+        assert_eq!(task.scheduled_at, "2026-10-13T10:00:00.000Z");
+        assert_eq!(task.cron_expression.as_deref(), Some("0 10 * * 1-5"));
+        assert_eq!(
+            task.recurrence_frequency,
+            TaskRecurrenceFrequency::CustomCron
+        );
+        assert_eq!(
+            task.cron_anchor_at.as_deref(),
+            Some("2026-10-13T10:00:00.000Z")
+        );
+
+        connection
+            .execute(
+                "UPDATE task_definitions SET scheduled_at = '2026-10-14T10:00:00.000Z' WHERE id = ?1",
+                [&task.id],
+            )
+            .unwrap();
+        let repeated = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
+        assert_eq!(repeated.id, task.id);
+        assert_eq!(repeated.scheduled_at, "2026-10-14T10:00:00.000Z");
+
+        input.cron_expression = Some("60 10 * * 1-5".to_string());
+        assert!(matches!(
+            TaskEngine::create_task(&connection, &input, BEFORE_DUE),
+            Err(TaskEngineError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn business_recurrence_preserves_month_end_and_leap_day_anchor() {
+        let jan = "2026-01-31T10:30:00.000Z";
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Monthly, jan, jan)
+                .unwrap(),
+            "2026-02-28T10:30:00.000Z"
+        );
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(
+                TaskRecurrenceFrequency::Monthly,
+                jan,
+                "2026-02-28T10:30:00.000Z"
+            )
+            .unwrap(),
+            "2026-03-31T10:30:00.000Z"
+        );
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Quarterly, jan, jan)
+                .unwrap(),
+            "2026-04-30T10:30:00.000Z"
+        );
+        let leap = "2024-02-29T10:30:00.000Z";
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(TaskRecurrenceFrequency::Yearly, leap, leap)
+                .unwrap(),
+            "2025-02-28T10:30:00.000Z"
+        );
+        assert_eq!(
+            TaskEngine::next_anchored_occurrence(
+                TaskRecurrenceFrequency::Yearly,
+                leap,
+                "2025-02-28T10:30:00.000Z"
+            )
+            .unwrap(),
+            "2026-02-28T10:30:00.000Z"
+        );
+    }
+
+    #[test]
+    fn task_creation_is_idempotent_and_rejects_key_reuse_with_different_payload() {
+        let database = TemporaryDatabase::new();
+        let connection = database.connect();
+        init(&connection);
+
+        let input = new_task("create-document-test-1", 3);
+        let first = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
+        let repeated = TaskEngine::create_task(&connection, &input, BEFORE_DUE).unwrap();
+        assert_eq!(first.id, repeated.id);
+        assert_eq!(TaskEngine::list_tasks(&connection).unwrap().len(), 1);
+
+        let mut different_request = input;
+        different_request.title = "Autre titre".to_string();
+        assert!(matches!(
+            TaskEngine::create_task(&connection, &different_request, BEFORE_DUE),
+            Err(TaskEngineError::IdempotencyConflict)
+        ));
+        assert_eq!(TaskEngine::list_tasks(&connection).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn execution_is_deduplicated_and_recovered_after_database_reopen() {
+        let database = TemporaryDatabase::new();
+        let connection = database.connect();
+        init(&connection);
+        let task = TaskEngine::create_task(
+            &connection,
+            &new_task("create-document-test-2", 2),
+            BEFORE_DUE,
+        )
+        .unwrap();
+        let first = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "document-test-2026-10-13",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+        let repeated = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "document-test-2026-10-13",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+        assert_eq!(first.id, repeated.id);
+        assert_eq!(
+            TaskEngine::list_executions(&connection, &task.id)
+                .unwrap()
+                .len(),
+            1
+        );
+        drop(connection);
+
+        // Reopen with the same key to prove that the queued execution survived restart.
+        let mut connection = database.connect();
+        let claimed = TaskEngine::claim_next_due(&mut connection, DUE, "2026-10-13T10:01:00Z")
+            .unwrap()
+            .expect("first claim");
+        assert_eq!(claimed.attempt_count, 1);
+        assert_eq!(claimed.status, ExecutionStatus::Running);
+        let execution_id = claimed.id.clone();
+        drop(connection);
+
+        // Simulate a process crash: the lease expires without completing the attempt.
+        let mut connection = database.connect();
+        let recovered = TaskEngine::claim_next_due(
+            &mut connection,
+            "2026-10-13T10:02:00Z",
+            "2026-10-13T10:03:00Z",
+        )
+        .unwrap()
+        .expect("recovered claim");
+        assert_eq!(recovered.id, execution_id);
+        assert_eq!(recovered.attempt_count, 2);
+        assert_eq!(recovered.status, ExecutionStatus::Running);
+
+        let attempts = TaskEngine::list_attempts(&connection, &execution_id).unwrap();
+        assert_eq!(attempts.len(), 2);
+        assert_eq!(attempts[0].status, AttemptStatus::Failed);
+        assert!(attempts[0]
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("expiration du bail")));
+        assert_eq!(attempts[1].status, AttemptStatus::Running);
+
+        assert!(matches!(
+            TaskEngine::complete_execution(
+                &mut connection,
+                &execution_id,
+                1,
+                "2026-10-13T10:02:10Z",
+            ),
+            Err(TaskEngineError::StaleAttempt)
+        ));
+        assert!(matches!(
+            TaskEngine::fail_execution(
+                &mut connection,
+                &execution_id,
+                1,
+                "2026-10-13T10:02:11Z",
+                "2026-10-13T10:03:00Z",
+                "Erreur périmée",
+            ),
+            Err(TaskEngineError::StaleAttempt)
+        ));
+
+        let failed = TaskEngine::fail_execution(
+            &mut connection,
+            &execution_id,
+            recovered.attempt_count,
+            "2026-10-13T10:02:30Z",
+            "2026-10-13T10:03:00Z",
+            "Erreur de test",
+        )
+        .unwrap();
+        assert_eq!(failed.status, ExecutionStatus::Failed);
+        assert_eq!(failed.attempt_count, 2);
+        let attempts = TaskEngine::list_attempts(&connection, &execution_id).unwrap();
+        assert_eq!(attempts.len(), 2);
+        assert_eq!(attempts[1].status, AttemptStatus::Failed);
+        assert_eq!(attempts[1].error_message.as_deref(), Some("Erreur de test"));
+    }
+
+    #[test]
+    fn task_without_execution_can_be_deleted_in_the_callers_transaction() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let task =
+            TaskEngine::create_task(&connection, &new_task("delete-task-test", 3), BEFORE_DUE)
+                .unwrap();
+
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let deleted = TaskEngine::delete_task_in_transaction(&transaction, &task.id).unwrap();
+        assert_eq!(deleted.id, task.id);
+        transaction.commit().unwrap();
+
+        assert!(TaskEngine::get_task_by_id(&connection, &task.id)
+            .unwrap()
+            .is_none());
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        assert!(matches!(
+            TaskEngine::delete_task_in_transaction(&transaction, &task.id),
+            Err(TaskEngineError::TaskNotFound(_))
+        ));
+        drop(transaction);
+    }
+
+    #[test]
+    fn task_with_execution_cannot_be_deleted_and_remains_persisted() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let task =
+            TaskEngine::create_task(&connection, &new_task("delete-guard-test", 3), BEFORE_DUE)
+                .unwrap();
+        TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "delete-guard-occurrence",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let result = TaskEngine::delete_task_in_transaction(&transaction, &task.id);
+        assert!(matches!(result, Err(TaskEngineError::TaskHasExecutions)));
+        drop(transaction);
+
+        assert!(TaskEngine::get_task_by_id(&connection, &task.id)
+            .unwrap()
+            .is_some());
+        let executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(executions.len(), 1);
+    }
+
+    #[test]
+    fn task_can_be_edited_before_first_execution_but_not_afterward() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let original = new_task("edit-task-test", 3);
+        let task = TaskEngine::create_task(&connection, &original, BEFORE_DUE).unwrap();
+
+        TaskEngine::update_task_status(
+            &mut connection,
+            &task.id,
+            TaskStatus::Paused,
+            "2026-10-13T09:10:00Z",
+        )
+        .unwrap();
+
+        let mut revised = original;
+        revised.title = "Tâche corrigée".to_string();
+        revised.module = "locatif".to_string();
+        revised.task_type = "verifier_echeance".to_string();
+        revised.payload = serde_json::json!({"bailId": "bail-test"});
+        revised.scheduled_at = "2026-10-13T11:00:00Z".to_string();
+        revised.max_attempts = 5;
+        let updated =
+            TaskEngine::update_task(&mut connection, &task.id, &revised, "2026-10-13T09:20:00Z")
+                .unwrap();
+        assert_eq!(updated.title, "Tâche corrigée");
+        assert_eq!(updated.module, "locatif");
+        assert_eq!(updated.task_type, "verifier_echeance");
+        assert_eq!(updated.payload, revised.payload);
+        assert_eq!(updated.scheduled_at, "2026-10-13T11:00:00.000Z");
+        assert_eq!(updated.max_attempts, 5);
+        assert_eq!(updated.status, TaskStatus::Paused);
+
+        TaskEngine::update_task_status(
+            &mut connection,
+            &task.id,
+            TaskStatus::Scheduled,
+            "2026-10-13T09:30:00Z",
+        )
+        .unwrap();
+        TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "edit-task-occurrence",
+            &updated.scheduled_at,
+            "2026-10-13T09:31:00Z",
+        )
+        .unwrap();
+
+        revised.title = "Modification trop tardive".to_string();
+        assert!(matches!(
+            TaskEngine::update_task(&mut connection, &task.id, &revised, "2026-10-13T09:40:00Z",),
+            Err(TaskEngineError::TaskHasExecutions)
+        ));
+    }
+
+    #[test]
+    fn cancellation_is_transactional_and_cancels_queued_executions() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let task =
+            TaskEngine::create_task(&connection, &new_task("cancel-task-test", 2), BEFORE_DUE)
+                .unwrap();
+        let execution = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "cancel-task-occurrence",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+        assert_eq!(execution.status, ExecutionStatus::Queued);
+
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let cancelled = TaskEngine::update_task_status_in_transaction(
+            &transaction,
+            &task.id,
+            TaskStatus::Cancelled,
+            "2026-10-13T09:30:00Z",
+        )
+        .unwrap();
+        assert_eq!(cancelled.status, TaskStatus::Cancelled);
+        transaction.commit().unwrap();
+
+        let persisted = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].status, ExecutionStatus::Cancelled);
+        assert_eq!(
+            persisted[0].finished_at.as_deref(),
+            Some("2026-10-13T09:30:00.000Z")
+        );
+        assert_eq!(
+            TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            TaskStatus::Cancelled
+        );
+    }
+
+    #[test]
+    fn reactivating_cancelled_task_requeues_unstarted_execution_without_duplicates() {
+        let database = TemporaryDatabase::new();
+        let mut connection = database.connect();
+        init(&connection);
+        let task = TaskEngine::create_task(
+            &connection,
+            &new_task("reactivate-task-test", 2),
+            BEFORE_DUE,
+        )
+        .unwrap();
+        let first = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "reactivate-task-occurrence",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+
+        TaskEngine::update_task_status(
+            &mut connection,
+            &task.id,
+            TaskStatus::Cancelled,
+            "2026-10-13T09:30:00Z",
+        )
+        .unwrap();
+        let cancelled = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(cancelled.len(), 1);
+        assert_eq!(cancelled[0].id, first.id);
+        assert_eq!(cancelled[0].status, ExecutionStatus::Cancelled);
+        assert!(cancelled[0].finished_at.is_some());
+
+        TaskEngine::update_task_status(
+            &mut connection,
+            &task.id,
+            TaskStatus::Scheduled,
+            "2026-10-13T09:40:00Z",
+        )
+        .unwrap();
+
+        let reactivated = TaskEngine::list_executions(&connection, &task.id).unwrap();
+        assert_eq!(reactivated.len(), 1);
+        assert_eq!(reactivated[0].id, first.id);
+        assert_eq!(reactivated[0].status, ExecutionStatus::Queued);
+        assert!(reactivated[0].finished_at.is_none());
+        assert!(reactivated[0].lease_until.is_none());
+
+        let repeated = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "reactivate-task-occurrence",
+            DUE,
+            "2026-10-13T09:41:00Z",
+        )
+        .unwrap();
+        assert_eq!(repeated.id, first.id);
+        assert_eq!(
+            TaskEngine::list_executions(&connection, &task.id)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn successful_execution_is_terminal_and_keeps_attempt_history() {
+        let database = TemporaryDatabase::new();
+        let connection = database.connect();
+        init(&connection);
+        let task = TaskEngine::create_task(
+            &connection,
+            &new_task("create-document-test-3", 1),
+            BEFORE_DUE,
+        )
+        .unwrap();
+        let execution = TaskEngine::enqueue_execution(
+            &connection,
+            &task.id,
+            "single-run-test",
+            DUE,
+            BEFORE_DUE,
+        )
+        .unwrap();
+
+        let mut connection = connection;
+        let claimed = TaskEngine::claim_next_due(&mut connection, DUE, "2026-10-13T10:01:00Z")
+            .unwrap()
+            .unwrap();
+        let completed = TaskEngine::complete_execution(
+            &mut connection,
+            &execution.id,
+            claimed.attempt_count,
+            "2026-10-13T10:00:30Z",
+        )
+        .unwrap();
+        assert_eq!(completed.status, ExecutionStatus::Succeeded);
+        assert!(TaskEngine::claim_next_due(
+            &mut connection,
+            "2026-10-13T10:05:00Z",
+            "2026-10-13T10:06:00Z",
+        )
+        .unwrap()
+        .is_none());
+        let attempts = TaskEngine::list_attempts(&connection, &claimed.id).unwrap();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].status, AttemptStatus::Succeeded);
+        assert_eq!(
+            attempts[0].finished_at.as_deref(),
+            Some("2026-10-13T10:00:30.000Z")
+        );
+    }
+}

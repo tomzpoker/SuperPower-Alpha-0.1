@@ -1,19 +1,26 @@
 # HANDOFF — reprise de SuperPower Alpha
 
-> Dernière mise à jour : 2026-10-13. S06-B est fusionné dans `main`. Distinguer CI verte, tests automatisés et essai natif SQLCipher.
+> Dernière mise à jour : 2026-10-14. S06-B est fusionné dans `main`; le Sprint 02 est toujours en cours sur une PR distincte. Distinguer code présent, CI verte et essai natif.
 
 ## 1. État du dépôt
 - Dépôt : https://github.com/tomzpoker/SuperPower-Alpha-0.1
-- `main` de référence : `17966e1009daca10b8daa53cc6c937fdc22073d3`.
+- `main` de référence : `535baa6431fe87dfaa165ad1e9b7476f753d7c49` (S06-B fusionné ; head vérifié le 14 octobre 2026).
 - S06-A et S06-B sont fusionnés dans `main`; la PR [#5 — S06-B, flux prévisionnels récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5) a été fusionnée le 13 octobre 2026.
-- Le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb`, y compris build Tauri Windows et tests workspace. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est en cours sur `17966e1`; frontend et Rust sont verts, build Windows encore en cours au dernier relevé.
+- Le Sprint 02 se poursuit sur `sprint/02-moteur-taches-prototype` (PR [#8](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/8), encore en brouillon et non fusionnée). Le prototype comprend le moteur persistant SQLCipher, les migrations applicatives v3→v6 sur cette branche, l’IPC Tauri, la page Tâches, le worker supervisé, les rappels locaux, les récurrences métier ancrées, le calendrier interactif, les filtres et l’historique des exécutions/tentatives. La dernière CI vérifiée avant la présente mise à jour documentaire, [run #192](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38488027381), est entièrement verte sur `8292edc` (jobs Windows/Tauri, Rust et frontend), notamment le test d’intégration worker + `tresorerie/rappel_flux` avec historique et absence de doublon. Les essais ponctuels et récurrent de rappel ont été confirmés réussis par l’utilisateur. Le parcours natif des commandes Tauri de verrouillage/déverrouillage a déjà été effectué selon la confirmation de l’utilisateur ; ne pas le redemander. La prochaine étape est de vérifier la CI documentaire puis de terminer la revue de la PR #8. Ne jamais utiliser le coffre habituel comme cible de migration.
+- Le run de PR [#96](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38332638917) est vert sur `cd764cb`, y compris build Tauri Windows et tests workspace. Le run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817) est terminé avec succès sur `17966e1`.
 - S06-B conserve les prévisions ponctuelles au-delà de trois ans ; pour les récurrences, l'horizon glissant de 36 mois part d'aujourd'hui.
 
 Le socle de `main` contient le coffre SQLCipher/Argon2id, les sociétés et une saisie comptable technique. S06-A ajoute le suivi des flux de trésorerie prévisionnels et réalisés sans choix de comptes comptables.
 
 ## 2. État de validation et contrôles encore ouverts
 
-Résultats manuels signalés le 2026-10-13 :
+État de validation au 2026-10-14 : la CI #192, [run complet](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38488027381), est verte sur le head de la PR #8 (`8292edc`) pour les jobs Windows/Tauri, Rust et frontend. Elle passe après l’ajout du test d’intégration du handler `tresorerie/rappel_flux` via `TaskWorker`, avec solde calculé depuis SQLCipher, historique de succès et absence de doublon à la passe suivante. Les tests automatisés vérifient également l’idempotence, l’historique, les dates de récurrence simulées, le cycle AppState lock/unlock, la phrase secrète incorrecte et le reverrouillage si le worker échoue. L’utilisateur a confirmé que le parcours natif de verrouillage/déverrouillage avait déjà été réalisé ; ce point ne doit donc plus être présenté comme un test à faire. Les détails de ce test ne sont pas recopiés ici, faute de compte rendu technique précis dans le présent échange.
+
+Résultats manuels signalés par l’utilisateur jusqu’au 2026-10-14 :
+- Test natif Sprint 02 sur un coffre de test : la tâche « RAPPEL TEST » (`general/reminder`) a déclenché une notification visible. L’historique a affiché l’exécution terminée et la tentative réussie. La notification, le worker et l’historisation ont été confirmés par l’utilisateur.
+- [x] **Essai natif ponctuel du 14/10/2026 :** tâche `test` (`general/reminder`) planifiée pour `02:22:00`, démarrage et fin enregistrés à `02:22:26` ; exécution terminée, tentative `1/3` réussie, durée affichée `0 s`. Le début est donc observé 26 secondes après l’échéance affichée ; l’horodatage de création n’étant pas plus précis que la date, cette mesure est consignée sans conclure à un défaut de ponctualité.
+- Test du rappel récurrent : l’utilisateur a confirmé que le scénario est passé. Les dates métier ancrées sont également couvertes par des tests déterministes en CI ; il n’est pas nécessaire d’attendre plusieurs mois pour valider cette logique.
+- Le cycle SQLCipher AppState lock/unlock, l’idempotence du worker et le refus de démarrage avec une phrase secrète incorrecte sont automatisés. Le parcours natif réel lock/unlock a aussi été confirmé comme déjà testé par l’utilisateur ; ne pas lui faire répéter ce contrôle.
 - Parcours natif du 2026-10-13 confirmé par l'utilisateur : prévision de loyer modifiée à 1 400 € avec 400 € réalisés conservés ; prévision d'assurance de 240 € ; réalisation de 300 € enregistrée puis annulée via l'historique ; historique conservé avec motif d'annulation ; prévision assurance annulée et affichée via le filtre ; totaux observés : 1 400 € prévus à encaisser, 0 € prévus à payer, 400 € réalisés actifs.
 - Une autre réalisation de 300 € liée au loyer est également conservée dans l'historique avec motif d'annulation ; le cumul actif du loyer reste 400 €.
 - L'utilisateur a fermé puis relancé l'application avec le même dossier temporaire et confirme que la société et les prévisions/réalisations sont revenues.
@@ -117,9 +124,10 @@ Les tests automatisés utilisent des bases en mémoire ; ils ne prouvent pas à 
 ## 7. Limites fonctionnelles
 S06-A et S06-B ne génèrent ni écritures comptables ni TVA. S06-B est livré dans `main`; la projection de trésorerie dédiée au-delà des échéances, les alertes, l'import/rapprochement bancaire, les baux, les règles PCG multi-lignes, la fiscalité et le FEC restent des lots séparés.
 
-## 8. Suite après fusion
+## 8. Prochaine reprise — Sprint 02 puis Sprint 03
 
-1. Confirmer le résultat du run post-fusion [#97](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38333882817).
-2. Exécuter le test manuel de la migration v2→v3 sur une copie isolée SQLCipher et vérifier `user_version = 3`, la table `flux_recurrences`, la colonne `flux_previsionnels.recurrence_id` et la conservation des flux/réalisations v2.
-3. Tester dans l'interface native les quatre fréquences, l'ancrage des fins de mois, l'arrêt d'une série et l'indépendance de chaque occurrence. Le navigateur reste une démo volatile, pas une preuve du coffre chiffré.
-4. Maintenir la comptabilisation PCG/TVA dans un lot séparé ; S06-B ne génère aucune écriture comptable.
+1. **S02 : contrôle natif lock/unlock déjà effectué selon l’utilisateur.** Ne pas le redemander. Vérifier le résultat de la CI documentaire #193 puis relire la PR #8 et les changements qui n’ont pas été couverts par la CI. La PR reste à revoir avant toute fusion.
+2. **Prochaine tranche : S03 — Import bancaire.** Préparer l’import CSV avec aperçu avant validation, validation stricte des dates et montants, détection de doublons idempotente, conservation des fichiers sources et interdiction de créer automatiquement une écriture PCG/TVA sans règle validée.
+4. **Contrôle séparé de S06-B toujours ouvert :** sur une copie d’une base SQLCipher dont `PRAGMA user_version = 2` a été relevé avant l’essai, confirmer après ouverture `user_version = 3`, `flux_recurrences`, `flux_previsionnels.recurrence_id` et la conservation des flux/réalisations. Ne jamais utiliser le coffre habituel comme cible de migration.
+
+Le mode navigateur reste une démo volatile et ne valide ni chiffrement ni migration réelle SQLCipher.

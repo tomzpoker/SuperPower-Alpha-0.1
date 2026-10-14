@@ -4,6 +4,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use rand::{rngs::OsRng, RngCore};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use superpower_core::accounting::starter_accounts;
+use task_engine::TaskEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -138,7 +139,7 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
     let mut version = connection
         .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .map_err(|error| format!("Lecture de version de base impossible : {error}"))?;
-    if version > 3 {
+    if version > 6 {
         return Err(format!(
             "Cette base est en version {version}, plus récente que celle prise en charge."
         ));
@@ -222,7 +223,19 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
             .map_err(|error| format!("Validation de migration v2 vers v3 impossible : {error}"))?;
         version = 3;
     }
-    if version != 3 {
+    if version == 3 {
+        migrate_v3_to_v4(connection)?;
+        version = 4;
+    }
+    if version == 4 {
+        migrate_v4_to_v5(connection)?;
+        version = 5;
+    }
+    if version == 5 {
+        migrate_v5_to_v6(connection)?;
+        version = 6;
+    }
+    if version != 6 {
         return Err(format!(
             "La version de schéma {version} n'est pas prise en charge."
         ));
@@ -230,6 +243,50 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn migrate_v3_to_v4(connection: &mut Connection) -> Result<(), String> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Démarrage de migration v3 vers v4 impossible : {error}"))?;
+    TaskEngine::install_schema_v4(&transaction)
+        .map_err(|error| format!("Installation du moteur de tâches impossible : {error}"))?;
+    transaction
+        .execute_batch("PRAGMA user_version = 4;")
+        .map_err(|error| format!("Versionnement du moteur de tâches impossible : {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("Validation de migration v3 vers v4 impossible : {error}"))?;
+    Ok(())
+}
+
+fn migrate_v4_to_v5(connection: &mut Connection) -> Result<(), String> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Démarrage de migration v4 vers v5 impossible : {error}"))?;
+    TaskEngine::install_cron_schema(&transaction)
+        .map_err(|error| format!("Ajout du schéma cron impossible : {error}"))?;
+    transaction
+        .execute_batch("PRAGMA user_version = 5;")
+        .map_err(|error| format!("Versionnement du schéma cron impossible : {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("Validation de migration v4 vers v5 impossible : {error}"))?;
+    Ok(())
+}
+
+fn migrate_v5_to_v6(connection: &mut Connection) -> Result<(), String> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("Démarrage de migration v5 vers v6 impossible : {error}"))?;
+    TaskEngine::install_recurrence_schema(&transaction)
+        .map_err(|error| format!("Ajout des fréquences de récurrence impossible : {error}"))?;
+    transaction
+        .execute_batch("PRAGMA user_version = 6;")
+        .map_err(|error| format!("Versionnement du schéma de récurrence impossible : {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("Validation de migration v5 vers v6 impossible : {error}"))?;
+    Ok(())
+}
 fn validate_passphrase(passphrase: &str) -> Result<(), String> {
     if passphrase.chars().count() < 12 {
         return Err("Choisissez une phrase secrète d'au moins 12 caractères.".to_string());
@@ -357,7 +414,7 @@ mod migration_tests {
     use super::*;
 
     #[test]
-    fn migrates_v1_to_v3_preserves_existing_data_and_is_idempotent() {
+    fn migrates_v1_to_v5_preserves_existing_data_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch("PRAGMA foreign_keys = ON;")
@@ -460,11 +517,14 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 6);
         for table in [
             "flux_previsionnels",
             "flux_realisations",
             "flux_recurrences",
+            "task_definitions",
+            "task_executions",
+            "task_attempts",
         ] {
             let count: i64 = connection
                 .query_row(
@@ -526,7 +586,7 @@ mod migration_tests {
         let final_version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(final_version, 3);
+        assert_eq!(final_version, 6);
         let final_entry_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM ecritures WHERE id = 'entry-legacy'",
@@ -541,7 +601,7 @@ mod migration_tests {
     }
 
     #[test]
-    fn migrates_v2_to_v3_preserving_existing_forecasts_and_realizations() {
+    fn migrates_v2_to_v5_preserving_existing_forecasts_and_realizations() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch(
@@ -609,7 +669,18 @@ mod migration_tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 6);
+
+        for table in ["task_definitions", "task_executions", "task_attempts"] {
+            let count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "la table {table} doit être créée");
+        }
 
         let (label, amount, recurrence_id): (String, i64, Option<String>) = connection
             .query_row(
@@ -632,6 +703,302 @@ mod migration_tests {
             .unwrap();
         assert_eq!(actual_amount, 30_000);
         assert_eq!(actual_note, "Paiement test");
+    }
+
+    #[test]
+    fn migrates_v3_to_v5_installs_task_tables_and_preserves_existing_data() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE societes (id TEXT PRIMARY KEY NOT NULL, nom TEXT NOT NULL);
+                 CREATE TABLE flux_previsionnels (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    societe_id TEXT NOT NULL REFERENCES societes(id),
+                    libelle TEXT NOT NULL,
+                    date_prevue TEXT NOT NULL,
+                    montant_prevu_cents INTEGER NOT NULL
+                 );
+                 INSERT INTO societes(id, nom) VALUES ('soc-v3', 'SCI v3');
+                 INSERT INTO flux_previsionnels(id, societe_id, libelle, date_prevue, montant_prevu_cents)
+                    VALUES ('flux-v3', 'soc-v3', 'Loyer existant', '2026-11-01', 140000);
+                 PRAGMA user_version = 3;",
+            )
+            .unwrap();
+
+        migrate_schema(&mut connection).unwrap();
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 6);
+
+        let (company_name, flow_label, flow_amount): (String, String, i64) = connection
+            .query_row(
+                "SELECT s.nom, f.libelle, f.montant_prevu_cents
+                 FROM societes s JOIN flux_previsionnels f ON f.societe_id = s.id
+                 WHERE f.id = 'flux-v3'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(company_name, "SCI v3");
+        assert_eq!(flow_label, "Loyer existant");
+        assert_eq!(flow_amount, 140000);
+
+        for table in ["task_definitions", "task_executions", "task_attempts"] {
+            let count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "la table {table} doit être créée");
+        }
+
+        migrate_schema(&mut connection).unwrap();
+        let final_version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(final_version, 6);
+        let task_tables_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table'
+                   AND name IN ('task_definitions', 'task_executions', 'task_attempts')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(task_tables_count, 3);
+    }
+
+    #[test]
+    fn migrates_v4_to_v6_adds_recurrence_columns_and_preserves_task_data() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        TaskEngine::install_schema_v4(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO task_definitions (
+                    id, idempotency_key, module, task_type, title, payload_json,
+                    scheduled_at, status, max_attempts, created_at, updated_at
+                 ) VALUES (
+                    'task-v4', 'key-v4', 'general', 'manual', 'Tâche existante',
+                    '{}', '2026-10-20T10:00:00.000Z', 'scheduled', 3,
+                    '2026-10-13T10:00:00.000Z', '2026-10-13T10:00:00.000Z'
+                 )",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute_batch("PRAGMA user_version = 4;")
+            .unwrap();
+
+        migrate_schema(&mut connection).unwrap();
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 6);
+        let (key, title, expression, anchor, frequency): (String, String, Option<String>, Option<String>, String) =
+            connection.query_row("SELECT idempotency_key, title, cron_expression, cron_anchor_at, recurrence_frequency FROM task_definitions WHERE id='task-v4'", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).unwrap();
+        assert_eq!(key, "key-v4");
+        assert_eq!(title, "Tâche existante");
+        assert_eq!(expression, None);
+        assert_eq!(anchor, None);
+        assert_eq!(frequency, "once");
+
+        migrate_schema(&mut connection).unwrap();
+        let final_version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(final_version, 6);
+    }
+
+    #[test]
+    fn migrates_v5_to_v6_preserves_old_cron_and_one_off_tasks() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        TaskEngine::install_schema_v4(&connection).unwrap();
+        TaskEngine::install_cron_schema(&connection).unwrap();
+        connection.execute("INSERT INTO task_definitions (id,idempotency_key,module,task_type,title,payload_json,scheduled_at,status,max_attempts,created_at,updated_at,cron_expression,cron_anchor_at) VALUES ('legacy-cron','legacy-cron-key','general','reminder','Cron historique','{}','2026-10-20T10:00:00.000Z','scheduled',3,'2026-10-13T10:00:00.000Z','2026-10-13T10:00:00.000Z','0 10 * * 1-5','2026-10-20T10:00:00.000Z')", []).unwrap();
+        connection.execute("INSERT INTO task_definitions (id,idempotency_key,module,task_type,title,payload_json,scheduled_at,status,max_attempts,created_at,updated_at) VALUES ('legacy-once','legacy-once-key','general','reminder','Ponctuelle historique','{}','2026-10-20T10:00:00.000Z','scheduled',3,'2026-10-13T10:00:00.000Z','2026-10-13T10:00:00.000Z')", []).unwrap();
+        connection
+            .execute_batch("PRAGMA user_version = 5;")
+            .unwrap();
+        migrate_schema(&mut connection).unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 6);
+        let cron: String = connection
+            .query_row(
+                "SELECT recurrence_frequency FROM task_definitions WHERE id='legacy-cron'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let once: String = connection
+            .query_row(
+                "SELECT recurrence_frequency FROM task_definitions WHERE id='legacy-once'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(cron, "custom_cron");
+        assert_eq!(once, "once");
+    }
+    #[test]
+    fn lock_unlock_resumes_monthly_worker_without_losing_history_or_duplicating_occurrences() {
+        use chrono::{DateTime, Utc};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use task_engine::{
+            ExecutionStatus, NewTask, TaskHandlerRegistry, TaskRecurrenceFrequency, TaskWorker,
+            TaskWorkerConfig, WorkerOutcome,
+        };
+        use uuid::Uuid;
+
+        struct TemporaryVault(PathBuf);
+        impl Drop for TemporaryVault {
+            fn drop(&mut self) {
+                for path in [
+                    self.0.clone(),
+                    self.0.with_extension("salt"),
+                    self.0.with_extension("db-wal"),
+                    self.0.with_extension("db-shm"),
+                ] {
+                    let _ = fs::remove_file(path);
+                }
+            }
+        }
+
+        let vault = TemporaryVault(
+            std::env::temp_dir().join(format!("superpower-lock-cycle-{}.db", Uuid::new_v4())),
+        );
+        let state = AppState::new(vault.0.clone());
+        let passphrase = "integration monthly test secret";
+        state
+            .initialize(passphrase)
+            .expect("initialize SQLCipher vault");
+
+        let task = {
+            let connection = state.connection().expect("open initialized vault");
+            TaskEngine::create_task(
+                &connection,
+                &NewTask {
+                    idempotency_key: "lock-cycle-monthly-2027".to_string(),
+                    module: "general".to_string(),
+                    task_type: "reminder".to_string(),
+                    title: "Rappel mensuel".to_string(),
+                    payload: serde_json::json!({"message": "Reprise après déverrouillage"}),
+                    scheduled_at: "2027-01-31T10:00:00Z".to_string(),
+                    recurrence_frequency: TaskRecurrenceFrequency::Monthly,
+                    cron_expression: None,
+                    max_attempts: 3,
+                },
+                "2027-01-01T09:00:00Z",
+            )
+            .expect("create monthly reminder")
+        };
+
+        let registry = TaskHandlerRegistry::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let handler_calls = Arc::clone(&calls);
+        registry
+            .register_handler("general", "reminder", move |_task, _execution| {
+                handler_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+            .expect("register reminder handler");
+
+        let at = |value: &str| {
+            DateTime::parse_from_rfc3339(value)
+                .expect("valid simulated timestamp")
+                .with_timezone(&Utc)
+        };
+
+        {
+            let mut connection = state.connection().expect("open vault for January");
+            let outcome = TaskWorker::run_once(
+                &mut connection,
+                &registry,
+                at("2027-01-31T10:01:00Z"),
+                TaskWorkerConfig::default(),
+            )
+            .expect("execute January occurrence");
+            assert!(matches!(outcome, WorkerOutcome::Succeeded { .. }));
+            let executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+            assert_eq!(executions.len(), 1);
+            assert_eq!(executions[0].scheduled_for, "2027-01-31T10:00:00.000Z");
+        }
+
+        state.lock();
+        assert_eq!(state.status(), DatabaseStatus::Locked);
+        assert!(
+            state.connection().is_err(),
+            "the vault must reject connections while locked"
+        );
+        state
+            .unlock(passphrase)
+            .expect("unlock the same SQLCipher vault");
+
+        {
+            let mut connection = state.connection().expect("reopen unlocked vault");
+            let persisted = TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .expect("monthly task survives lock/unlock");
+            assert_eq!(persisted.scheduled_at, "2027-02-28T10:00:00.000Z");
+
+            let january_history = TaskEngine::list_executions(&connection, &task.id).unwrap();
+            assert_eq!(january_history.len(), 1);
+            assert_eq!(january_history[0].status, ExecutionStatus::Succeeded);
+
+            let outcome = TaskWorker::run_once(
+                &mut connection,
+                &registry,
+                at("2027-02-28T10:01:00Z"),
+                TaskWorkerConfig::default(),
+            )
+            .expect("resume worker for February occurrence");
+            assert!(matches!(outcome, WorkerOutcome::Succeeded { .. }));
+
+            let repeated = TaskWorker::run_once(
+                &mut connection,
+                &registry,
+                at("2027-02-28T10:02:00Z"),
+                TaskWorkerConfig::default(),
+            )
+            .expect("repeat the same February time window");
+            assert_eq!(repeated, WorkerOutcome::Idle);
+
+            let mut executions = TaskEngine::list_executions(&connection, &task.id).unwrap();
+            executions.sort_by(|left, right| left.scheduled_for.cmp(&right.scheduled_for));
+            assert_eq!(
+                executions.len(),
+                2,
+                "no occurrence may be duplicated after unlock"
+            );
+            assert_eq!(executions[0].scheduled_for, "2027-01-31T10:00:00.000Z");
+            assert_eq!(executions[1].scheduled_for, "2027-02-28T10:00:00.000Z");
+            assert!(executions
+                .iter()
+                .all(|execution| execution.status == ExecutionStatus::Succeeded));
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+            let next = TaskEngine::get_task_by_id(&connection, &task.id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(next.scheduled_at, "2027-03-31T10:00:00.000Z");
+            assert_eq!(
+                next.cron_anchor_at.as_deref(),
+                Some("2027-01-31T10:00:00.000Z"),
+                "unlock must not move the original recurrence anchor"
+            );
+        }
+        state.lock();
     }
 
     #[test]
