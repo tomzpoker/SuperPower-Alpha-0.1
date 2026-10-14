@@ -64,6 +64,8 @@ jobs:
           workspaces: |
             . -> target
           cache-on-failure: true
+          # Seed a separate cache with both release-build and workspace-test artifacts.
+          shared-key: windows-native-full-workspace-tests-v1
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
       - name: Build Tauri application

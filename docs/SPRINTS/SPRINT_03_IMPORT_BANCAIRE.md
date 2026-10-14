@@ -33,7 +33,7 @@ Importer des relevés bancaires CSV avec un aperçu avant confirmation. Normalis
 - [x] S03-A : Parser CSV indépendant de la base et de l'interface, avec délimiteurs virgule/point-virgule/tabulation, guillemets doubles, champs multilignes, mapping explicite et aperçu.
 - [x] S03-A : reconnaissance des en-têtes régionaux Crédit Agricole, encodage Windows-1252/UTF-8, colonnes date opération/date valeur, montant ou débit/crédit, récapitulatifs carte signalés sans suppression automatique.
 - [x] S03-A : profil LCL sans en-tête (date, montant signé, type, chèque éventuel, libellé), détection des lignes de métadonnées de compte/solde et avertissement de validation humaine.
-- [x] S03-A : Normaliser les dates ISO/françaises, gérer les montants signés et les colonnes débit/crédit, convertir en centimes entiers, collecter les erreurs par ligne.
+- [x] S03-A : Normaliser les dates ISO/françaises, convertir en centimes entiers, accepter les colonnes Débit déjà négatives et collecter les erreurs par ligne.
 - [ ] S03-B : Étendre les tests et vérifier la tranche de parseur en CI (formatage, tests du workspace et build Tauri Windows).
 - [ ] S03-C : Définir la persistance SQLCipher : compte/source, empreinte stable de transaction, provenance du fichier et migration additive transactionnelle.
 - [ ] S03-D : Ajouter les commandes Tauri de prévisualisation/confirmation, avec protection contre les doubles imports.
@@ -47,12 +47,12 @@ Le module `superpower-core::bank_import` n'accède ni au système de fichiers ni
 
 **LCL :** en l'absence d'en-tête, le parseur sait reconnaître le motif `date ; montant signé ; type ; numéro de chèque éventuel ; libellé`. Les lignes de métadonnées en début/fin de fichier (date, solde, numéro de compte), généralement plus courtes que les lignes d'opération, sont ignorées. Un avertissement signale que les colonnes ont été inférées et doivent être revues dans l'aperçu.
 
-Montants pris en charge : entiers, décimales à un ou deux chiffres, virgule française, point décimal, groupements de milliers par espaces ou séparateurs cohérents, symbole euro et préfixe/suffixe EUR. L'en-tête UTF-8 avec BOM est retiré avant parsing (y compris si le premier champ est entre guillemets) ; les fichiers de plus de 10 Mio sont rejetés avant parsing. Si le format est ambigu, la ligne est rejetée plutôt que devinée.
+Montants pris en charge : entiers, décimales à un ou deux chiffres, virgule française, point décimal, groupements de milliers par espaces ou séparateurs cohérents, symbole euro et préfixe/suffixe EUR. Pour les exports à deux colonnes, un débit positif est normalisé en négatif et un débit déjà négatif reste négatif ; les crédits négatifs sont signalés comme invalides. L'en-tête UTF-8 avec BOM est retiré avant parsing (y compris si le premier champ est entre guillemets) ; les fichiers de plus de 10 Mio sont rejetés avant parsing. Si le format est ambigu, la ligne est rejetée plutôt que devinée.
 
-Les tests unitaires du parseur couvrent les formats français/internationaux, les en-têtes BOM UTF-8, les colonnes débit/crédit manquantes, les dates impossibles, les montants ambigus, les guillemets échappés et les champs multilignes. Le résultat CI sur le head courant doit être vérifié avant de déclarer cette tranche validée.
+Les tests unitaires du parseur couvrent les formats français/internationaux, les en-têtes BOM UTF-8, les exports Crédit Agricole dont la colonne Débit contient déjà un nombre négatif, les colonnes débit/crédit manquantes, les dates impossibles, les montants ambigus, les guillemets échappés et les champs multilignes. Le résultat CI sur le head courant doit être vérifié avant de déclarer cette tranche validée.
 
 ## Échantillons et limitation connue
-Les exports Crédit Agricole peuvent varier d'une Caisse régionale à l'autre ; LCL peut modifier son interface ou ses en-têtes. Le parseur est donc piloté par en-têtes quand ils existent et par un motif prudent pour le CSV LCL sans en-tête. La validation finale doit inclure au moins un fichier exporté réellement par chaque banque, expurgé des numéros de compte, noms, soldes et libellés confidentiels. Aucun échantillon réel de compte n'a été fourni dans cette tranche ; la CI doit confirmer les tests synthétiques avant d'ajouter la persistance.
+Un premier extrait Crédit Agricole a été fourni au format « Date opération;Libellé;Débit euros;Crédit euros » et a mis en évidence que certains exports portent déjà un montant négatif dans la colonne Débit. Ce cas est maintenant couvert par un test de régression utilisant des données fictives. Les exports Crédit Agricole peuvent varier d'une Caisse régionale à l'autre ; LCL peut modifier son interface ou ses en-têtes. La validation finale doit encore inclure un relevé complet expurgé par banque, notamment un export LCL réel, avant d'ajouter la persistance.
 
 ## Critères d'acceptation globaux
 - Un CSV valide produit un aperçu avant toute écriture en base.

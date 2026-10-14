@@ -821,17 +821,19 @@ fn normalize_record(
             parse_amount_cents(credit_value)
                 .map_err(|_| CsvRecordError::InvalidAmount(credit_value.to_string()))?
         };
-        if debit < 0 || credit < 0 {
+        if credit < 0 {
             return Err(CsvRecordError::InvalidAmount(
-                "les colonnes débit/crédit doivent contenir des montants positifs".to_string(),
+                "la colonne crédit doit contenir un montant positif".to_string(),
             ));
         }
-        if debit > 0 && credit > 0 {
+        if debit != 0 && credit != 0 {
             return Err(CsvRecordError::InvalidAmount(
                 "débit et crédit sont tous deux renseignés".to_string(),
             ));
         }
-        if debit > 0 {
+        if debit < 0 {
+            debit
+        } else if debit > 0 {
             -debit
         } else {
             credit
@@ -1066,6 +1068,25 @@ mod tests {
         assert_eq!(preview.errors.len(), 0);
         assert_eq!(preview.rows[0].amount_cents, -12_000);
         assert_eq!(preview.rows[1].amount_cents, 350_010);
+    }
+
+    #[test]
+    fn parses_credit_agricole_signed_debit_column_in_auto_and_explicit_profiles() {
+        // Valeurs fictives : la structure reflète un export CA dont le débit est déjà négatif.
+        let csv = concat!(
+            "Date opération;Libellé;Débit euros;Crédit euros\n",
+            "15/03/2026;VIR INST vers BENEFICIAIRE TEST;-123,45;"
+        );
+
+        for profile in [BankCsvProfile::Auto, BankCsvProfile::CreditAgricole] {
+            let preview = parse_bank_csv_bytes(csv.as_bytes(), profile).unwrap();
+            assert_eq!(preview.total_rows, 1);
+            assert!(preview.errors.is_empty(), "{:?}", preview.errors);
+            assert_eq!(preview.rows.len(), 1);
+            assert_eq!(preview.rows[0].booking_date, "2026-03-15");
+            assert_eq!(preview.rows[0].label, "VIR INST vers BENEFICIAIRE TEST");
+            assert_eq!(preview.rows[0].amount_cents, -12_345);
+        }
     }
 
     #[test]
