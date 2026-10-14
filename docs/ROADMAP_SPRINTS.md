@@ -7,7 +7,7 @@ Séquence de livraison, pas promesse de calendrier. Les sprints fondateurs reste
 |---|---|---|---|---|
 | 00 | Bootstrap | Setup projet, CI, thèmes, coffre local | — | IN_PROGRESS |
 | 01 | Noyau | Entités, partie double, stockage chiffré | 00 | IN_PROGRESS |
-| 02 | Moteur de tâches | Planification durable, retries, idempotence | 01 | IN_PROGRESS — branche S02, PR #8 non fusionnée ; CI #191 verte, parcours natif lock/unlock restant |
+| 02 | Moteur de tâches | Planification durable, retries, idempotence | 01 | IN_PROGRESS — branche S02, PR #8 non fusionnée ; CI #192 verte sur `8292edc`, rappels ponctuel/récurrent testés ; parcours natif lock/unlock restant |
 | 03 | Import bancaire | CSV, catégorisation, rapprochement | 01, 02 | TODO |
 | 04 | Documents | Extraction, classification | 01, 02 | TODO |
 | 05 | Gestion locative | Biens, lots, baux, loyers, TVA par opération | 01, 02, 03 | TODO |

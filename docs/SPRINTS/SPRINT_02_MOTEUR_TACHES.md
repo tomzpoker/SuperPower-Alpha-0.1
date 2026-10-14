@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — le prototype couvre moteur SQLCipher, migrations v3→v6 sur la branche, commandes Tauri, page Tâches, worker natif, handlers `general/reminder` et `tresorerie/rappel_flux`, fréquences métier, calendrier accessible, recherche/filtres et historique avec durées. CI #191 verte sur `7683c88`, y compris le test d’intégration worker + handler de trésorerie. Rappels ponctuel et récurrent testés avec succès par l’utilisateur. Le parcours natif réel des commandes Tauri verrouillage/déverrouillage reste à vérifier. PR #8 non fusionnée |
+| **Statut** | IN_PROGRESS — le prototype couvre moteur SQLCipher, migrations v3→v6 sur la branche, commandes Tauri, page Tâches, worker natif, handlers `general/reminder` et `tresorerie/rappel_flux`, fréquences métier, calendrier accessible, recherche/filtres et historique avec durées. CI #192 verte sur le head précédent `8292edc` (jobs Rust, Windows/Tauri et frontend réussis ; [run #192](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38488027381)), y compris le test d’intégration worker + handler de trésorerie. Rappels ponctuel et récurrent testés avec succès par l’utilisateur. Le parcours natif réel des commandes Tauri verrouillage/déverrouillage reste à vérifier. PR #8 non fusionnée |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -75,6 +75,7 @@
 - [x] Confirmer par CI le calcul ancré, le frontend et la migration v5→v6 (CI #38442503451, commit `fa33766`).
 - [x] Tester l’intégration des occurrences mensuelles dans le worker : 31 janvier → 28 février → 31 mars, ancre d’origine conservée et répétition sans doublon (CI #38442503451).
 - [x] Essai natif sur coffre temporaire : rappel ponctuel `general/reminder` à échéance, notification visible, exécution terminée et tentative réussie, confirmé par l’utilisateur.
+- [x] **Essai natif ponctuel du 14/10/2026 :** tâche `test` (`general/reminder`) planifiée pour `02:22:00`, démarrage et fin enregistrés à `02:22:26` ; exécution terminée, tentative `1/3` réussie, durée affichée `0 s`. Le début est donc observé 26 secondes après l’échéance affichée ; l’horodatage de création n’étant pas plus précis que la date, cette mesure est consignée sans conclure à un défaut de ponctualité.
 - [x] Essai manuel du rappel récurrent : scénario confirmé comme réussi par l’utilisateur. Le calcul métier utilise l’ancre initiale et les tests automatisés simulent des dates futures ; aucune attente de plusieurs mois n’est requise.
 - [x] Test automatisé SQLCipher AppState : verrouillage/déverrouillage, accès refusé pendant le verrouillage, historique conservé et reprise du worker sans double exécution (CI #38445019655).
 - [ ] Vérifier manuellement dans l’application native les commandes Tauri de verrouillage/déverrouillage et la reprise du worker sur un coffre temporaire.
@@ -87,7 +88,7 @@
 
 ### Validation CI confirmée
 
-- [x] **Dernière CI vérifiée :** [run #191](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38461882586), commit `7683c88`, jobs Windows/Tauri, Rust et frontend tous réussis. Ce run valide le dernier test d’intégration `TaskWorker` + `tresorerie/rappel_flux`.
+- [x] **Dernière CI code vérifiée avant cette mise à jour documentaire :** [run #192](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38488027381), commit `8292edc`, jobs Windows/Tauri, Rust et frontend tous réussis. Ce run valide le test d’intégration `TaskWorker` + `tresorerie/rappel_flux`. Le présent changement est documentaire ; sa propre CI reste à vérifier.
 
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.
