@@ -163,12 +163,8 @@ pub fn parse_csv_preview(
         return Err(CsvPreviewError::InvalidDelimiter);
     }
     mapping.validate()?;
+    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
     let mut records = parse_records(input, delimiter)?;
-    if let Some(first_field) = records.first_mut().and_then(|record| record.first_mut()) {
-        if let Some(stripped) = first_field.strip_prefix('\u{feff}') {
-            *first_field = stripped.to_string();
-        }
-    }
     if records.is_empty() {
         return Err(CsvPreviewError::EmptyCsv);
     }
@@ -603,7 +599,7 @@ mod tests {
 
     #[test]
     fn strips_utf8_bom_from_the_first_header() {
-        let csv = "\u{feff}date;libellé;montant;référence\n2026-01-01;Loyer;12,00;R-1";
+        let csv = "\u{feff}\"date\";libellé;montant;référence\n2026-01-01;Loyer;12,00;R-1";
         let preview = parse_csv_preview(csv, ';', true, &amount_mapping()).unwrap();
         assert_eq!(preview.headers.unwrap()[0], "date");
         assert_eq!(preview.rows[0].amount_cents, 1_200);
