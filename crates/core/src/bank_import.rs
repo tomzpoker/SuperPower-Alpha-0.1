@@ -165,7 +165,7 @@ pub fn parse_csv_preview(
     mapping.validate()?;
     let mut records = parse_records(input, delimiter)?;
     if let Some(first_field) = records.first_mut().and_then(|record| record.first_mut()) {
-        if let Some(stripped) = first_field.strip_prefix('\\u{feff}') {
+        if let Some(stripped) = first_field.strip_prefix('\u{feff}') {
             *first_field = stripped.to_string();
         }
     }
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn strips_utf8_bom_from_the_first_header() {
-        let csv = "\\u{feff}date;libellé;montant;référence\\n2026-01-01;Loyer;12,00;R-1";
+        let csv = "\u{feff}date;libellé;montant;référence\n2026-01-01;Loyer;12,00;R-1";
         let preview = parse_csv_preview(csv, ';', true, &amount_mapping()).unwrap();
         assert_eq!(preview.headers.unwrap()[0], "date");
         assert_eq!(preview.rows[0].amount_cents, 1_200);
@@ -622,7 +622,7 @@ mod tests {
 
     #[test]
     fn requires_both_configured_debit_credit_columns_in_each_row() {
-        let csv = "date;libellé;débit;crédit\\n2026-01-01;Loyer;10,00";
+        let csv = "date;libellé;débit;crédit\n2026-01-01;Loyer;10,00";
         let mapping = CsvColumnMapping {
             date_column: 0,
             label_column: 1,
