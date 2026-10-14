@@ -414,11 +414,20 @@ fn normalize_date(value: &str) -> Result<String, ()> {
 /// La virgule française est prise en charge ; si virgule et point sont présents,
 /// le dernier séparateur est la décimale et l'autre sert au groupement des milliers.
 fn parse_amount_cents(raw: &str) -> Result<i64, ()> {
-    let mut value = raw
-        .trim()
-        .to_uppercase()
-        .replace("EUR", "")
-        .replace('€', "");
+    let mut value = raw.trim().to_uppercase();
+    if let Some(stripped) = value.strip_prefix("EUR") {
+        value = stripped.trim().to_string();
+    } else if let Some(stripped) = value.strip_suffix("EUR") {
+        value = stripped.trim().to_string();
+    }
+    if let Some(stripped) = value.strip_prefix('€') {
+        value = stripped.trim().to_string();
+    } else if let Some(stripped) = value.strip_suffix('€') {
+        value = stripped.trim().to_string();
+    }
+    if value.contains("EUR") || value.contains('€') {
+        return Err(());
+    }
     value = value.trim().to_string();
     if value.is_empty() {
         return Err(());
@@ -680,6 +689,10 @@ mod tests {
         assert!(parse_amount_cents("12,34.56").is_err());
         assert!(parse_amount_cents("1.234,567").is_err());
         assert!(parse_amount_cents("9999999999999999999999999").is_err());
+        assert!(parse_amount_cents("1EUR2,00").is_err());
+        assert!(parse_amount_cents("1€2,00").is_err());
+        assert_eq!(parse_amount_cents("€1 234,50").unwrap(), 123_450);
+        assert_eq!(parse_amount_cents("1 234,50 EUR").unwrap(), 123_450);
         assert_eq!(parse_amount_cents("EUR -1 234,50").unwrap(), -123_450);
     }
 
