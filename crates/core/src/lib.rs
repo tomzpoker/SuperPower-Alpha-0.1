@@ -1,6 +1,7 @@
 //! Règles de domaine pures de SuperPower. Aucune dépendance UI ou base de données.
 
 pub mod accounting;
+pub mod bank_import;
 pub mod events;
 pub mod flows;
 pub mod recurrence;

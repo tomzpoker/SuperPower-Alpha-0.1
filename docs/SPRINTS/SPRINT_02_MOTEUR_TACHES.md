@@ -8,7 +8,7 @@
 | **Durée estimée** | 3–4 jours |
 | **Dépendances** | Sprint 01 |
 | **Branche Git** | `sprint/02-moteur-taches-prototype` |
-| **Statut** | IN_PROGRESS — le prototype couvre moteur SQLCipher, migrations v3→v6 sur la branche, commandes Tauri, page Tâches, worker natif, handlers `general/reminder` et `tresorerie/rappel_flux`, fréquences métier, calendrier accessible, recherche/filtres et historique avec durées. CI #192 verte sur le head précédent `8292edc` (jobs Rust, Windows/Tauri et frontend réussis ; [run #192](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38488027381)), y compris le test d’intégration worker + handler de trésorerie. Rappels ponctuel et récurrent testés avec succès par l’utilisateur. Le parcours natif des commandes Tauri verrouillage/déverrouillage est confirmé comme déjà testé par l’utilisateur ; le contrôle est clos. PR #8 non fusionnée |
+| **Statut** | DONE — fusionné dans `main` le 14/10/2026 via PR #8 (`f5affa7`). CI #194 verte sur le head documentaire ([run #194](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38490686495)) ; CI code #192 verte sur `8292edc`, avec moteur SQLCipher, worker et intégration `tresorerie/rappel_flux`. Les rappels ponctuel/récurrent et le parcours natif lock/unlock sont déjà confirmés effectués par l’utilisateur ; ne pas demander de les refaire. |
 
 ## Contexte hérité
 > À remplir après sprint 01 : entités, compta, event bus, UI sociétés/écritures.
@@ -89,7 +89,7 @@
 ### Validation CI confirmée
 
 - [x] **CI code #192 verte :** [run #192](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38488027381), commit `8292edc`, jobs Windows/Tauri, Rust et frontend réussis. Ce run valide le test d’intégration `TaskWorker` + `tresorerie/rappel_flux`.
-- [ ] **CI documentaire #193 :** [run #193](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38490319986) ; vérifier son résultat avant de déclarer cette mise à jour documentaire validée.
+- [x] **CI documentaire #194 :** [run #194](https://github.com/tomzpoker/SuperPower-Alpha-0.1/actions/runs/38490686495) ; jobs Rust, Windows/Tauri et frontend tous réussis.
 
 - Le commit `8a1528d` a passé les trois jobs de la CI #139 : formatage/tests Rust, contrôles TypeScript/tests/bundle frontend et build Tauri Windows avec tests du workspace/migrations.
 - Le commit `a656e83` a passé les trois jobs de la CI #142, qui valide aussi l'aperçu cron natif et le cas de l'ancre alignée sur une occurrence.

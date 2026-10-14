@@ -6,11 +6,11 @@
 | Champ | Valeur |
 |---|---|
 | Version | `0.1.0-alpha.1` |
-| Main de référence | `535baa6` — S06-B fusionné ; commit `main` vérifié le 14 octobre 2026 |
-| Lot en cours | Sprint 02 — prototype du moteur de tâches persistant |
-| Branche | `sprint/02-moteur-taches-prototype` (prototype en cours ; non fusionné) |
-| Statut | S06-B reste livré dans `main`. La branche S02 non fusionnée porte le moteur SQLCipher, le worker natif, les rappels métier, les récurrences ancrées, le calendrier, les filtres et l’historique. La CI #192 (`38488027381`) est verte sur `8292edc` ; les jobs Windows/Tauri, Rust et frontend ont réussi. L’intégration `TaskWorker` + `tresorerie/rappel_flux` est validée. Le rappel ponctuel et le rappel récurrent ont été testés avec succès selon le retour utilisateur. Le 14/10/2026, la tâche `test` prévue à 02:22:00 a démarré à 02:22:26 et s’est terminée avec la tentative `1/3` réussie (durée affichée : 0 s). Le parcours natif des commandes Tauri verrouillage/déverrouillage est confirmé comme déjà effectué par l’utilisateur ; la revue finale de la PR #8 et la CI documentaire sont les prochaines étapes. |
-| Prochaine action | Vérifier le résultat de la CI documentaire #193, terminer la revue du diff de la PR #8 et décider de sa clôture. Ensuite, lancer S03 Import bancaire avec un périmètre CSV sûr. La vérification de migration S06-B v2→v3 reste un contrôle séparé sur copie isolée. |
+| Main de référence | `f5affa7` — S02 fusionné le 14 octobre 2026 |
+| Lot en cours | Sprint 03 — import bancaire CSV (première tranche parseur) |
+| Branche | `sprint/03-import-bancaire` (PR #10 brouillon, cible `main`) |
+| Statut | S02 est fusionné dans `main` via PR #8 (`f5affa7`) ; CI #194 verte sur les docs et CI code #192 verte. Les rappels ponctuel/récurrent et le parcours natif lock/unlock ont déjà été confirmés par l’utilisateur. S03 a démarré : `superpower-core::bank_import` fournit `parse_bank_csv_bytes` avec profils Auto/Crédit Agricole/LCL, encodage UTF-8/Windows-1252/UTF-16, détection prudente du séparateur, mapping d’en-têtes variable (Date opération prioritaire sur Date valeur), aperçu et erreurs par ligne. Les récapitulatifs de carte potentiellement doublés sont signalés mais jamais supprimés automatiquement. PR #10 / issue #9 ouvertes ; CI #211 verte sur le correctif CA débit négatif. Le run #212 avec cache chaud est resté à ~4 min 23 s (build Tauri 2 min 21 s, tests workspace 34 s). Le job Windows est maintenant opt-in, via dispatch manuel ou label PR `run-windows-ci`, pour que les itérations courantes restent plus courtes. Le job Rust Linux reçoit également un cache dédié pour réutiliser les artefacts de `task-engine` entre les changements. |
+| Prochaine action | Vérifier la nouvelle CI ; le cas CA à débit déjà négatif est couvert par un test fictif, puis obtenir un export LCL réel expurgé avant d’ajouter la persistance SQLCipher et la détection idempotente des doublons. La migration S06-B v2→v3 reste un contrôle séparé sur copie isolée. |
 | Reprise | `AGENTS.md` → `docs/HANDOFF.md` |
 | Dépôt | https://github.com/tomzpoker/SuperPower-Alpha-0.1 |
 
@@ -19,8 +19,8 @@
 |---|---|---|---|---|
 | 00 | Bootstrap | IN_PROGRESS | `SPRINTS/SPRINT_00_BOOTSTRAP.md` | Coffre et CI disponibles ; revue sécurité complète restante |
 | 01 | Noyau | IN_PROGRESS | `SPRINTS/SPRINT_01_NOYAU.md` | Sociétés et écritures simples ; PCG complet et clôture non livrés |
-| 02 | Moteur de tâches | IN_PROGRESS — revue finale | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | CI #192 verte ; rappels ponctuel/récurrent testés et parcours natif lock/unlock confirmé comme déjà effectué par l’utilisateur. CI documentaire #193 à vérifier, puis revue PR #8 |
-| 03 | Import bancaire | TODO | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | CSV/rapprochement non livrés |
+| 02 | Moteur de tâches | DONE — fusionné | `SPRINTS/SPRINT_02_MOTEUR_TACHES.md` | PR #8 fusionnée dans `main` (`f5affa7`), CI #194 verte et CI code #192 verte ; essais natifs confirmés par l’utilisateur |
+| 03 | Import bancaire | IN_PROGRESS | `SPRINTS/SPRINT_03_IMPORT_BANCAIRE.md` | Issue #9 / PR #10 ; parseur CSV de domaine livré sur la branche, CI à confirmer, persistance et interface à venir |
 | 04 | Documents | TODO | `SPRINTS/SPRINT_04_DOCUMENTS.md` | Pipeline non livré |
 | 05 | Gestion locative | TODO | `SPRINTS/SPRINT_05_GESTION_LOCATIVE.md` | Biens/baux/TVA par opération non livrés |
 | 06 | Trésorerie | S06-A et S06-B fusionnés ; validation native restante | `SPRINTS/SPRINT_06_TRESORERIE.md` et `SPRINTS/SPRINT_06B_RECURRENCE.md` | Récurrences intégrées dans `main` ; migration v2→v3 et essai métier natif à confirmer |
@@ -74,7 +74,7 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 - Migration SQLCipher v2→v3 intégrée ; validation native sur copie isolée requise.
 
 ## Limites / risques connus
-- La branche S02 est toujours non fusionnée (PR #8 en brouillon). La CI #192 est verte sur `8292edc` : build Windows/Tauri, tests Rust et frontend, y compris l’intégration du worker avec `tresorerie/rappel_flux`, l’historique persistant et l’absence de doublon à la seconde passe. Le rappel ponctuel et le rappel récurrent sont testés avec succès. L’utilisateur confirme que le parcours natif lock/unlock a déjà été effectué : ce contrôle n’est plus à redemander. La CI documentaire #193 reste à vérifier ; les handlers métier documents/import bancaire/locatif et le fuseau cron configurable restent à développer.
+- Le Sprint 02 est fusionné dans `main` via PR #8. La CI #194 est verte sur le commit documentaire de clôture ; la CI code #192 valide le moteur et le handler de rappel. Les rappels ponctuel/récurrent et le parcours natif lock/unlock sont confirmés comme effectués par l’utilisateur ; ne pas redemander ces essais. Le Sprint 03 est en cours dans la PR #10 : parseur CSV de domaine Crédit Agricole/LCL. Un extrait CA a fait ajouter la prise en charge des colonnes Débit déjà négatives (test de régression avec données fictives) ; il reste à valider la CI du nouveau head et à obtenir un export LCL réel expurgé. Persistance SQLCipher, déduplication idempotente et interface native restent à développer.
 - S06-A ne crée pas encore d'écritures comptables ni de TVA.
 - S06-B est livré dans `main` par la PR [#5](https://github.com/tomzpoker/SuperPower-Alpha-0.1/pull/5). La fenêtre glissante de 36 mois part d'aujourd'hui ; une première échéance hors fenêtre est conservée et les suivantes sont générées lorsque l'horizon l'atteint. Cela ne remplace pas une projection financière dédiée.
 - Projection financière dédiée, alertes et rapprochement bancaire automatique non livrés.
@@ -104,9 +104,10 @@ Les essais manuels ont utilisé `SUPERPOWER_TEST_DATA_DIR` et des dossiers tempo
 | 2026-10-13 | 02 | Test automatisé du cycle coffre/worker | CI #38445019655 verte sur `2c13cc8` : lock/unlock AppState SQLCipher, historique conservé et absence de doublons après reprise |
 
 | 2026-10-13 | 02 | Commandes Tauri et page Tâches | Branche non fusionnée ; worker et UI du rappel validés par CI #153 |
-| 2026-10-13 | 02 | Tests de logique de commandes avec AppState SQLCipher temporaire | CI #38454692391 verte sur `5e39f35` : création/idempotence/audit, transitions, garde-fous d’historique et verrouillage ; interaction UI native encore ouverte |
-| 2026-10-13 | 02 | Couverture automatisée du déverrouillage | CI #38457756360 verte sur `f3a3ef1` : ouverture correcte, mauvaise phrase secrète, rollback si le worker échoue ; UI/IPC natif reste ouvert |
+| 2026-10-13 | 02 | Tests de logique de commandes avec AppState SQLCipher temporaire | CI #38454692391 verte sur `5e39f35` : création/idempotence/audit, transitions, garde-fous d’historique et verrouillage ; parcours natif lock/unlock confirmé comme effectué par l’utilisateur |
+| 2026-10-13 | 02 | Couverture automatisée du déverrouillage | CI #38457756360 verte sur `f3a3ef1` : ouverture correcte, mauvaise phrase secrète, rollback si le worker échoue ; parcours natif UI/IPC lock/unlock confirmé comme effectué par l’utilisateur |
 | 2026-10-13 | 02 | Intégration worker + rappel de trésorerie | CI #191 verte sur `7683c88` : exécution du handler enregistré, lecture du solde SQLCipher, historique et seconde passe sans doublon |
 | 2026-10-14 | 02 | Test natif d’un rappel ponctuel `general/reminder` (échéance 02:22:00, démarrage 02:22:26, tentative 1/3 réussie, durée 0 s) | Succès confirmé par l’utilisateur ; écart observé de 26 s consigné sans conclure à un défaut de ponctualité | 
 | 2026-10-14 | 02 | Confirmation utilisateur : parcours natif de verrouillage/déverrouillage déjà effectué | Contrôle clos dans la documentation ; ne pas redemander le test | 
-| 2026-10-14 | Documentation | Synchronisation handoff, progression, roadmap et Sprint 02 après confirmation du contrôle natif | Commit documentaire sur la branche S02 ; CI #193 à vérifier ; PR #8 reste à relire |
+| 2026-10-14 | 02 | Clôture du moteur de tâches | PR #8 fusionnée dans `main` (`f5affa7`) ; CI #194 verte, sans redemander les tests natifs déjà réalisés | 
+| 2026-10-14 | 03 | Première tranche d’import bancaire | Parseur CSV indépendant, mapping explicite, aperçu, validation numérique et erreurs par ligne ; PR #10 en cours, CI à confirmer |
