@@ -5,6 +5,8 @@ on:
     branches:
       - main
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -49,6 +51,8 @@ jobs:
         run: cargo test -p task-engine
 
   windows-native:
+    # Full Tauri builds take ~4 minutes even with a warm cache; run only on demand.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-windows-ci'))
     name: Windows desktop build
     runs-on: windows-latest
     timeout-minutes: 60

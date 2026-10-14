@@ -34,7 +34,7 @@ Importer des relevés bancaires CSV avec un aperçu avant confirmation. Normalis
 - [x] S03-A : reconnaissance des en-têtes régionaux Crédit Agricole, encodage Windows-1252/UTF-8, colonnes date opération/date valeur, montant ou débit/crédit, récapitulatifs carte signalés sans suppression automatique.
 - [x] S03-A : profil LCL sans en-tête (date, montant signé, type, chèque éventuel, libellé), détection des lignes de métadonnées de compte/solde et avertissement de validation humaine.
 - [x] S03-A : Normaliser les dates ISO/françaises, convertir en centimes entiers, accepter les colonnes Débit déjà négatives et collecter les erreurs par ligne.
-- [ ] S03-B : Étendre les tests et vérifier la tranche de parseur en CI (formatage, tests du workspace et build Tauri Windows).
+- [x] S03-B : Contrôles frontend, formatage et tests de domaine validés sur le correctif CA. Le build complet Windows/Tauri est opt-in pour éviter de le relancer sur chaque modification ; le déclencher manuellement ou avec le label PR `run-windows-ci` avant validation native.
 - [ ] S03-C : Définir la persistance SQLCipher : compte/source, empreinte stable de transaction, provenance du fichier et migration additive transactionnelle.
 - [ ] S03-D : Ajouter les commandes Tauri de prévisualisation/confirmation, avec protection contre les doubles imports.
 - [ ] S03-E : Ajouter l'écran d'import (sélection du fichier, mapping explicite, aperçu, erreurs, confirmation/annulation).
