@@ -679,6 +679,15 @@ mod tests {
     }
 
     #[test]
+    fn rejects_ambiguous_overprecise_and_overflowing_amounts() {
+        assert!(parse_amount_cents("1,234").is_err());
+        assert!(parse_amount_cents("12,34.56").is_err());
+        assert!(parse_amount_cents("1.234,567").is_err());
+        assert!(parse_amount_cents("9999999999999999999999999").is_err());
+        assert_eq!(parse_amount_cents("EUR -1 234,50").unwrap(), -123_450);
+    }
+
+    #[test]
     fn rejects_duplicate_column_indices_and_invalid_delimiters() {
         let mut mapping = amount_mapping();
         mapping.reference_column = Some(2);
