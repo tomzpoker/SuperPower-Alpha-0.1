@@ -7,7 +7,7 @@ Séquence de livraison, pas promesse de calendrier. Les sprints fondateurs reste
 |---|---|---|---|---|
 | 00 | Bootstrap | Setup projet, CI, thèmes, coffre local | — | IN_PROGRESS |
 | 01 | Noyau | Entités, partie double, stockage chiffré | 00 | IN_PROGRESS |
-| 02 | Moteur de tâches | Planification durable, retries, idempotence | 01 | IN_PROGRESS — branche S02, PR #8 non fusionnée ; CI #192 verte sur `8292edc`, rappels ponctuel/récurrent testés ; parcours natif lock/unlock restant |
+| 02 | Moteur de tâches | Planification durable, retries, idempotence | 01 | IN_PROGRESS — branche S02, PR #8 non fusionnée ; CI #192 verte, rappels ponctuel/récurrent testés et parcours natif lock/unlock confirmé déjà effectué ; CI documentaire #193 à vérifier puis revue PR |
 | 03 | Import bancaire | CSV, catégorisation, rapprochement | 01, 02 | TODO |
 | 04 | Documents | Extraction, classification | 01, 02 | TODO |
 | 05 | Gestion locative | Biens, lots, baux, loyers, TVA par opération | 01, 02, 03 | TODO |
@@ -18,7 +18,7 @@ Séquence de livraison, pas promesse de calendrier. Les sprints fondateurs reste
 
 ## Lot courant : S02 — moteur de tâches persistant
 
-Au 14 octobre 2026, le code S02 est sur `sprint/02-moteur-taches-prototype`, PR #8 en brouillon non fusionnée. Le head `7683c88` a passé la CI #191 : jobs Windows/Tauri, Rust et frontend. Le prototype inclut SQLCipher, commandes Tauri, UI Tâches, worker natif, rappels ponctuels/récurrents et handler de rappel de trésorerie idempotent. Le test natif des rappels ponctuel et récurrent a été confirmé par l’utilisateur. Contrôle manuel restant : commandes natives de verrouillage/déverrouillage sur coffre temporaire. Voir [HANDOFF](HANDOFF.md), [PROGRESS](PROGRESS.md) et [Sprint 02](SPRINTS/SPRINT_02_MOTEUR_TACHES.md).
+Au 14 octobre 2026, le code S02 est sur `sprint/02-moteur-taches-prototype`, PR #8 en brouillon non fusionnée. Le head `8292edc` a passé la CI #192 : jobs Windows/Tauri, Rust et frontend. Le prototype inclut SQLCipher, commandes Tauri, UI Tâches, worker natif, rappels ponctuels/récurrents et handler de rappel de trésorerie idempotent. Les tests des rappels ponctuel/récurrent et le parcours natif lock/unlock ont été confirmés comme effectués par l’utilisateur. La revue finale de la PR et la CI documentaire #193 sont les prochaines étapes. Voir [HANDOFF](HANDOFF.md), [PROGRESS](PROGRESS.md) et [Sprint 02](SPRINTS/SPRINT_02_MOTEUR_TACHES.md).
 
 ## Lot S06-A — flux métiers guidés
 Le premier incrément ajoute les prévisions ponctuelles, les réalisations partielles, l'écart, l'annulation auditée et la migration SQLite/SQLCipher v1→v2. L'utilisateur choisit le sens, la catégorie de pilotage, la date et le montant sans sélectionner de compte PCG.
