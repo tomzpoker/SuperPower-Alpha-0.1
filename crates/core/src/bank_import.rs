@@ -534,7 +534,7 @@ fn mapping_from_headers(headers: &[String]) -> Option<CsvColumnMapping> {
 
     let (amount_column, debit_column, credit_column) = match amount_column {
         Some(amount) => (Some(amount), None, None),
-        None => (None, debit_column?, credit_column?),
+        None => (None, Some(debit_column?), Some(credit_column?)),
     };
 
     let reference_column = pick(&|name| {
