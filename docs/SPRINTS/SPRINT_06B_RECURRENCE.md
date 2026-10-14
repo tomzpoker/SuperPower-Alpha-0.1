@@ -6,7 +6,7 @@
 |---|---|
 | Lot parent | Sprint 06 — Trésorerie |
 | Prérequis | S06-A fusionné dans main |
-| Statut | INTÉGRÉ DANS MAIN — CI PR #96 verte ; essai natif SQLCipher v2→v3 encore requis |
+| Statut | INTÉGRÉ DANS MAIN — CI PR #96 et post-fusion #97 vertes ; essai natif SQLCipher v2→v3 encore requis |
 | Issue | [#2 — Configurer les flux récurrents](https://github.com/tomzpoker/SuperPower-Alpha-0.1/issues/2) |
 
 ## Objectif

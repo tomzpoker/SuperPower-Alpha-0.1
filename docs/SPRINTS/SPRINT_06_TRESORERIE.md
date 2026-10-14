@@ -5,7 +5,7 @@
 |---|---|
 | Numéro | 06 |
 | Branche du lot initial | \`feat/guided-cash-flows\` |
-| Statut | S06-A et S06-B intégrés dans `main` ; CI S06-B verte sur le run #96 ; validation native migration v2→v3 restante |
+| Statut | S06-A et S06-B intégrés dans `main` ; CI PR #96 et post-fusion #97 vertes ; validation native migration v2→v3 restante |
 | Décision | [ADR-0001](../DECISIONS/ADR-0001-flux-previsionnels.md) |
 
 ## Problème utilisateur
