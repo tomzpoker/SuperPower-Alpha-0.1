@@ -9,7 +9,7 @@
 | **Dépendances** | Sprints 01 et 02 |
 | **Branche Git** | `sprint/03-import-bancaire` (base `main`) |
 | **Issue** | [#9 — Import bancaire CSV avec aperçu et détection des doublons](https://github.com/tomzpoker/SuperPower-Alpha-0.1/issues/9) |
-| **Statut** | IN_PROGRESS — première tranche de domaine publiée dans la PR #10 : parseur CSV pur, mapping explicite, aperçu et erreurs par ligne. CI à confirmer ; persistance SQLCipher et interface à venir |
+| **Statut** | IN_PROGRESS — parseur de domaine dans la PR #10 ; CI #211 verte pour la prise en charge des débits CA déjà négatifs. Persistance SQLCipher et interface à venir |
 
 ## Objectif
 Importer des relevés bancaires CSV avec un aperçu avant confirmation. Normaliser les dates et montants sans flottants, conserver la traçabilité des lignes sources et empêcher qu'un import répété duplique les transactions.
@@ -49,7 +49,7 @@ Le module `superpower-core::bank_import` n'accède ni au système de fichiers ni
 
 Montants pris en charge : entiers, décimales à un ou deux chiffres, virgule française, point décimal, groupements de milliers par espaces ou séparateurs cohérents, symbole euro et préfixe/suffixe EUR. Pour les exports à deux colonnes, un débit positif est normalisé en négatif et un débit déjà négatif reste négatif ; les crédits négatifs sont signalés comme invalides. L'en-tête UTF-8 avec BOM est retiré avant parsing (y compris si le premier champ est entre guillemets) ; les fichiers de plus de 10 Mio sont rejetés avant parsing. Si le format est ambigu, la ligne est rejetée plutôt que devinée.
 
-Les tests unitaires du parseur couvrent les formats français/internationaux, les en-têtes BOM UTF-8, les exports Crédit Agricole dont la colonne Débit contient déjà un nombre négatif, les colonnes débit/crédit manquantes, les dates impossibles, les montants ambigus, les guillemets échappés et les champs multilignes. Le résultat CI sur le head courant doit être vérifié avant de déclarer cette tranche validée.
+Les tests unitaires du parseur couvrent les formats français/internationaux, les en-têtes BOM UTF-8, les exports Crédit Agricole dont la colonne Débit contient déjà un nombre négatif, les colonnes débit/crédit manquantes, les dates impossibles, les montants ambigus, les guillemets échappés et les champs multilignes. La CI #211 sur le correctif du signe est verte. Le changement de clé de cache a provoqué un premier cache miss ; le run a rempli un cache d’environ 809 Mo. Le prochain run doit vérifier que ce cache réduit bien la durée des builds sans changement de dépendances.
 
 ## Échantillons et limitation connue
 Un premier extrait Crédit Agricole a été fourni au format « Date opération;Libellé;Débit euros;Crédit euros » et a mis en évidence que certains exports portent déjà un montant négatif dans la colonne Débit. Ce cas est maintenant couvert par un test de régression utilisant des données fictives. Les exports Crédit Agricole peuvent varier d'une Caisse régionale à l'autre ; LCL peut modifier son interface ou ses en-têtes. La validation finale doit encore inclure un relevé complet expurgé par banque, notamment un export LCL réel, avant d'ajouter la persistance.
