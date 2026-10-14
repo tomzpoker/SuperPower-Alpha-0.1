@@ -232,9 +232,7 @@ pub fn parse_bank_csv_bytes(
             .enumerate()
             .skip(header_index + 1)
             .filter_map(|(index, record)| {
-                if is_non_transaction_record(&record)
-                    || mapping_from_headers(&record).is_some()
-                {
+                if is_non_transaction_record(&record) || mapping_from_headers(&record).is_some() {
                     None
                 } else {
                     Some((index + 1, record))
@@ -355,10 +353,7 @@ fn decode_windows_1252(input: &[u8]) -> String {
         .collect()
 }
 
-fn detect_delimiter(
-    text: &str,
-    profile: BankCsvProfile,
-) -> Result<char, CsvPreviewError> {
+fn detect_delimiter(text: &str, profile: BankCsvProfile) -> Result<char, CsvPreviewError> {
     // Les exports français du Crédit Agricole sont généralement séparés par ';'
     // avec des virgules décimales. Prioriser ce motif évite de confondre les
     // décimales des montants avec le délimiteur de colonnes.
@@ -414,7 +409,10 @@ fn detect_delimiter(
         } else {
             let mut width_counts: Vec<(usize, usize)> = Vec::new();
             for record in &records {
-                if let Some(entry) = width_counts.iter_mut().find(|entry| entry.0 == record.len()) {
+                if let Some(entry) = width_counts
+                    .iter_mut()
+                    .find(|entry| entry.0 == record.len())
+                {
                     entry.1 += 1;
                 } else {
                     width_counts.push((record.len(), 1));
@@ -431,7 +429,10 @@ fn detect_delimiter(
             }
         };
 
-        if best.map(|(best_score, _)| score > best_score).unwrap_or(score > 0) {
+        if best
+            .map(|(best_score, _)| score > best_score)
+            .unwrap_or(score > 0)
+        {
             best = Some((score, delimiter));
         }
     }
@@ -473,7 +474,10 @@ fn mapping_from_headers(headers: &[String]) -> Option<CsvColumnMapping> {
     let date_column = pick(&|name| {
         if name.contains("datevaleur") || name == "valeur" {
             Some(30)
-        } else if name.contains("dateoperation") || name.contains("dateoper") || name.contains("dateop") {
+        } else if name.contains("dateoperation")
+            || name.contains("dateoper")
+            || name.contains("dateop")
+        {
             Some(0)
         } else if name == "date" {
             Some(1)
@@ -565,7 +569,11 @@ fn mapping_from_headers(headers: &[String]) -> Option<CsvColumnMapping> {
 }
 
 fn is_non_transaction_record(record: &[String]) -> bool {
-    let joined = record.iter().map(|cell| normalize_header(cell)).collect::<Vec<_>>().join(" ");
+    let joined = record
+        .iter()
+        .map(|cell| normalize_header(cell))
+        .collect::<Vec<_>>()
+        .join(" ");
     [
         "anciensolde",
         "nouveausolde",
@@ -577,13 +585,17 @@ fn is_non_transaction_record(record: &[String]) -> bool {
     .any(|marker| joined.contains(marker))
 }
 
-fn parse_lcl_headerless(
-    records: Vec<Vec<String>>,
-) -> Result<CsvImportPreview, CsvPreviewError> {
+fn parse_lcl_headerless(records: Vec<Vec<String>>) -> Result<CsvImportPreview, CsvPreviewError> {
     let first_transaction = records.iter().position(|record| {
         record.len() >= 4
-            && record.first().and_then(|date| normalize_date(date).ok()).is_some()
-            && record.get(1).and_then(|amount| parse_amount_cents(amount).ok()).is_some()
+            && record
+                .first()
+                .and_then(|date| normalize_date(date).ok())
+                .is_some()
+            && record
+                .get(1)
+                .and_then(|amount| parse_amount_cents(amount).ok())
+                .is_some()
     });
     let Some(first_transaction) = first_transaction else {
         return Err(CsvPreviewError::InvalidMapping(
