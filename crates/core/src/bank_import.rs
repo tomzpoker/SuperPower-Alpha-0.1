@@ -208,7 +208,7 @@ pub fn parse_bank_csv_bytes(
         });
     }
     let text = decode_bank_csv(input)?;
-    let delimiter = detect_delimiter(&text)?;
+    let delimiter = detect_delimiter(&text, profile)?;
     let records = parse_records(&text, delimiter)?;
     if records.is_empty() {
         return Err(CsvPreviewError::EmptyCsv);
@@ -355,8 +355,36 @@ fn decode_windows_1252(input: &[u8]) -> String {
         .collect()
 }
 
-fn detect_delimiter(text: &str) -> Result<char, CsvPreviewError> {
-    let mut best: Option<(usize, char)> = None;
+fn detect_delimiter(
+    text: &str,
+    profile: BankCsvProfile,
+) -> Result<char, CsvPreviewError> {
+    // Les exports français du Crédit Agricole sont généralement séparés par ';'
+    // avec des virgules décimales. Prioriser ce motif évite de confondre les
+    // décimales des montants avec le délimiteur de colonnes.
+    if let Ok(records) = parse_records(text, ';') {
+        let has_recognized_header = records
+            .iter()
+            .any(|record| mapping_from_headers(record).is_some());
+        let has_lcl_transaction = records.iter().any(|record| {
+            record.len() >= 4
+                && record
+                    .first()
+                    .and_then(|date| normalize_date(date).ok())
+                    .is_some()
+                && record
+                    .get(1)
+                    .and_then(|amount| parse_amount_cents(amount).ok())
+                    .is_some()
+        });
+        if has_recognized_header
+            || (profile != BankCsvProfile::CreditAgricole && has_lcl_transaction)
+        {
+            return Ok(';');
+        }
+    }
+
+    let mut best: Option<(isize, char)> = None;
     for delimiter in [';', '\t', ','] {
         let Ok(records) = parse_records(text, delimiter) else {
             continue;
@@ -364,19 +392,45 @@ fn detect_delimiter(text: &str) -> Result<char, CsvPreviewError> {
         if records.is_empty() {
             continue;
         }
-        let mut width_counts: Vec<(usize, usize)> = Vec::new();
-        for record in &records {
-            if let Some((_, count)) = width_counts.iter_mut().find(|(width, _)| *width == record.len()) {
-                *count += 1;
-            } else {
-                width_counts.push((record.len(), 1));
+
+        let header_index = records
+            .iter()
+            .position(|record| mapping_from_headers(record).is_some());
+        let score = if let Some(header_index) = header_index {
+            let width = records[header_index].len();
+            let mut matching_rows = 0_isize;
+            let mut mismatched_rows = 0_isize;
+            for record in records.iter().skip(header_index + 1) {
+                if is_non_transaction_record(record) {
+                    continue;
+                }
+                if record.len() == width {
+                    matching_rows += 1;
+                } else {
+                    mismatched_rows += 1;
+                }
             }
-        }
-        let (width, count) = width_counts
-            .into_iter()
-            .max_by_key(|(width, count)| width.saturating_mul(*count))
-            .unwrap_or((1, 0));
-        let score = if width > 1 { width * count } else { 0 };
+            10_000 + matching_rows * 100 - mismatched_rows * 100 + width as isize
+        } else {
+            let mut width_counts: Vec<(usize, usize)> = Vec::new();
+            for record in &records {
+                if let Some(entry) = width_counts.iter_mut().find(|entry| entry.0 == record.len()) {
+                    entry.1 += 1;
+                } else {
+                    width_counts.push((record.len(), 1));
+                }
+            }
+            let (width, count) = width_counts
+                .into_iter()
+                .max_by_key(|(width, count)| width.saturating_mul(*count))
+                .unwrap_or((1, 0));
+            if width > 1 {
+                (width * count * 10 + width) as isize
+            } else {
+                0
+            }
+        };
+
         if best.map(|(best_score, _)| score > best_score).unwrap_or(score > 0) {
             best = Some((score, delimiter));
         }
@@ -1138,6 +1192,15 @@ mod tests {
         assert_eq!(preview.rows[1].amount_cents, 12_500);
         assert_eq!(preview.rows[1].label, "LOYER RECU");
         assert_eq!(preview.warnings.len(), 1);
+    }
+
+    #[test]
+    fn auto_profile_detects_comma_csv_with_dot_decimals() {
+        let csv = b"Date,Libelle,Montant\n2026-03-01,LOYER,1250.00\n2026-03-02,ASSURANCE,-80.25";
+        let preview = parse_bank_csv_bytes(csv, BankCsvProfile::Auto).unwrap();
+        assert_eq!(preview.rows.len(), 2);
+        assert_eq!(preview.rows[0].amount_cents, 125_000);
+        assert_eq!(preview.rows[1].amount_cents, -8_025);
     }
 
     #[test]
