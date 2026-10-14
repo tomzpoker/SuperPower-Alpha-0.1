@@ -100,8 +100,21 @@ pub struct CsvImportPreview {
     pub headers: Option<Vec<String>>,
     pub rows: Vec<BankTransactionPreview>,
     pub errors: Vec<CsvImportRowError>,
+    /// Avertissements de prudence qui doivent être montrés avant confirmation.
+    pub warnings: Vec<String>,
     /// Nombre de lignes de données lues, y compris celles rejetées.
     pub total_rows: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BankCsvProfile {
+    /// Reconnaissance à partir des en-têtes, avec repli prudent sur la forme LCL sans en-tête.
+    Auto,
+    /// Export CSV Crédit Agricole : colonnes à en-têtes variables selon la Caisse régionale.
+    CreditAgricole,
+    /// Export opérations LCL sans en-tête (métadonnées solde/compte en début et fin de fichier).
+    Lcl,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -116,6 +129,8 @@ pub enum CsvPreviewError {
     FileTooLarge { max_bytes: usize },
     #[error("Le fichier CSV est vide.")]
     EmptyCsv,
+    #[error("L'encodage du fichier CSV n'est pas reconnu (UTF-8, Windows-1252/Latin-1 ou UTF-16 attendu).")]
+    InvalidEncoding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,10 +159,7 @@ impl std::fmt::Display for CsvRecordError {
     }
 }
 
-/// Construit un aperçu CSV. Cette fonction est pure : elle ne persiste aucune ligne.
-///
-/// Les indices de colonnes du mapping sont basés sur zéro. Les erreurs de données sont
-/// retournées ligne par ligne pour qu'un écran puisse les présenter avant confirmation.
+/// Construit un aperçu générique CSV avec un mapping explicite. Aucun effet de bord.
 pub fn parse_csv_preview(
     input: &str,
     delimiter: char,
@@ -164,16 +176,93 @@ pub fn parse_csv_preview(
     }
     mapping.validate()?;
     let input = input.strip_prefix('\u{feff}').unwrap_or(input);
-    let mut records = parse_records(input, delimiter)?;
+    let records = parse_records(input, delimiter)?;
     if records.is_empty() {
         return Err(CsvPreviewError::EmptyCsv);
     }
 
     let headers = if has_headers {
-        Some(records.remove(0))
+        Some(records[0].clone())
     } else {
         None
     };
+    let start_index = usize::from(has_headers);
+    let data = records
+        .into_iter()
+        .enumerate()
+        .skip(start_index)
+        .map(|(index, record)| (index + 1, record))
+        .collect();
+    build_preview(headers, data, mapping, Vec::new())
+}
+
+/// Parse les octets bruts téléchargés depuis un espace bancaire, sans conversion préalable
+/// par Excel. Le format de banque peut être fixé dans l'interface ou laissé en détection.
+pub fn parse_bank_csv_bytes(
+    input: &[u8],
+    profile: BankCsvProfile,
+) -> Result<CsvImportPreview, CsvPreviewError> {
+    if input.len() > MAX_CSV_BYTES {
+        return Err(CsvPreviewError::FileTooLarge {
+            max_bytes: MAX_CSV_BYTES,
+        });
+    }
+    let text = decode_bank_csv(input)?;
+    let delimiter = detect_delimiter(&text)?;
+    let records = parse_records(&text, delimiter)?;
+    if records.is_empty() {
+        return Err(CsvPreviewError::EmptyCsv);
+    }
+
+    if let Some(header_index) = records
+        .iter()
+        .position(|record| mapping_from_headers(record).is_some())
+    {
+        let headers = records[header_index].clone();
+        let mapping = mapping_from_headers(&headers).ok_or_else(|| {
+            CsvPreviewError::InvalidMapping(
+                "Les colonnes date, libellé et montant (ou débit/crédit) n'ont pas été reconnues."
+                    .to_string(),
+            )
+        })?;
+        mapping.validate()?;
+
+        let data: Vec<(usize, Vec<String>)> = records
+            .into_iter()
+            .enumerate()
+            .skip(header_index + 1)
+            .filter_map(|(index, record)| {
+                if is_non_transaction_record(&record)
+                    || mapping_from_headers(&record).is_some()
+                {
+                    None
+                } else {
+                    Some((index + 1, record))
+                }
+            })
+            .collect();
+        let mut preview = build_preview(Some(headers), data, &mapping, Vec::new())?;
+        add_card_summary_warning(&mut preview, profile);
+        return Ok(preview);
+    }
+
+    if profile == BankCsvProfile::CreditAgricole {
+        return Err(CsvPreviewError::InvalidMapping(
+            "En-tête Crédit Agricole non reconnu. Les exports varient selon la Caisse régionale ; vérifiez que le CSV contient les colonnes Date, Libellé et Montant ou Débit/Crédit."
+                .to_string(),
+        ));
+    }
+
+    parse_lcl_headerless(records)
+}
+
+fn build_preview(
+    headers: Option<Vec<String>>,
+    data: Vec<(usize, Vec<String>)>,
+    mapping: &CsvColumnMapping,
+    warnings: Vec<String>,
+) -> Result<CsvImportPreview, CsvPreviewError> {
+    mapping.validate()?;
     if let Some(headers) = headers.as_ref() {
         if mapping.max_column() >= headers.len() {
             return Err(CsvPreviewError::InvalidMapping(format!(
@@ -188,12 +277,11 @@ pub fn parse_csv_preview(
         headers,
         rows: Vec::new(),
         errors: Vec::new(),
-        total_rows: records.len(),
+        warnings,
+        total_rows: data.len(),
     };
-    let first_data_record = if has_headers { 2 } else { 1 };
-    for (offset, record) in records.iter().enumerate() {
-        let source_row = first_data_record + offset;
-        match normalize_record(record, source_row, mapping) {
+    for (source_row, record) in data {
+        match normalize_record(&record, source_row, mapping) {
             Ok(row) => preview.rows.push(row),
             Err(error) => preview.errors.push(CsvImportRowError {
                 source_row,
@@ -202,6 +290,327 @@ pub fn parse_csv_preview(
         }
     }
     Ok(preview)
+}
+
+fn decode_bank_csv(input: &[u8]) -> Result<String, CsvPreviewError> {
+    if input.starts_with(&[0xFF, 0xFE]) || input.starts_with(&[0xFE, 0xFF]) {
+        let little_endian = input.starts_with(&[0xFF, 0xFE]);
+        let bytes = &input[2..];
+        if bytes.len() % 2 != 0 {
+            return Err(CsvPreviewError::InvalidEncoding);
+        }
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|pair| {
+                if little_endian {
+                    u16::from_le_bytes([pair[0], pair[1]])
+                } else {
+                    u16::from_be_bytes([pair[0], pair[1]])
+                }
+            })
+            .collect();
+        return String::from_utf16(&units).map_err(|_| CsvPreviewError::InvalidEncoding);
+    }
+
+    let input = input.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(input);
+    match std::str::from_utf8(input) {
+        Ok(text) => Ok(text.to_string()),
+        Err(_) => Ok(decode_windows_1252(input)),
+    }
+}
+
+fn decode_windows_1252(input: &[u8]) -> String {
+    input
+        .iter()
+        .map(|byte| match *byte {
+            0x80 => '€',
+            0x82 => '‚',
+            0x83 => 'ƒ',
+            0x84 => '„',
+            0x85 => '…',
+            0x86 => '†',
+            0x87 => '‡',
+            0x88 => 'ˆ',
+            0x89 => '‰',
+            0x8A => 'Š',
+            0x8B => '‹',
+            0x8C => 'Œ',
+            0x8E => 'Ž',
+            0x91 => '‘',
+            0x92 => '’',
+            0x93 => '“',
+            0x94 => '”',
+            0x95 => '•',
+            0x96 => '–',
+            0x97 => '—',
+            0x98 => '˜',
+            0x99 => '™',
+            0x9A => 'š',
+            0x9B => '›',
+            0x9C => 'œ',
+            0x9E => 'ž',
+            0x9F => 'Ÿ',
+            other => char::from(other),
+        })
+        .collect()
+}
+
+fn detect_delimiter(text: &str) -> Result<char, CsvPreviewError> {
+    let mut best: Option<(usize, char)> = None;
+    for delimiter in [';', '\t', ','] {
+        let Ok(records) = parse_records(text, delimiter) else {
+            continue;
+        };
+        if records.is_empty() {
+            continue;
+        }
+        let mut width_counts: Vec<(usize, usize)> = Vec::new();
+        for record in &records {
+            if let Some((_, count)) = width_counts.iter_mut().find(|(width, _)| *width == record.len()) {
+                *count += 1;
+            } else {
+                width_counts.push((record.len(), 1));
+            }
+        }
+        let (width, count) = width_counts
+            .into_iter()
+            .max_by_key(|(width, count)| width.saturating_mul(*count))
+            .unwrap_or((1, 0));
+        let score = if width > 1 { width * count } else { 0 };
+        if best.map(|(best_score, _)| score > best_score).unwrap_or(score > 0) {
+            best = Some((score, delimiter));
+        }
+    }
+    best.map(|(_, delimiter)| delimiter)
+        .ok_or(CsvPreviewError::InvalidDelimiter)
+}
+
+fn normalize_header(value: &str) -> String {
+    let mut result = String::new();
+    for character in value.trim().to_lowercase().chars() {
+        match character {
+            'à' | 'á' | 'â' | 'ä' | 'ã' | 'å' => result.push('a'),
+            'ç' => result.push('c'),
+            'è' | 'é' | 'ê' | 'ë' => result.push('e'),
+            'ì' | 'í' | 'î' | 'ï' => result.push('i'),
+            'ñ' => result.push('n'),
+            'ò' | 'ó' | 'ô' | 'ö' | 'õ' => result.push('o'),
+            'ù' | 'ú' | 'û' | 'ü' => result.push('u'),
+            'ý' | 'ÿ' => result.push('y'),
+            'œ' => result.push_str("oe"),
+            ch if ch.is_ascii_alphanumeric() => result.push(ch),
+            _ => {}
+        }
+    }
+    result
+}
+
+fn mapping_from_headers(headers: &[String]) -> Option<CsvColumnMapping> {
+    let names: Vec<String> = headers.iter().map(|name| normalize_header(name)).collect();
+    let pick = |predicate: &dyn Fn(&str) -> Option<usize>| {
+        names
+            .iter()
+            .enumerate()
+            .filter_map(|(index, name)| predicate(name).map(|priority| (priority, index)))
+            .min_by_key(|(priority, _)| *priority)
+            .map(|(_, index)| index)
+    };
+
+    let date_column = pick(&|name| {
+        if name.contains("datevaleur") || name == "valeur" {
+            Some(30)
+        } else if name.contains("dateoperation") || name.contains("dateoper") || name.contains("dateop") {
+            Some(0)
+        } else if name == "date" {
+            Some(1)
+        } else if name.contains("datecomptable") || name.contains("dateecriture") {
+            Some(2)
+        } else if name.contains("date") {
+            Some(10)
+        } else {
+            None
+        }
+    })?;
+
+    let label_column = pick(&|name| {
+        if name.contains("libelle") {
+            Some(if name.contains("operation") { 0 } else { 1 })
+        } else if name.contains("description") {
+            Some(2)
+        } else if name.contains("motif") {
+            Some(3)
+        } else if name == "nature" || name == "natureoperation" {
+            Some(4)
+        } else {
+            None
+        }
+    })?;
+
+    let amount_column = pick(&|name| {
+        if name.contains("solde") || name.contains("debit") || name.contains("credit") {
+            None
+        } else if name == "montant" || name == "amount" || name.contains("montantsigne") {
+            Some(0)
+        } else if name.contains("montantoperation") || name.contains("amountoperation") {
+            Some(1)
+        } else if name.contains("montant") || name == "amount" {
+            Some(2)
+        } else {
+            None
+        }
+    });
+    let debit_column = pick(&|name| {
+        if name.contains("debit") && !name.contains("debitdiffere") {
+            Some(0)
+        } else {
+            None
+        }
+    });
+    let credit_column = pick(&|name| {
+        if name.contains("credit") {
+            Some(0)
+        } else {
+            None
+        }
+    });
+
+    let (amount_column, debit_column, credit_column) = match amount_column {
+        Some(amount) => (Some(amount), None, None),
+        None => (None, debit_column?, credit_column?),
+    };
+
+    let reference_column = pick(&|name| {
+        if name.contains("reference") {
+            Some(0)
+        } else if name == "numerooperation" || name == "numoperation" || name == "nooperation" {
+            Some(1)
+        } else if name.contains("numcheque") || name == "cheque" {
+            Some(2)
+        } else {
+            None
+        }
+    })
+    .filter(|index| {
+        *index != date_column
+            && *index != label_column
+            && Some(*index) != amount_column
+            && Some(*index) != debit_column
+            && Some(*index) != credit_column
+    });
+
+    let mapping = CsvColumnMapping {
+        date_column,
+        label_column,
+        amount_column,
+        debit_column,
+        credit_column,
+        reference_column,
+    };
+    mapping.validate().ok()?;
+    Some(mapping)
+}
+
+fn is_non_transaction_record(record: &[String]) -> bool {
+    let joined = record.iter().map(|cell| normalize_header(cell)).collect::<Vec<_>>().join(" ");
+    [
+        "anciensolde",
+        "nouveausolde",
+        "soldecrediteur",
+        "totaldesoperations",
+        "encoursdebite",
+    ]
+    .iter()
+    .any(|marker| joined.contains(marker))
+}
+
+fn parse_lcl_headerless(
+    records: Vec<Vec<String>>,
+) -> Result<CsvImportPreview, CsvPreviewError> {
+    let first_transaction = records.iter().position(|record| {
+        record.len() >= 4
+            && record.first().and_then(|date| normalize_date(date).ok()).is_some()
+            && record.get(1).and_then(|amount| parse_amount_cents(amount).ok()).is_some()
+    });
+    let Some(first_transaction) = first_transaction else {
+        return Err(CsvPreviewError::InvalidMapping(
+            "Format LCL sans en-tête non reconnu : une ligne d'opération doit contenir date, montant, type et libellé."
+                .to_string(),
+        ));
+    };
+
+    let max_width = records[first_transaction..]
+        .iter()
+        .filter(|record| record.len() >= 4)
+        .map(Vec::len)
+        .max()
+        .unwrap_or(4);
+    let mut data = Vec::new();
+    for (index, record) in records.into_iter().enumerate().skip(first_transaction) {
+        if is_non_transaction_record(&record) || record.len() < 4 {
+            continue;
+        }
+        data.push((index + 1, record));
+    }
+    if data.is_empty() {
+        return Err(CsvPreviewError::EmptyCsv);
+    }
+
+    let mut preview = CsvImportPreview {
+        headers: None,
+        rows: Vec::new(),
+        errors: Vec::new(),
+        warnings: vec![
+            "Format LCL sans en-tête détecté : vérifiez le compte, le solde et les premières/dernières lignes dans l'aperçu avant confirmation. Les lignes de métadonnées courtes sont ignorées."
+                .to_string(),
+        ],
+        total_rows: data.len(),
+    };
+    for (source_row, record) in data {
+        let label_column = record.len().saturating_sub(1);
+        let mapping = CsvColumnMapping {
+            date_column: 0,
+            label_column,
+            amount_column: Some(1),
+            debit_column: None,
+            credit_column: None,
+            reference_column: if max_width >= 5 && record.len() >= 5 {
+                Some(3)
+            } else {
+                None
+            },
+        };
+        match normalize_record(&record, source_row, &mapping) {
+            Ok(row) => preview.rows.push(row),
+            Err(error) => preview.errors.push(CsvImportRowError {
+                source_row,
+                message: error.to_string(),
+            }),
+        }
+    }
+    Ok(preview)
+}
+
+fn add_card_summary_warning(preview: &mut CsvImportPreview, profile: BankCsvProfile) {
+    if profile == BankCsvProfile::Lcl {
+        return;
+    }
+    let summary_rows: Vec<usize> = preview
+        .rows
+        .iter()
+        .filter(|row| {
+            let label = normalize_header(&row.label);
+            label.contains("depensescarte")
+                || label.contains("prelevementcarte")
+                || label.contains("totalcarte")
+        })
+        .map(|row| row.source_row)
+        .collect();
+    if !summary_rows.is_empty() {
+        preview.warnings.push(format!(
+            "Récapitulatif de carte potentiellement détecté à la/aux ligne(s) {}. Certains exports Crédit Agricole peuvent juxtaposer un prélèvement carte total et le détail des achats : vérifiez l'aperçu pour éviter de compter les mêmes dépenses deux fois. Aucune ligne n'est supprimée automatiquement.",
+            summary_rows.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")
+        ));
+    }
 }
 
 fn parse_records(input: &str, delimiter: char) -> Result<Vec<Vec<String>>, CsvPreviewError> {
@@ -402,7 +811,7 @@ fn optional_cell(record: &[String], column: usize) -> Option<&str> {
 
 fn normalize_date(value: &str) -> Result<String, ()> {
     let value = value.trim();
-    for format in ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"] {
+    for format in ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"] {
         if let Ok(date) = NaiveDate::parse_from_str(value, format) {
             return Ok(date.format("%Y-%m-%d").to_string());
         }
@@ -694,6 +1103,50 @@ mod tests {
         assert_eq!(parse_amount_cents("€1 234,50").unwrap(), 123_450);
         assert_eq!(parse_amount_cents("1 234,50 EUR").unwrap(), 123_450);
         assert_eq!(parse_amount_cents("EUR -1 234,50").unwrap(), -123_450);
+    }
+
+    #[test]
+    fn parses_credit_agricole_cp1252_headers_and_prefers_operation_date() {
+        let csv = b"Date op\xe9ration;Date valeur;Libell\xe9 op\xe9ration;D\xe9bit;Cr\xe9dit;Solde\r\n01/03/2026;02/03/2026;\"Pr\xe9l\xe8vement SEPA\nLOYER\";12,50;;987,50\r\n02/03/2026;02/03/2026;VIREMENT RECU;;1 500,00;2 487,50\r\n";
+        let preview = parse_bank_csv_bytes(csv, BankCsvProfile::CreditAgricole).unwrap();
+        assert_eq!(preview.rows.len(), 2);
+        assert_eq!(preview.errors.len(), 0);
+        assert_eq!(preview.rows[0].booking_date, "2026-03-01");
+        assert_eq!(preview.rows[0].amount_cents, -1_250);
+        assert_eq!(preview.rows[0].label, "Prélèvement SEPA\nLOYER");
+        assert_eq!(preview.rows[1].amount_cents, 150_000);
+    }
+
+    #[test]
+    fn credit_agricole_card_summary_is_warned_but_not_removed() {
+        let csv = b"Date;Libell\xe9;Montant\n01/03/2026;Pr\xe9l\xe8vement carte DEPENSES CARTE MARS;-150,00\n15/02/2026;SUPERMARCHE;-80,00\n";
+        let preview = parse_bank_csv_bytes(csv, BankCsvProfile::CreditAgricole).unwrap();
+        assert_eq!(preview.rows.len(), 2);
+        assert_eq!(preview.warnings.len(), 1);
+        assert!(preview.warnings[0].contains("Aucune ligne n'est supprimée"));
+    }
+
+    #[test]
+    fn parses_lcl_headerless_csv_and_ignores_balance_metadata() {
+        let csv = "01/03/2026;1 000,00;123456789\n02/03/2026;-12,50;CARTE;;SUPERMARCHE\n03/03/2026;125,00;VIREMENT;;LOYER RECU\n01/04/2026;1 112,50;123456789";
+        let preview = parse_bank_csv_bytes(csv.as_bytes(), BankCsvProfile::Lcl).unwrap();
+        assert_eq!(preview.rows.len(), 2);
+        assert_eq!(preview.errors.len(), 0);
+        assert_eq!(preview.rows[0].booking_date, "2026-03-02");
+        assert_eq!(preview.rows[0].amount_cents, -1_250);
+        assert_eq!(preview.rows[0].label, "SUPERMARCHE");
+        assert_eq!(preview.rows[1].amount_cents, 12_500);
+        assert_eq!(preview.rows[1].label, "LOYER RECU");
+        assert_eq!(preview.warnings.len(), 1);
+    }
+
+    #[test]
+    fn auto_profile_detects_semicolon_despite_french_decimal_commas() {
+        let csv = b"Date;Libell\xe9 simplifi\xe9;Montant\n01/03/2026;LOYER;1250,00\n02/03/2026;ASSURANCE;-80,25";
+        let preview = parse_bank_csv_bytes(csv, BankCsvProfile::Auto).unwrap();
+        assert_eq!(preview.rows.len(), 2);
+        assert_eq!(preview.rows[0].amount_cents, 125_000);
+        assert_eq!(preview.rows[1].amount_cents, -8_025);
     }
 
     #[test]

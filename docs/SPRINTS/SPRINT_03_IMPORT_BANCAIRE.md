@@ -31,6 +31,8 @@ Importer des relevés bancaires CSV avec un aperçu avant confirmation. Normalis
 
 ## Tranches techniques
 - [x] S03-A : Parser CSV indépendant de la base et de l'interface, avec délimiteurs virgule/point-virgule/tabulation, guillemets doubles, champs multilignes, mapping explicite et aperçu.
+- [x] S03-A : reconnaissance des en-têtes régionaux Crédit Agricole, encodage Windows-1252/UTF-8, colonnes date opération/date valeur, montant ou débit/crédit, récapitulatifs carte signalés sans suppression automatique.
+- [x] S03-A : profil LCL sans en-tête (date, montant signé, type, chèque éventuel, libellé), détection des lignes de métadonnées de compte/solde et avertissement de validation humaine.
 - [x] S03-A : Normaliser les dates ISO/françaises, gérer les montants signés et les colonnes débit/crédit, convertir en centimes entiers, collecter les erreurs par ligne.
 - [ ] S03-B : Étendre les tests et vérifier la tranche de parseur en CI (formatage, tests du workspace et build Tauri Windows).
 - [ ] S03-C : Définir la persistance SQLCipher : compte/source, empreinte stable de transaction, provenance du fichier et migration additive transactionnelle.
@@ -38,12 +40,19 @@ Importer des relevés bancaires CSV avec un aperçu avant confirmation. Normalis
 - [ ] S03-E : Ajouter l'écran d'import (sélection du fichier, mapping explicite, aperçu, erreurs, confirmation/annulation).
 - [ ] S03-F : Couvrir l'idempotence, la conservation des données et l'absence de génération implicite d'écritures PCG/TVA.
 
-## Tranche S03-A — parseur de domaine
-Le module `superpower-core::bank_import` n'accède ni au système de fichiers ni à la base. Il reçoit le contenu CSV, un délimiteur, l'indication d'en-tête et un `CsvColumnMapping` explicite. Il retourne les en-têtes, les lignes valides normalisées et les erreurs associées aux enregistrements rejetés.
+## Tranche S03-A — parseur orienté Crédit Agricole et LCL
+Le module `superpower-core::bank_import` n'accède ni au système de fichiers ni à la base. La nouvelle entrée `parse_bank_csv_bytes` prend les octets originaux du fichier, reconnaît UTF-8 (avec ou sans BOM), Windows-1252/Latin-1 et UTF-16, détecte le séparateur, normalise les noms de colonnes sans tenir compte des accents/majuscules, puis produit un aperçu et les erreurs par ligne.
 
-Montants pris en charge : entiers, décimales à un ou deux chiffres, virgule française, point décimal, groupements de milliers par espaces ou séparateurs cohérents, symbole euro et préfixe/suffixe EUR. L'en-tête UTF-8 avec BOM est reconnu ; les fichiers de plus de 10 Mio sont rejetés avant parsing. Si le format est ambigu, la ligne est rejetée plutôt que devinée.
+**Crédit Agricole :** les exports varient selon la Caisse régionale. Le parseur reconnait les en-têtes comportant Date/Date opération, Libellé/Libellé opération, Montant signé ou Débit + Crédit, ainsi que les colonnes optionnelles Date valeur et Référence. Date opération est prioritaire sur Date valeur. Les champs multilignes et les montants français sont conservés. Si une ligne ressemble à un récapitulatif « Dépenses carte / Prélèvement carte », un avertissement demande de vérifier le cumul avec le détail des achats ; aucune opération n'est supprimée automatiquement.
+
+**LCL :** en l'absence d'en-tête, le parseur sait reconnaître le motif `date ; montant signé ; type ; numéro de chèque éventuel ; libellé`. Les lignes de métadonnées en début/fin de fichier (date, solde, numéro de compte), généralement plus courtes que les lignes d'opération, sont ignorées. Un avertissement signale que les colonnes ont été inférées et doivent être revues dans l'aperçu.
+
+Montants pris en charge : entiers, décimales à un ou deux chiffres, virgule française, point décimal, groupements de milliers par espaces ou séparateurs cohérents, symbole euro et préfixe/suffixe EUR. L'en-tête UTF-8 avec BOM est retiré avant parsing (y compris si le premier champ est entre guillemets) ; les fichiers de plus de 10 Mio sont rejetés avant parsing. Si le format est ambigu, la ligne est rejetée plutôt que devinée.
 
 Les tests unitaires du parseur couvrent les formats français/internationaux, les en-têtes BOM UTF-8, les colonnes débit/crédit manquantes, les dates impossibles, les montants ambigus, les guillemets échappés et les champs multilignes. Le résultat CI sur le head courant doit être vérifié avant de déclarer cette tranche validée.
+
+## Échantillons et limitation connue
+Les exports Crédit Agricole peuvent varier d'une Caisse régionale à l'autre ; LCL peut modifier son interface ou ses en-têtes. Le parseur est donc piloté par en-têtes quand ils existent et par un motif prudent pour le CSV LCL sans en-tête. La validation finale doit inclure au moins un fichier exporté réellement par chaque banque, expurgé des numéros de compte, noms, soldes et libellés confidentiels. Aucun échantillon réel de compte n'a été fourni dans cette tranche ; la CI doit confirmer les tests synthétiques avant d'ajouter la persistance.
 
 ## Critères d'acceptation globaux
 - Un CSV valide produit un aperçu avant toute écriture en base.
